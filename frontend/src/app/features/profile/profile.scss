@@ -1,0 +1,273 @@
+.section {
+  width: 100%;
+  border-radius: 12px;
+  border-left: 4px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, var(--mat-sys-surface));
+}
+
+.section--summary {
+  --accent: var(--mat-sys-primary);
+}
+
+.section--skills {
+  --accent: var(--mat-sys-tertiary);
+}
+
+.section--projects {
+  --accent: #d97706;
+}
+
+.section--experience {
+  --accent: #15803d;
+}
+
+.section-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: white;
+  border-radius: 50%;
+
+  mat-icon {
+    font-size: 22px;
+    width: 22px;
+    height: 22px;
+  }
+}
+
+.full-width {
+  width: 100%;
+}
+
+.page-header-action {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.view-text {
+  margin: 4px 0 12px;
+  white-space: pre-wrap;
+  color: var(--mat-sys-on-surface);
+}
+
+textarea[matInput] {
+  resize: vertical;
+  line-height: 1.5;
+  min-height: 24px;
+}
+
+// Skills: a compact row sized to its content instead of a table where the
+// name/rating columns stretch to share the full card width.
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skill-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.skill-name-field {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+.skill-row--view {
+  justify-content: space-between;
+}
+
+.skill-name {
+  font-weight: 500;
+}
+
+.rating-field {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 4px;
+}
+
+.rating-label {
+  font-size: 0.75em;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.rating-stars {
+  display: flex;
+  align-items: center;
+}
+
+.star-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: #f5a623;
+  border-radius: 50%;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+
+  mat-icon {
+    font-size: 22px;
+    width: 22px;
+    height: 22px;
+  }
+
+  &:hover {
+    background: color-mix(in srgb, #f5a623 14%, transparent);
+    transform: scale(1.1);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 1px;
+  }
+}
+
+.rating-stars .star-icon {
+  color: #f5a623;
+  font-size: 20px;
+  width: 20px;
+  height: 20px;
+}
+
+// Projects / Experience: each entry is its own card with fields sized to
+// their content via an auto-fit grid, so nothing forces a wide table or a
+// horizontal scrollbar at any viewport width.
+.entry-list {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.entry-card {
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 12px;
+  padding: 16px 16px 12px;
+  background: var(--mat-sys-surface-container-low);
+}
+
+.entry-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.entry-index {
+  font-size: 0.85em;
+  font-weight: 500;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.entry-card--view {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.entry-title {
+  font-weight: 600;
+}
+
+.entry-dates {
+  font-size: 0.85em;
+  color: var(--mat-sys-on-surface-variant);
+  white-space: nowrap;
+}
+
+.entry-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9em;
+  word-break: break-all;
+
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+  }
+}
+
+.view-chip-set {
+  margin-top: 4px;
+}
+
+.entry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 18px 16px;
+
+  > mat-form-field {
+    width: 100%;
+  }
+}
+
+.entry-grid-wide {
+  grid-column: 1 / -1;
+}
+
+.date-field {
+  max-width: 160px;
+  justify-self: start;
+}
+
+.tech-stack-field {
+  min-width: 0;
+
+  mat-chip-grid .mat-mdc-chip-input {
+    min-width: 90px;
+    flex: 1 0 auto;
+  }
+}
+
+.empty-hint {
+  color: var(--mat-sys-on-surface-variant);
+  font-style: italic;
+  margin: 4px 0 16px;
+}
+
+.add-row-button {
+  margin-top: 8px;
+}
+
+.save-bar {
+  display: flex;
+  justify-content: flex-end;
+  position: sticky;
+  bottom: 16px;
+
+  button mat-icon {
+    margin-right: 4px;
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

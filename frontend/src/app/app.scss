@@ -1,0 +1,85 @@
+:host {
+  display: block;
+  height: 100%;
+}
+
+.app-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  gap: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.brand-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+
+  mat-icon {
+    font-size: 26px;
+    width: 26px;
+    height: 26px;
+  }
+}
+
+.brand-title {
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: white;
+}
+
+.app-nav {
+  position: sticky;
+  top: 64px;
+  z-index: 9;
+  background: var(--mat-sys-surface);
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+
+  // Replaced by our own bottom-border indicator below, which stays put
+  // regardless of tab width instead of animating in from the previous tab.
+  .mdc-tab-indicator {
+    display: none;
+  }
+
+  .nav-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 56px;
+    padding: 0 20px;
+    color: var(--mat-sys-on-surface-variant);
+    font-size: 0.95rem;
+    font-weight: 500;
+    border-bottom: 3px solid transparent;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+
+    mat-icon {
+      vertical-align: middle;
+      font-size: 22px;
+      width: 22px;
+      height: 22px;
+    }
+
+    &:hover {
+      color: var(--mat-sys-on-surface);
+      background: var(--mat-sys-surface-container-low);
+    }
+  }
+
+  .nav-link.mdc-tab--active {
+    color: var(--mat-sys-primary);
+    font-weight: 600;
+    border-bottom-color: var(--mat-sys-primary);
+  }
+}
+
+mat-tab-nav-panel {
+  display: block;
+}

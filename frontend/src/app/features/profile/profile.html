@@ -1,0 +1,426 @@
+@if (mode() === 'view' && profileData(); as profile) {
+  <div class="page">
+    <div class="page-header">
+      <div class="page-header-icon"><mat-icon>badge</mat-icon></div>
+      <div>
+        <h2>Your profile</h2>
+        <p class="hint">This is what's saved and used to score job offers.</p>
+      </div>
+      <button mat-raised-button color="primary" type="button" (click)="edit()" class="page-header-action">
+        <mat-icon>edit</mat-icon>
+        Edit profile
+      </button>
+    </div>
+
+    <mat-card appearance="outlined" class="section section--summary">
+      <mat-card-header>
+        <div mat-card-avatar class="section-avatar"><mat-icon>person</mat-icon></div>
+        <mat-card-title>Summary</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        @if (profile.summary) {
+          <p class="view-text">{{ profile.summary }}</p>
+        } @else {
+          <p class="empty-hint">No summary added yet.</p>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card appearance="outlined" class="section section--skills">
+      <mat-card-header>
+        <div mat-card-avatar class="section-avatar"><mat-icon>star_outline</mat-icon></div>
+        <mat-card-title>Skills</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        @if (profile.skills.length) {
+          <div class="skill-list">
+            @for (skill of profile.skills; track skill.name) {
+              <div class="skill-row skill-row--view">
+                <span class="skill-name">{{ skill.name }}</span>
+                <div class="rating-stars" aria-hidden="true">
+                  @for (star of [1, 2, 3, 4, 5]; track star) {
+                    <mat-icon class="star-icon">{{ skill.rating >= star ? 'star' : 'star_border' }}</mat-icon>
+                  }
+                </div>
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="empty-hint">No skills added yet.</p>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card appearance="outlined" class="section section--projects">
+      <mat-card-header>
+        <div mat-card-avatar class="section-avatar"><mat-icon>folder_open</mat-icon></div>
+        <mat-card-title>Projects</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        @if (profile.projects.length) {
+          <div class="entry-list">
+            @for (project of profile.projects; track project.name) {
+              <div class="entry-card entry-card--view">
+                <div class="entry-card-header">
+                  <span class="entry-title">{{ project.name }}</span>
+                  @if (project.date_from || project.date_to) {
+                    <span class="entry-dates">{{ project.date_from }} – {{ project.date_to }}</span>
+                  }
+                </div>
+                @if (project.summary) {
+                  <p class="view-text">{{ project.summary }}</p>
+                }
+                @if (project.repository_link) {
+                  <a [href]="project.repository_link" target="_blank" rel="noopener" class="entry-link">
+                    <mat-icon>link</mat-icon>
+                    {{ project.repository_link }}
+                  </a>
+                }
+                @if (project.tech_stack.length) {
+                  <mat-chip-set class="view-chip-set">
+                    @for (tech of project.tech_stack; track tech) {
+                      <mat-chip>{{ tech }}</mat-chip>
+                    }
+                  </mat-chip-set>
+                }
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="empty-hint">No projects added yet.</p>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    <mat-card appearance="outlined" class="section section--experience">
+      <mat-card-header>
+        <div mat-card-avatar class="section-avatar"><mat-icon>work_outline</mat-icon></div>
+        <mat-card-title>Experience</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        @if (profile.experience.length) {
+          <div class="entry-list">
+            @for (exp of profile.experience; track exp.title) {
+              <div class="entry-card entry-card--view">
+                <div class="entry-card-header">
+                  <span class="entry-title">{{ exp.title }}{{ exp.company ? ' · ' + exp.company : '' }}</span>
+                  @if (exp.date_from || exp.date_to) {
+                    <span class="entry-dates">{{ exp.date_from }} – {{ exp.date_to }}</span>
+                  }
+                </div>
+                @if (exp.description) {
+                  <p class="view-text">{{ exp.description }}</p>
+                }
+                @if (exp.tech_stack.length) {
+                  <mat-chip-set class="view-chip-set">
+                    @for (tech of exp.tech_stack; track tech) {
+                      <mat-chip>{{ tech }}</mat-chip>
+                    }
+                  </mat-chip-set>
+                }
+              </div>
+            }
+          </div>
+        } @else {
+          <p class="empty-hint">No experience added yet.</p>
+        }
+      </mat-card-content>
+    </mat-card>
+  </div>
+} @else {
+<form [formGroup]="form" (ngSubmit)="save()" class="page">
+  <div class="page-header">
+    <div class="page-header-icon"><mat-icon>badge</mat-icon></div>
+    <div>
+      <h2>{{ profileData() ? 'Edit your profile' : 'Build your profile' }}</h2>
+      <p class="hint">
+        @if (profileData()) {
+          Update your saved profile below.
+        } @else {
+          Fill this in once — it's reused to score every job offer. Reopening this page loads what you
+          saved last time, so you can just tweak it.
+        }
+      </p>
+    </div>
+    @if (profileData()) {
+      <button mat-stroked-button type="button" (click)="cancel()" class="page-header-action">
+        <mat-icon>close</mat-icon>
+        Cancel
+      </button>
+    }
+  </div>
+
+  <mat-card appearance="outlined" class="section section--summary">
+    <mat-card-header>
+      <div mat-card-avatar class="section-avatar"><mat-icon>person</mat-icon></div>
+      <mat-card-title>Summary</mat-card-title>
+      <mat-card-subtitle>A short pitch recruiters and the matcher will see first.</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      <mat-form-field class="full-width">
+        <mat-label>Summary</mat-label>
+        <textarea
+          matInput
+          formControlName="summary"
+          cdkTextareaAutosize
+          cdkAutosizeMinRows="3"
+          cdkAutosizeMaxRows="8"
+          placeholder='e.g. "Backend developer focused on Python APIs and data pipelines."'
+        ></textarea>
+      </mat-form-field>
+    </mat-card-content>
+  </mat-card>
+
+  <mat-card appearance="outlined" class="section section--skills">
+    <mat-card-header>
+      <div mat-card-avatar class="section-avatar"><mat-icon>star_outline</mat-icon></div>
+      <mat-card-title>Skills</mat-card-title>
+      <mat-card-subtitle>Rate yourself from 1 (beginner) to 5 (expert).</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (skills.controls.length) {
+        <div class="skill-list">
+          @for (skill of skills.controls; track skill; let i = $index) {
+            <div class="skill-row" [formGroup]="skill">
+              <mat-form-field class="skill-name-field">
+                <mat-label>Skill</mat-label>
+                <input matInput formControlName="name" placeholder="e.g. Python" required />
+                @if (skill.controls.name.invalid && skill.controls.name.touched) {
+                  <mat-error>Required</mat-error>
+                }
+              </mat-form-field>
+              <div class="rating-field">
+                <span class="rating-label">Rating</span>
+                <div
+                  class="rating-stars"
+                  role="radiogroup"
+                  [attr.aria-label]="'Rating for ' + (skill.controls.name.value || 'this skill')"
+                >
+                  @for (star of [1, 2, 3, 4, 5]; track star) {
+                    <button
+                      type="button"
+                      class="star-button"
+                      role="radio"
+                      [attr.aria-checked]="skill.controls.rating.value === star"
+                      [attr.aria-label]="star + (star === 1 ? ' star' : ' stars')"
+                      (click)="setSkillRating(i, star)"
+                    >
+                      <mat-icon>{{ skill.controls.rating.value >= star ? 'star' : 'star_border' }}</mat-icon>
+                    </button>
+                  }
+                </div>
+              </div>
+              <button
+                mat-icon-button
+                type="button"
+                (click)="removeSkill($index)"
+                aria-label="Remove this skill"
+                matTooltip="Remove skill"
+              >
+                <mat-icon>delete_outline</mat-icon>
+              </button>
+            </div>
+          }
+        </div>
+      } @else {
+        <p class="empty-hint">No skills added yet — add your first one below.</p>
+      }
+      <button mat-stroked-button type="button" (click)="addSkill()" class="add-row-button">
+        <mat-icon>add</mat-icon>
+        Add skill
+      </button>
+    </mat-card-content>
+  </mat-card>
+
+  <mat-card appearance="outlined" class="section section--projects">
+    <mat-card-header>
+      <div mat-card-avatar class="section-avatar"><mat-icon>folder_open</mat-icon></div>
+      <mat-card-title>Projects</mat-card-title>
+      <mat-card-subtitle>
+        Side projects or portfolio pieces. Type a technology and press Enter or comma to add it.
+      </mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (projects.controls.length) {
+        <div class="entry-list">
+          @for (project of projects.controls; track project; let i = $index) {
+            <div class="entry-card" [formGroup]="project">
+              <div class="entry-card-header">
+                <span class="entry-index">Project {{ i + 1 }}</span>
+                <button
+                  mat-icon-button
+                  type="button"
+                  (click)="removeProject($index)"
+                  aria-label="Remove this project"
+                  matTooltip="Remove project"
+                >
+                  <mat-icon>delete_outline</mat-icon>
+                </button>
+              </div>
+              <div class="entry-grid">
+                <mat-form-field>
+                  <mat-label>Name</mat-label>
+                  <input matInput formControlName="name" placeholder="Project name" required />
+                  @if (project.controls.name.invalid && project.controls.name.touched) {
+                    <mat-error>Name is required</mat-error>
+                  }
+                </mat-form-field>
+                <mat-form-field class="entry-grid-wide">
+                  <mat-label>Repository link</mat-label>
+                  <input matInput formControlName="repository_link" placeholder="https://…" />
+                </mat-form-field>
+                <mat-form-field class="entry-grid-wide">
+                  <mat-label>Summary</mat-label>
+                  <textarea
+                    matInput
+                    formControlName="summary"
+                    cdkTextareaAutosize
+                    cdkAutosizeMinRows="2"
+                    cdkAutosizeMaxRows="6"
+                    placeholder="What it does"
+                  ></textarea>
+                </mat-form-field>
+                <mat-form-field class="date-field">
+                  <mat-label>From</mat-label>
+                  <input matInput formControlName="date_from" placeholder="2024-01" />
+                </mat-form-field>
+                <mat-form-field class="date-field">
+                  <mat-label>To</mat-label>
+                  <input matInput formControlName="date_to" placeholder="2024-06" />
+                </mat-form-field>
+                <mat-form-field class="entry-grid-wide tech-stack-field">
+                  <mat-label>Tech stack</mat-label>
+                  <mat-chip-grid #projectTechGrid [attr.aria-label]="'Tech stack for ' + (project.controls.name.value || 'this project')">
+                    @for (tech of project.controls.tech_stack.value; track tech) {
+                      <mat-chip-row (removed)="removeProjectTech($index, tech)">
+                        {{ tech }}
+                        <button matChipRemove [attr.aria-label]="'Remove ' + tech">
+                          <mat-icon>cancel</mat-icon>
+                        </button>
+                      </mat-chip-row>
+                    }
+                    <input
+                      placeholder="Add a technology…"
+                      [matChipInputFor]="projectTechGrid"
+                      [matChipInputSeparatorKeyCodes]="[188, 13]"
+                      matChipInputAddOnBlur
+                      (matChipInputTokenEnd)="addProjectTech($index, $event)"
+                    />
+                  </mat-chip-grid>
+                  <mat-hint>Enter or comma to add</mat-hint>
+                </mat-form-field>
+              </div>
+            </div>
+          }
+        </div>
+      } @else {
+        <p class="empty-hint">No projects added yet — add your first one below.</p>
+      }
+      <button mat-stroked-button type="button" (click)="addProject()" class="add-row-button">
+        <mat-icon>add</mat-icon>
+        Add project
+      </button>
+    </mat-card-content>
+  </mat-card>
+
+  <mat-card appearance="outlined" class="section section--experience">
+    <mat-card-header>
+      <div mat-card-avatar class="section-avatar"><mat-icon>work_outline</mat-icon></div>
+      <mat-card-title>Experience</mat-card-title>
+      <mat-card-subtitle>Past roles, most relevant first. Tech stack works the same as Projects.</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      @if (experience.controls.length) {
+        <div class="entry-list">
+          @for (exp of experience.controls; track exp; let i = $index) {
+            <div class="entry-card" [formGroup]="exp">
+              <div class="entry-card-header">
+                <span class="entry-index">Role {{ i + 1 }}</span>
+                <button
+                  mat-icon-button
+                  type="button"
+                  (click)="removeExperience($index)"
+                  aria-label="Remove this experience entry"
+                  matTooltip="Remove experience"
+                >
+                  <mat-icon>delete_outline</mat-icon>
+                </button>
+              </div>
+              <div class="entry-grid">
+                <mat-form-field>
+                  <mat-label>Title</mat-label>
+                  <input matInput formControlName="title" placeholder="Job title" required />
+                  @if (exp.controls.title.invalid && exp.controls.title.touched) {
+                    <mat-error>Title is required</mat-error>
+                  }
+                </mat-form-field>
+                <mat-form-field>
+                  <mat-label>Company</mat-label>
+                  <input matInput formControlName="company" placeholder="Company" />
+                </mat-form-field>
+                <mat-form-field class="entry-grid-wide">
+                  <mat-label>Description</mat-label>
+                  <textarea
+                    matInput
+                    formControlName="description"
+                    cdkTextareaAutosize
+                    cdkAutosizeMinRows="2"
+                    cdkAutosizeMaxRows="6"
+                    placeholder="What you did"
+                  ></textarea>
+                </mat-form-field>
+                <mat-form-field class="date-field">
+                  <mat-label>From</mat-label>
+                  <input matInput formControlName="date_from" placeholder="2022-01" />
+                </mat-form-field>
+                <mat-form-field class="date-field">
+                  <mat-label>To</mat-label>
+                  <input matInput formControlName="date_to" placeholder="2024-01" />
+                </mat-form-field>
+                <mat-form-field class="entry-grid-wide tech-stack-field">
+                  <mat-label>Tech stack</mat-label>
+                  <mat-chip-grid #expTechGrid [attr.aria-label]="'Tech stack for ' + (exp.controls.title.value || 'this role')">
+                    @for (tech of exp.controls.tech_stack.value; track tech) {
+                      <mat-chip-row (removed)="removeExperienceTech($index, tech)">
+                        {{ tech }}
+                        <button matChipRemove [attr.aria-label]="'Remove ' + tech">
+                          <mat-icon>cancel</mat-icon>
+                        </button>
+                      </mat-chip-row>
+                    }
+                    <input
+                      placeholder="Add a technology…"
+                      [matChipInputFor]="expTechGrid"
+                      [matChipInputSeparatorKeyCodes]="[188, 13]"
+                      matChipInputAddOnBlur
+                      (matChipInputTokenEnd)="addExperienceTech($index, $event)"
+                    />
+                  </mat-chip-grid>
+                  <mat-hint>Enter or comma to add</mat-hint>
+                </mat-form-field>
+              </div>
+            </div>
+          }
+        </div>
+      } @else {
+        <p class="empty-hint">No experience added yet — add your first one below.</p>
+      }
+      <button mat-stroked-button type="button" (click)="addExperience()" class="add-row-button">
+        <mat-icon>add</mat-icon>
+        Add experience
+      </button>
+    </mat-card-content>
+  </mat-card>
+
+  <div class="save-bar">
+    <button mat-raised-button color="primary" type="submit" [disabled]="saving()">
+      @if (saving()) {
+        <mat-icon class="spin">progress_activity</mat-icon>
+      } @else {
+        <mat-icon>save</mat-icon>
+      }
+      Save Profile
+    </button>
+  </div>
+</form>
+}

@@ -1,0 +1,101 @@
+<section class="page">
+  <div class="page-header">
+    <div class="page-header-icon"><mat-icon>travel_explore</mat-icon></div>
+    <div>
+      <h2>Find your best-matching offers</h2>
+      <p class="hint">Ranks saved job offers by how much their tech stack overlaps with your skills.</p>
+    </div>
+  </div>
+
+  <mat-card appearance="outlined" class="filters-card">
+    <mat-card-header>
+      <div mat-card-avatar class="section-avatar"><mat-icon>tune</mat-icon></div>
+      <mat-card-title>Filters</mat-card-title>
+      <mat-card-subtitle>Narrow down how many offers to scan and how strict the match should be.</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      <form [formGroup]="filters" (ngSubmit)="search()" class="filters">
+        <mat-form-field class="limit-field">
+          <mat-label>Offers limit</mat-label>
+          <input matInput type="number" min="1" formControlName="offersLimit" aria-describedby="limit-hint" />
+          <mat-hint id="limit-hint">Max offers to scan</mat-hint>
+          @if (filters.controls.offersLimit.invalid && filters.controls.offersLimit.touched) {
+            <mat-error>Must be at least 1</mat-error>
+          }
+        </mat-form-field>
+
+        <div class="score-slider">
+          <label id="score-label">
+            Minimum score: {{ filters.controls.minScore.value | percent }}
+          </label>
+          <mat-slider min="0" max="1" step="0.05" discrete aria-labelledby="score-label">
+            <input matSliderThumb formControlName="minScore" />
+          </mat-slider>
+        </div>
+
+        <button mat-raised-button color="primary" type="submit" [disabled]="loading() || filters.invalid">
+          @if (loading()) {
+            <mat-icon class="spin">progress_activity</mat-icon>
+          } @else {
+            <mat-icon>travel_explore</mat-icon>
+          }
+          Find Matching Offers
+        </button>
+      </form>
+    </mat-card-content>
+  </mat-card>
+
+  @if (loading()) {
+    <div class="status-block">
+      <mat-spinner diameter="36" />
+      <p>Scoring offers against your profile…</p>
+    </div>
+  }
+
+  @if (!loading() && results().length) {
+    <div class="results-grid">
+      @for (row of results(); track row.link) {
+        <mat-card appearance="outlined" class="result-card">
+          <mat-card-content>
+            <div class="result-top">
+              <div>
+                <h3 class="result-title">{{ row.title }}</h3>
+                <p class="result-company">{{ row.company }}</p>
+              </div>
+              <span class="score-badge" [class]="row.scoreClass">{{ row.scoreLabel }}</span>
+            </div>
+
+            @if (row.matchedSkills.length) {
+              <mat-chip-set class="result-skills">
+                @for (skill of row.matchedSkills; track skill) {
+                  <mat-chip disableRipple>{{ skill }}</mat-chip>
+                }
+              </mat-chip-set>
+            } @else {
+              <p class="no-skills">No overlapping skills</p>
+            }
+
+            <a
+              mat-stroked-button
+              class="result-link"
+              [href]="row.link"
+              target="_blank"
+              rel="noopener"
+              [attr.aria-label]="'Open ' + row.title + ' at ' + row.company + ' (opens in new tab)'"
+            >
+              Open offer
+              <mat-icon iconPositionEnd>open_in_new</mat-icon>
+            </a>
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+  }
+
+  @if (!loading() && searched() && results().length === 0) {
+    <div class="status-block">
+      <mat-icon class="empty-icon">search_off</mat-icon>
+      <p>No offers matched the current filters. Try lowering the minimum score.</p>
+    </div>
+  }
+</section>

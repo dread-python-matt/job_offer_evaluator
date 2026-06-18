@@ -1,0 +1,159 @@
+.page {
+  --page-accent: var(--mat-sys-tertiary);
+}
+
+.filters-card {
+  width: 100%;
+  --accent: var(--mat-sys-primary);
+  border-radius: 12px;
+  border-left: 4px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, var(--mat-sys-surface));
+}
+
+.section-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: white;
+  border-radius: 50%;
+
+  mat-icon {
+    font-size: 22px;
+    width: 22px;
+    height: 22px;
+  }
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+
+  button mat-icon {
+    margin-right: 4px;
+  }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.limit-field {
+  width: 140px;
+}
+
+.score-slider {
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  flex: 1;
+
+  mat-slider {
+    width: 100%;
+  }
+}
+
+// Card grid instead of a table — each offer sizes itself, and the grid wraps
+// to as many columns as fit, so nothing needs to scroll horizontally.
+.results-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.result-card {
+  --accent: var(--mat-sys-tertiary);
+  border-radius: 12px;
+  border-left: 4px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 4%, var(--mat-sys-surface));
+}
+
+.result-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.result-title {
+  margin: 0;
+  font: var(--mat-sys-title-medium);
+}
+
+.result-company {
+  margin: 2px 0 0;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.result-skills {
+  margin: 12px 0;
+}
+
+.result-link {
+  width: 100%;
+  justify-content: center;
+}
+
+.score-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-weight: 500;
+  font-size: 0.85em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+// Amber is used here as a universal "caution" signal — the M3 palette in
+// use (violet/cyan) has no dedicated warning role, so a fixed accent color
+// is intentional rather than a theme-token miss.
+$score-medium-accent: #8a5a00;
+
+.score-high {
+  background: color-mix(in srgb, var(--mat-sys-tertiary) 18%, transparent);
+  color: var(--mat-sys-tertiary);
+}
+
+.score-medium {
+  background: color-mix(in srgb, $score-medium-accent 18%, transparent);
+  color: $score-medium-accent;
+}
+
+.score-low {
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.no-skills {
+  color: var(--mat-sys-on-surface-variant);
+  font-style: italic;
+  margin: 12px 0;
+}
+
+.status-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 16px;
+  color: var(--mat-sys-on-surface-variant);
+  text-align: center;
+}
+
+.empty-icon {
+  font-size: 40px;
+  width: 40px;
+  height: 40px;
+}

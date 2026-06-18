@@ -1,0 +1,33 @@
+<mat-toolbar color="primary" class="app-toolbar">
+  <span class="brand-icon"><mat-icon>work_outline</mat-icon></span>
+  <span class="brand-title">Job Offer Matcher</span>
+</mat-toolbar>
+
+<nav mat-tab-nav-bar [tabPanel]="tabPanel" class="app-nav">
+  <a
+    mat-tab-link
+    routerLink="/profile"
+    routerLinkActive
+    #profileLink="routerLinkActive"
+    [active]="profileLink.isActive"
+    class="nav-link"
+  >
+    <mat-icon>person_outline</mat-icon>
+    Profile
+  </a>
+  <a
+    mat-tab-link
+    routerLink="/match-offers"
+    routerLinkActive
+    #matchLink="routerLinkActive"
+    [active]="matchLink.isActive"
+    class="nav-link"
+  >
+    <mat-icon>travel_explore</mat-icon>
+    Match Offers
+  </a>
+</nav>
+
+<mat-tab-nav-panel #tabPanel>
+  <router-outlet />
+</mat-tab-nav-panel>
