@@ -68,7 +68,7 @@ def test_description_score_is_derived_from_the_agents_rate():
 
     score = strategy.score(_candidate(), _offer())
 
-    assert score.description_score == 1.0
+    assert score.get("description") == 1.0
 
 
 def test_lowest_agent_rate_gives_the_lowest_description_score():
@@ -77,17 +77,18 @@ def test_lowest_agent_rate_gives_the_lowest_description_score():
 
     score = strategy.score(_candidate(), _offer())
 
-    assert score.description_score == 0.2
+    assert score.get("description") == 0.2
 
 
-def test_skills_score_comes_from_tag_overlap_between_candidate_and_offer():
+def test_skills_score_comes_from_the_skill_based_scorer():
     run, _ = _fake_run(rate=5)
     strategy = LLMScoringStrategy(agent=object(), run=run)
 
     score = strategy.score(_candidate(), _offer())
 
-    # candidate skills {python}; offer skills {python, postgres} -> 1/2
-    assert score.skills_score == pytest.approx(0.5)
+    # Python rated 5/5, practiced in a project/experience -> doubled weight -> 2.0
+    # Postgres is nice-to-have but not a rated skill -> contributes 0.0
+    assert score.get("skills") == pytest.approx(2.0)
 
 
 def test_overall_score_weighs_skills_to_description_4_to_1():
@@ -96,7 +97,7 @@ def test_overall_score_weighs_skills_to_description_4_to_1():
 
     score = strategy.score(_candidate(), _offer())
 
-    assert score.overall_score == pytest.approx((0.5 * 4 + 1.0) / 5)
+    assert score.overall_score == pytest.approx((2.0 * 4 + 1.0) / 5)
 
 
 def test_prompt_includes_summary_project_summaries_and_job_description():

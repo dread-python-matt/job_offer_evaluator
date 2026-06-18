@@ -1,31 +1,19 @@
 from app.domain.entities import Offer, UserProfile
-from app.domain.matching import Score, ScoringStrategy
+from app.domain.matching import MatchScore, OfferScorer, ScoreComponent
 
 
-class SkillOverlapScoringStrategy(ScoringStrategy):
-    """Scores an offer by the fraction of its tech stack the candidate's skills cover."""
-
-    def score(self, candidate: UserProfile, offer: Offer) -> Score:
-        return Score(skills_score=self._skills_score(candidate, offer), description_score=0.0)
-
-    @staticmethod
-    def _skills_score(candidate: UserProfile, offer: Offer) -> float:
-        offer_skills = offer.skill_set()
-        if not offer_skills:
-            return 0.0
-        matched = candidate.skill_names() & offer_skills
-        return len(matched) / len(offer_skills)
-
-
-class WeightedSkillScoringStrategy(ScoringStrategy):
+class SkillBasedScorer(OfferScorer):
     """Weighs each matched skill by the candidate's declared rating (0-1), doubling the
     weight of skills the candidate has actually used in a project or experience entry.
     Required and nice-to-have tech stacks are scored separately, then summed."""
 
-    def score(self, candidate: UserProfile, offer: Offer) -> Score:
+    def score(self, candidate: UserProfile, offer: Offer) -> MatchScore:
         base_score = self._weighted_ratio(candidate, offer.tech_stack)
         nice_to_have_score = self._weighted_ratio(candidate, offer.tech_stack_nice_to_have)
-        return Score(skills_score=base_score + nice_to_have_score, description_score=0.0)
+        skills_score = base_score + nice_to_have_score
+        return MatchScore().with_component(
+            ScoreComponent(name="skills", value=skills_score, weight=1.0)
+        )
 
     def _weighted_ratio(self, candidate: UserProfile, required_skills: list[str]) -> float:
         if not required_skills:

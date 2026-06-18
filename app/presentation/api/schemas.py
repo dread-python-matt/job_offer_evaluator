@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
 from app.domain.entities import Experience, Project, Skill, UserProfile
-from app.domain.matching import MatchedOffer
+from app.domain.matching import MatchCriteria, MatchedOffer
 
 
 class SkillSchema(BaseModel):
@@ -91,7 +91,17 @@ class UserProfileSchema(BaseModel):
 class MatchRequestSchema(BaseModel):
     candidate: UserProfileSchema
     min_score: float = 0.0
-    offers_limit: int = 10
+    offers_limit: int | None = None
+    location: str | None = None
+    min_salary: float | None = None
+
+    def to_criteria(self) -> MatchCriteria:
+        return MatchCriteria(
+            candidate=self.candidate.to_domain(),
+            min_score=self.min_score,
+            location=self.location,
+            min_salary=self.min_salary,
+        )
 
 
 class MatchedOfferSchema(BaseModel):
@@ -100,6 +110,8 @@ class MatchedOfferSchema(BaseModel):
     company: str
     score: float
     matched_skills: list[str]
+    locations: list[str]
+    salary_range: str | None
 
     @classmethod
     def from_domain(cls, matched: MatchedOffer) -> "MatchedOfferSchema":
@@ -109,4 +121,6 @@ class MatchedOfferSchema(BaseModel):
             company=matched.offer.company,
             score=matched.score,
             matched_skills=sorted(matched.matched_skills),
+            locations=matched.offer.locations,
+            salary_range=matched.offer.salary_range,
         )

@@ -1,17 +1,8 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from app.domain.entities import Offer, UserProfile
-
-
-@dataclass(frozen=True)
-class Score:
-    skills_score: float
-    description_score: float
-
-    @property
-    def overall_score(self) -> float:
-        return ((self.skills_score * 4 + self.description_score) / 5) / 2
 
 
 @dataclass(frozen=True)
@@ -21,6 +12,80 @@ class MatchedOffer:
     matched_skills: set[str]
 
 
-class ScoringStrategy(ABC):
+@dataclass(frozen=True)
+class ScoreComponent:
+    name: str
+    value: float
+    weight: float
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class MatchScore:
+    components: tuple[ScoreComponent, ...] = ()
+
+    def with_component(self, component: ScoreComponent) -> "MatchScore":
+        components = tuple(
+            existing
+            for existing in self.components
+            if existing.name != component.name
+        )
+
+        return MatchScore(
+            components=components + (component,)
+        )
+
+    def get(self, name: str) -> float | None:
+        for component in self.components:
+            if component.name == name:
+                return component.value
+        return None
+
+    @property
+    def overall_score(self) -> float:
+        total_weight = sum(component.weight for component in self.components)
+
+        if total_weight == 0:
+            return 0.0
+
+        return sum(
+            component.value * component.weight
+            for component in self.components
+        ) / total_weight
+
+
+class OfferScorer(ABC):
     @abstractmethod
-    def score(self, candidate: UserProfile, offer: Offer) -> Score: ...
+    def score(self, candidate: UserProfile, offer: Offer) -> MatchScore: ...
+
+
+@dataclass(frozen=True)
+class MatchCriteria:
+    candidate: UserProfile
+    min_score: float = 0.0
+    location: str | None = None
+    min_salary: float | None = None
+
+
+class OfferFilter(ABC):
+    @abstractmethod
+    def passes(self, offer: Offer, criteria: MatchCriteria) -> bool: ...
+
+
+class FilterChain(OfferFilter):
+    """Composes multiple `OfferFilter`s; an offer passes only if all of them do."""
+
+    def __init__(self, offer_filters: list[OfferFilter] | None = None) -> None:
+        self._offer_filters = list(offer_filters or [])
+
+    def add_filter(self, offer_filter: OfferFilter) -> None:
+        self._offer_filters.append(offer_filter)
+
+    def remove_filter(self, offer_filter: OfferFilter) -> None:
+        self._offer_filters.remove(offer_filter)
+
+    def passes(self, offer: Offer, criteria: MatchCriteria) -> bool:
+        return all(
+            offer_filter.passes(offer, criteria)
+            for offer_filter in self._offer_filters
+        )

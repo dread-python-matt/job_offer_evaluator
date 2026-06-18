@@ -1,6 +1,6 @@
 from app.application.ports import OfferRepository, UserProfileRepository
 from app.domain.entities import UserProfile
-from app.domain.matching import MatchedOffer, ScoringStrategy
+from app.domain.matching import FilterChain, MatchCriteria, MatchedOffer, OfferScorer
 
 
 class SaveUserProfileUseCase:
@@ -23,21 +23,29 @@ class MatchOffersUseCase:
     def __init__(
         self,
         offer_repository: OfferRepository,
-        scoring_strategy: ScoringStrategy,
+        offer_scorer: OfferScorer,
+        filter_chain: FilterChain,
     ) -> None:
         self._offer_repository = offer_repository
-        self._scoring_strategy = scoring_strategy
+        self._offer_scorer = offer_scorer
+        self._filter_chain = filter_chain
 
-    def execute(self, candidate: UserProfile, offers_limit: int, min_score: float) -> list[MatchedOffer]:
+    def execute(self, criteria: MatchCriteria, offers_limit: int | None) -> list[MatchedOffer]:
+        candidate_offers = [
+            offer
+            for offer in self._offer_repository.list_offers()
+            if self._filter_chain.passes(offer, criteria)
+        ]
+
         matched_offers = [
             MatchedOffer(
                 offer=offer,
-                score=self._scoring_strategy.score(candidate, offer).overall_score,
-                matched_skills=candidate.skill_names() & offer.skill_set(),
+                score=self._offer_scorer.score(criteria.candidate, offer).overall_score,
+                matched_skills=criteria.candidate.skill_names() & offer.skill_set(),
             )
-            for offer in self._offer_repository.list_offers()
+            for offer in candidate_offers
         ]
 
-        matched_offers = [m for m in matched_offers if m.score >= min_score]
+        matched_offers = [m for m in matched_offers if m.score >= criteria.min_score]
         matched_offers.sort(key=lambda m: m.score, reverse=True)
         return matched_offers[:offers_limit]

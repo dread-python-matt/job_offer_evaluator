@@ -52,8 +52,7 @@ def match_offers(
     use_case: MatchOffersUseCase = Depends(get_match_offers_use_case),
 ) -> list[MatchedOfferSchema]:
     matches = use_case.execute(
-        candidate=match_request.candidate.to_domain(),
+        criteria=match_request.to_criteria(),
         offers_limit=match_request.offers_limit,
-        min_score=match_request.min_score,
     )
     return [MatchedOfferSchema.from_domain(match) for match in matches]

@@ -5,6 +5,7 @@ Backend developer
 
 ## Skills
 - Python: 5
+- Django: 3
 
 ## Projects
 ### Evaluator

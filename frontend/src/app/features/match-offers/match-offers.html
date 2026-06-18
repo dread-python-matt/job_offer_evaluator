@@ -18,7 +18,7 @@
         <mat-form-field class="limit-field">
           <mat-label>Offers limit</mat-label>
           <input matInput type="number" min="1" formControlName="offersLimit" aria-describedby="limit-hint" />
-          <mat-hint id="limit-hint">Max offers to scan</mat-hint>
+          <mat-hint id="limit-hint">Leave blank to scan all offers</mat-hint>
           @if (filters.controls.offersLimit.invalid && filters.controls.offersLimit.touched) {
             <mat-error>Must be at least 1</mat-error>
           }
@@ -50,6 +50,13 @@
       <mat-spinner diameter="36" />
       <p>Scoring offers against your profile…</p>
     </div>
+  }
+
+  @if (!loading() && searched() && results().length) {
+    <p class="results-count">
+      <mat-icon>fact_check</mat-icon>
+      {{ results().length }} matching offer{{ results().length === 1 ? '' : 's' }} found
+    </p>
   }
 
   @if (!loading() && results().length) {

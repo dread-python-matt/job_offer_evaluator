@@ -39,4 +39,6 @@ class OfferRow(Base):
             tech_stack=self.tech_stack or [],
             tech_stack_nice_to_have=self.tech_stack_nice_to_have or [],
             description=self.description or "",
+            locations=self.locations or [],
+            salary_range=self.salary_range,
         )

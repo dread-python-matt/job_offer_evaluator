@@ -38,6 +38,8 @@ def test_offer_row_converts_to_domain_offer():
         tech_stack=["Python", "FastAPI"],
         tech_stack_nice_to_have=["Docker"],
         description="desc",
+        locations=["Warsaw"],
+        salary_range=None,
     )
 
 
@@ -48,3 +50,19 @@ def test_offer_row_defaults_missing_tech_stack_lists_to_empty():
 
     assert offer.tech_stack == []
     assert offer.tech_stack_nice_to_have == []
+
+
+def test_offer_row_defaults_missing_locations_to_empty():
+    row = _row(locations=None)
+
+    offer = row.to_offer()
+
+    assert offer.locations == []
+
+
+def test_offer_row_passes_through_salary_range():
+    row = _row(salary_range="10000 - 15000 PLN/month")
+
+    offer = row.to_offer()
+
+    assert offer.salary_range == "10000 - 15000 PLN/month"

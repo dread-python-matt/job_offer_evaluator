@@ -7,9 +7,11 @@ from app.application.use_cases import (
     SaveUserProfileUseCase,
 )
 from app.config import DATABASE_URL, USER_PROFILE_PATH
+from app.domain.matching import FilterChain
 from app.infrastructure.markdown_profile_repository import MarkdownUserProfileRepository
 from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
-from app.infrastructure.scoring_strategies import WeightedSkillScoringStrategy
+from app.infrastructure.offer_filters import LocationFilter, SalaryFilter, SkillFilter
+from app.infrastructure.scoring_strategies import SkillBasedScorer
 from app.presentation.api.routes import (
     get_match_offers_use_case,
     get_profile_use_case,
@@ -22,7 +24,11 @@ offer_repository = PostgresOfferRepository(DATABASE_URL)
 
 save_profile_use_case = SaveUserProfileUseCase(profile_repository)
 get_user_profile_use_case = GetUserProfileUseCase(profile_repository)
-match_offers_use_case = MatchOffersUseCase(offer_repository, WeightedSkillScoringStrategy())
+match_offers_use_case = MatchOffersUseCase(
+    offer_repository,
+    SkillBasedScorer(),
+    FilterChain([SkillFilter(), LocationFilter(), SalaryFilter()]),
+)
 
 app = FastAPI(title="Job Offer Matcher")
 app.add_middleware(

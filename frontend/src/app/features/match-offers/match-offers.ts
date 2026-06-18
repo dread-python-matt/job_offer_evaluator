@@ -54,7 +54,7 @@ export class MatchOffers {
   readonly results = signal<MatchedOfferRow[]>([]);
 
   readonly filters = this.fb.group({
-    offersLimit: this.fb.control(10, { nonNullable: true, validators: [Validators.required, Validators.min(1)] }),
+    offersLimit: this.fb.control<number | null>(null, { validators: [Validators.min(1)] }),
     minScore: this.fb.control(0.5, { nonNullable: true }),
   });
 

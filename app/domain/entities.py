@@ -50,6 +50,8 @@ class Offer:
     tech_stack: list[str] = field(default_factory=list)
     tech_stack_nice_to_have: list[str] = field(default_factory=list)
     description: str = ""
+    locations: list[str] = field(default_factory=list)
+    salary_range: str | None = None
 
     def skill_set(self) -> set[str]:
         return {tech.lower() for tech in (*self.tech_stack, *self.tech_stack_nice_to_have)}

@@ -8,7 +8,9 @@ from app.application.use_cases import (
     SaveUserProfileUseCase,
 )
 from app.domain.entities import Offer, Skill, UserProfile
-from app.infrastructure.scoring_strategies import SkillOverlapScoringStrategy
+from app.domain.matching import FilterChain
+from app.infrastructure.offer_filters import LocationFilter, SalaryFilter, SkillFilter
+from app.infrastructure.scoring_strategies import SkillBasedScorer
 from app.presentation.api.routes import (
     get_match_offers_use_case,
     get_profile_use_case,
@@ -32,7 +34,9 @@ def _build_client(profile: UserProfile | None = None, offers: list[Offer] | None
         profile_repository
     )
     app.dependency_overrides[get_match_offers_use_case] = lambda: MatchOffersUseCase(
-        offer_repository, SkillOverlapScoringStrategy()
+        offer_repository,
+        SkillBasedScorer(),
+        FilterChain([SkillFilter(), LocationFilter(), SalaryFilter()]),
     )
     app.dependency_overrides[get_profile_use_case] = lambda: GetUserProfileUseCase(
         profile_repository
@@ -127,7 +131,91 @@ def test_match_offers_returns_offers_sorted_by_score():
     assert response.status_code == 200
     body = response.json()
     assert [offer["link"] for offer in body] == ["b", "a"]
-    assert body[0]["score"] == pytest.approx(0.8)
+    assert body[0]["score"] == pytest.approx(0.9)
+
+
+def test_match_offers_returns_all_matches_when_offers_limit_is_omitted():
+    offers = [
+        Offer(link="a", title="A", company="C", tech_stack=["Python"]),
+        Offer(link="b", title="B", company="C", tech_stack=["Java"]),
+    ]
+    client = _build_client(offers=offers)
+
+    response = client.post(
+        "/offers/match",
+        json={
+            "candidate": {
+                "summary": "",
+                "skills": [{"name": "Python", "rating": 5}],
+                "projects": [],
+                "experience": [],
+            },
+            "min_score": 0.0,
+        },
+    )
+
+    assert response.status_code == 200
+    assert [offer["link"] for offer in response.json()] == ["a", "b"]
+
+
+def test_match_offers_filters_by_location():
+    offers = [
+        Offer(link="a", title="A", company="C", tech_stack=["Python"], locations=["Warsaw"]),
+        Offer(link="b", title="B", company="C", tech_stack=["Python"], locations=["Berlin"]),
+    ]
+    client = _build_client(offers=offers)
+
+    response = client.post(
+        "/offers/match",
+        json={
+            "candidate": {
+                "summary": "",
+                "skills": [{"name": "Python", "rating": 5}],
+                "projects": [],
+                "experience": [],
+            },
+            "min_score": 0.0,
+            "location": "warsaw",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [offer["link"] for offer in body] == ["a"]
+    assert body[0]["locations"] == ["Warsaw"]
+
+
+def test_match_offers_filters_by_minimum_salary():
+    offers = [
+        Offer(
+            link="a", title="A", company="C", tech_stack=["Python"],
+            salary_range="20000 - 25000 PLN/month",
+        ),
+        Offer(
+            link="b", title="B", company="C", tech_stack=["Python"],
+            salary_range="5000 - 6000 PLN/month",
+        ),
+    ]
+    client = _build_client(offers=offers)
+
+    response = client.post(
+        "/offers/match",
+        json={
+            "candidate": {
+                "summary": "",
+                "skills": [{"name": "Python", "rating": 5}],
+                "projects": [],
+                "experience": [],
+            },
+            "min_score": 0.0,
+            "min_salary": 20000,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [offer["link"] for offer in body] == ["a"]
+    assert body[0]["salary_range"] == "20000 - 25000 PLN/month"
 
 
 def test_match_offers_filters_by_minimum_score():

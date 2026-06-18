@@ -18,7 +18,11 @@ export class ApiService {
     return this.http.post<UserProfile>(`${this.baseUrl}/profile`, profile);
   }
 
-  matchOffers(candidate: UserProfile, offersLimit: number, minScore: number): Observable<MatchedOffer[]> {
+  matchOffers(
+    candidate: UserProfile,
+    offersLimit: number | null,
+    minScore: number,
+  ): Observable<MatchedOffer[]> {
     return this.http.post<MatchedOffer[]>(`${this.baseUrl}/offers/match`, {
       candidate,
       offers_limit: offersLimit,
