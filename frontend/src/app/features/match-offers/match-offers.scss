@@ -27,13 +27,18 @@
 
 .filters {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 24px;
   flex-wrap: wrap;
 
   button mat-icon {
     margin-right: 4px;
   }
+}
+
+.search-button {
+  margin-left: auto;
+  align-self: center;
 }
 
 .spin {
@@ -51,6 +56,31 @@
 
 .limit-field {
   width: 140px;
+}
+
+.location-field {
+  width: 200px;
+}
+
+.salary-field {
+  width: 180px;
+}
+
+.level-field {
+  width: 200px;
+}
+
+.tech-field {
+  min-width: 220px;
+  flex: 1;
+}
+
+.sort-field {
+  width: 200px;
+}
+
+.result-levels {
+  margin: 4px 0;
 }
 
 .score-slider {
@@ -80,6 +110,12 @@
   }
 }
 
+.results-total {
+  font-weight: 400;
+  color: var(--mat-sys-on-surface-variant);
+  opacity: 0.8;
+}
+
 // Card grid instead of a table — each offer sizes itself, and the grid wraps
 // to as many columns as fit, so nothing needs to scroll horizontally.
 .results-grid {
@@ -90,9 +126,17 @@
 
 .result-card {
   --accent: var(--mat-sys-tertiary);
+  display: flex;
+  flex-direction: column;
   border-radius: 12px;
   border-left: 4px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 4%, var(--mat-sys-surface));
+
+  .mat-mdc-card-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+  }
 }
 
 .result-top {
@@ -112,13 +156,38 @@
   color: var(--mat-sys-on-surface-variant);
 }
 
+.result-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px 0;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85em;
+  color: var(--mat-sys-on-surface-variant);
+
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+  }
+}
+
 .result-skills {
   margin: 12px 0;
 }
 
 .result-link {
   width: 100%;
+  display: flex;
+  align-items: center;
   justify-content: center;
+  margin-top: auto;
 }
 
 .score-badge {

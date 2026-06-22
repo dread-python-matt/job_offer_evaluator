@@ -26,6 +26,39 @@
     <mat-icon>travel_explore</mat-icon>
     Match Offers
   </a>
+  <a
+    mat-tab-link
+    routerLink="/ai-match-offers"
+    routerLinkActive
+    #aiMatchLink="routerLinkActive"
+    [active]="aiMatchLink.isActive"
+    class="nav-link"
+  >
+    <mat-icon>auto_awesome</mat-icon>
+    AI Match
+  </a>
+  <a
+    mat-tab-link
+    routerLink="/browse-offers"
+    routerLinkActive
+    #browseLink="routerLinkActive"
+    [active]="browseLink.isActive"
+    class="nav-link"
+  >
+    <mat-icon>list_alt</mat-icon>
+    Browse Offers
+  </a>
+  <a
+    mat-tab-link
+    routerLink="/model-usage"
+    routerLinkActive
+    #usageLink="routerLinkActive"
+    [active]="usageLink.isActive"
+    class="nav-link"
+  >
+    <mat-icon>monitoring</mat-icon>
+    Model Usage
+  </a>
 </nav>
 
 <mat-tab-nav-panel #tabPanel>

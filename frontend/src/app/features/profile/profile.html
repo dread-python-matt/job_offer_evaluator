@@ -64,7 +64,7 @@
                 <div class="entry-card-header">
                   <span class="entry-title">{{ project.name }}</span>
                   @if (project.date_from || project.date_to) {
-                    <span class="entry-dates">{{ project.date_from }} – {{ project.date_to }}</span>
+                    <span class="entry-dates">{{ formatDate(project.date_from) }} – {{ formatDate(project.date_to) }}</span>
                   }
                 </div>
                 @if (project.summary) {
@@ -105,7 +105,7 @@
                 <div class="entry-card-header">
                   <span class="entry-title">{{ exp.title }}{{ exp.company ? ' · ' + exp.company : '' }}</span>
                   @if (exp.date_from || exp.date_to) {
-                    <span class="entry-dates">{{ exp.date_from }} – {{ exp.date_to }}</span>
+                    <span class="entry-dates">{{ formatDate(exp.date_from) }} – {{ formatDate(exp.date_to) }}</span>
                   }
                 </div>
                 @if (exp.description) {
@@ -237,7 +237,7 @@
       <div mat-card-avatar class="section-avatar"><mat-icon>folder_open</mat-icon></div>
       <mat-card-title>Projects</mat-card-title>
       <mat-card-subtitle>
-        Side projects or portfolio pieces. Type a technology and press Enter or comma to add it.
+        Side projects or portfolio pieces. Type one technology or paste a comma-separated list and press Enter.
       </mat-card-subtitle>
     </mat-card-header>
     <mat-card-content>
@@ -282,12 +282,30 @@
                 </mat-form-field>
                 <mat-form-field class="date-field">
                   <mat-label>From</mat-label>
-                  <input matInput formControlName="date_from" placeholder="2024-01" />
+                  <input matInput [matDatepicker]="projFrom" formControlName="date_from" readonly />
+                  <mat-datepicker-toggle matIconSuffix [for]="projFrom" />
+                  <mat-datepicker
+                    #projFrom
+                    startView="year"
+                    (monthSelected)="onProjectFromMonth($index, $event, projFrom)"
+                  />
                 </mat-form-field>
-                <mat-form-field class="date-field">
-                  <mat-label>To</mat-label>
-                  <input matInput formControlName="date_to" placeholder="2024-06" />
-                </mat-form-field>
+                <div class="date-to-group">
+                  <mat-form-field class="date-field">
+                    <mat-label>To</mat-label>
+                    <input matInput [matDatepicker]="projTo" formControlName="date_to" readonly />
+                    <mat-datepicker-toggle matIconSuffix [for]="projTo" />
+                    <mat-datepicker
+                      #projTo
+                      startView="year"
+                      (monthSelected)="onProjectToMonth($index, $event, projTo)"
+                    />
+                  </mat-form-field>
+                  <mat-checkbox
+                    formControlName="date_to_present"
+                    (change)="onProjectPresentChange($index, $event.checked)"
+                  >Present</mat-checkbox>
+                </div>
                 <mat-form-field class="entry-grid-wide tech-stack-field">
                   <mat-label>Tech stack</mat-label>
                   <mat-chip-grid #projectTechGrid [attr.aria-label]="'Tech stack for ' + (project.controls.name.value || 'this project')">
@@ -300,14 +318,14 @@
                       </mat-chip-row>
                     }
                     <input
-                      placeholder="Add a technology…"
+                      placeholder="e.g. Python, FastAPI, Docker"
                       [matChipInputFor]="projectTechGrid"
                       [matChipInputSeparatorKeyCodes]="[188, 13]"
                       matChipInputAddOnBlur
                       (matChipInputTokenEnd)="addProjectTech($index, $event)"
                     />
                   </mat-chip-grid>
-                  <mat-hint>Enter or comma to add</mat-hint>
+                  <mat-hint>Enter to add · separate multiple with commas</mat-hint>
                 </mat-form-field>
               </div>
             </div>
@@ -327,7 +345,7 @@
     <mat-card-header>
       <div mat-card-avatar class="section-avatar"><mat-icon>work_outline</mat-icon></div>
       <mat-card-title>Experience</mat-card-title>
-      <mat-card-subtitle>Past roles, most relevant first. Tech stack works the same as Projects.</mat-card-subtitle>
+      <mat-card-subtitle>Past roles, most relevant first. Type one technology or paste a comma-separated list and press Enter.</mat-card-subtitle>
     </mat-card-header>
     <mat-card-content>
       @if (experience.controls.length) {
@@ -371,12 +389,30 @@
                 </mat-form-field>
                 <mat-form-field class="date-field">
                   <mat-label>From</mat-label>
-                  <input matInput formControlName="date_from" placeholder="2022-01" />
+                  <input matInput [matDatepicker]="expFrom" formControlName="date_from" readonly />
+                  <mat-datepicker-toggle matIconSuffix [for]="expFrom" />
+                  <mat-datepicker
+                    #expFrom
+                    startView="year"
+                    (monthSelected)="onExperienceFromMonth($index, $event, expFrom)"
+                  />
                 </mat-form-field>
-                <mat-form-field class="date-field">
-                  <mat-label>To</mat-label>
-                  <input matInput formControlName="date_to" placeholder="2024-01" />
-                </mat-form-field>
+                <div class="date-to-group">
+                  <mat-form-field class="date-field">
+                    <mat-label>To</mat-label>
+                    <input matInput [matDatepicker]="expTo" formControlName="date_to" readonly />
+                    <mat-datepicker-toggle matIconSuffix [for]="expTo" />
+                    <mat-datepicker
+                      #expTo
+                      startView="year"
+                      (monthSelected)="onExperienceToMonth($index, $event, expTo)"
+                    />
+                  </mat-form-field>
+                  <mat-checkbox
+                    formControlName="date_to_present"
+                    (change)="onExperiencePresentChange($index, $event.checked)"
+                  >Present</mat-checkbox>
+                </div>
                 <mat-form-field class="entry-grid-wide tech-stack-field">
                   <mat-label>Tech stack</mat-label>
                   <mat-chip-grid #expTechGrid [attr.aria-label]="'Tech stack for ' + (exp.controls.title.value || 'this role')">
@@ -389,14 +425,14 @@
                       </mat-chip-row>
                     }
                     <input
-                      placeholder="Add a technology…"
+                      placeholder="e.g. Python, FastAPI, Docker"
                       [matChipInputFor]="expTechGrid"
                       [matChipInputSeparatorKeyCodes]="[188, 13]"
                       matChipInputAddOnBlur
                       (matChipInputTokenEnd)="addExperienceTech($index, $event)"
                     />
                   </mat-chip-grid>
-                  <mat-hint>Enter or comma to add</mat-hint>
+                  <mat-hint>Enter to add · separate multiple with commas</mat-hint>
                 </mat-form-field>
               </div>
             </div>

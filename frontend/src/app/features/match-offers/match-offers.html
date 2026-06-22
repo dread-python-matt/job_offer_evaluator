@@ -33,7 +33,77 @@
           </mat-slider>
         </div>
 
-        <button mat-raised-button color="primary" type="submit" [disabled]="loading() || filters.invalid">
+        <mat-form-field class="location-field">
+          <mat-label>Location</mat-label>
+          <input matInput formControlName="location" placeholder="e.g. Warsaw" aria-describedby="location-hint" />
+          <mat-hint id="location-hint">Leave blank for any location</mat-hint>
+        </mat-form-field>
+
+        <mat-form-field class="salary-field">
+          <mat-label>Min salary</mat-label>
+          <input
+            matInput
+            type="number"
+            min="0"
+            formControlName="minSalary"
+            aria-describedby="salary-hint"
+          />
+          <span matTextSuffix>PLN/mo</span>
+          <mat-hint id="salary-hint">Leave blank for any salary</mat-hint>
+          @if (filters.controls.minSalary.invalid && filters.controls.minSalary.touched) {
+            <mat-error>Must be 0 or more</mat-error>
+          }
+        </mat-form-field>
+
+        <mat-form-field class="level-field">
+          <mat-label>Level</mat-label>
+          <mat-select formControlName="level" multiple>
+            @for (level of levelOptions; track level) {
+              <mat-option [value]="level">{{ level }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+
+        <mat-form-field class="tech-field">
+          <mat-label>Tech stack</mat-label>
+          <mat-chip-grid #techChipGrid>
+            @for (tech of techFilter(); track tech) {
+              <mat-chip removable (removed)="removeTech(tech)">
+                {{ tech }}
+                <button matChipRemove [attr.aria-label]="'Remove ' + tech">
+                  <mat-icon>cancel</mat-icon>
+                </button>
+              </mat-chip>
+            }
+            <input
+              placeholder="e.g. Python"
+              [matChipInputFor]="techChipGrid"
+              [matChipInputSeparatorKeyCodes]="separatorKeyCodes"
+              (matChipInputTokenEnd)="addTech($event)"
+            />
+          </mat-chip-grid>
+          <mat-hint>Enter or comma to add</mat-hint>
+        </mat-form-field>
+
+        <mat-form-field class="sort-field">
+          <mat-label>Sort by</mat-label>
+          <mat-select formControlName="sort">
+            <mat-option value="score">Best match</mat-option>
+            <mat-option value="score-recent">Best match + most recent</mat-option>
+            <mat-option value="salary-desc">Salary: high to low</mat-option>
+            <mat-option value="salary-asc">Salary: low to high</mat-option>
+            <mat-option value="recent-desc">Most recent</mat-option>
+            <mat-option value="recent-asc">Oldest first</mat-option>
+          </mat-select>
+        </mat-form-field>
+
+        <button
+          mat-raised-button
+          color="primary"
+          type="submit"
+          class="search-button"
+          [disabled]="loading() || filters.invalid"
+        >
           @if (loading()) {
             <mat-icon class="spin">progress_activity</mat-icon>
           } @else {
@@ -56,6 +126,9 @@
     <p class="results-count">
       <mat-icon>fact_check</mat-icon>
       {{ results().length }} matching offer{{ results().length === 1 ? '' : 's' }} found
+      @if (totalOffers() !== null) {
+        <span class="results-total">out of {{ totalOffers() }} total</span>
+      }
     </p>
   }
 
@@ -71,6 +144,31 @@
               </div>
               <span class="score-badge" [class]="row.scoreClass">{{ row.scoreLabel }}</span>
             </div>
+
+            @if (row.locations.length || row.salaryLabel) {
+              <div class="result-meta">
+                @if (row.locations.length) {
+                  <span class="meta-item">
+                    <mat-icon>place</mat-icon>
+                    {{ row.locations.join(', ') }}
+                  </span>
+                }
+                @if (row.salaryLabel) {
+                  <span class="meta-item">
+                    <mat-icon>payments</mat-icon>
+                    {{ row.salaryLabel }}
+                  </span>
+                }
+              </div>
+            }
+
+            @if (row.levels.length) {
+              <mat-chip-set class="result-levels">
+                @for (level of row.levels; track level) {
+                  <mat-chip disableRipple>{{ level }}</mat-chip>
+                }
+              </mat-chip-set>
+            }
 
             @if (row.matchedSkills.length) {
               <mat-chip-set class="result-skills">

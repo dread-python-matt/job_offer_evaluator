@@ -225,7 +225,15 @@ textarea[matInput] {
 }
 
 .date-field {
-  max-width: 160px;
+  max-width: 190px;
+  justify-self: start;
+}
+
+.date-to-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   justify-self: start;
 }
 

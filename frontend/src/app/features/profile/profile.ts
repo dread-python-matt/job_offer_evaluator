@@ -3,7 +3,10 @@ import { FormArray, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Va
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatChipsModule, MatChipInputEvent } from '@angular/material/chips';
+import { MAT_DATE_FORMATS, MatDateFormats, provideNativeDateAdapter } from '@angular/material/core';
+import { MatDatepicker, MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -14,6 +17,18 @@ import { catchError, of } from 'rxjs';
 import { ApiService } from '../../core/services/api.service';
 import { Experience, Project, Skill, UserProfile } from '../../core/models/profile.model';
 
+const MONTH_YEAR_FORMATS: MatDateFormats = {
+  parse: {
+    dateInput: { year: 'numeric', month: 'short' },
+  },
+  display: {
+    dateInput: { year: 'numeric', month: 'short' },
+    monthYearLabel: { year: 'numeric', month: 'short' },
+    dateA11yLabel: { year: 'numeric', month: 'long' },
+    monthYearA11yLabel: { year: 'numeric', month: 'long' },
+  },
+};
+
 interface SkillControls {
   name: FormControl<string>;
   rating: FormControl<number>;
@@ -23,8 +38,9 @@ interface ProjectControls {
   name: FormControl<string>;
   repository_link: FormControl<string>;
   summary: FormControl<string>;
-  date_from: FormControl<string>;
-  date_to: FormControl<string>;
+  date_from: FormControl<Date | null>;
+  date_to: FormControl<Date | null>;
+  date_to_present: FormControl<boolean>;
   tech_stack: FormControl<string[]>;
 }
 
@@ -32,8 +48,9 @@ interface ExperienceControls {
   title: FormControl<string>;
   company: FormControl<string>;
   description: FormControl<string>;
-  date_from: FormControl<string>;
-  date_to: FormControl<string>;
+  date_from: FormControl<Date | null>;
+  date_to: FormControl<Date | null>;
+  date_to_present: FormControl<boolean>;
   tech_stack: FormControl<string[]>;
 }
 
@@ -41,14 +58,23 @@ type SkillGroup = FormGroup<SkillControls>;
 type ProjectGroup = FormGroup<ProjectControls>;
 type ExperienceGroup = FormGroup<ExperienceControls>;
 
+type ProjectRaw = ReturnType<ProjectGroup['getRawValue']>;
+type ExperienceRaw = ReturnType<ExperienceGroup['getRawValue']>;
+
 @Component({
   selector: 'app-profile',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  providers: [
+    provideNativeDateAdapter(),
+    { provide: MAT_DATE_FORMATS, useValue: MONTH_YEAR_FORMATS },
+  ],
   imports: [
     ReactiveFormsModule,
     MatButtonModule,
     MatCardModule,
+    MatCheckboxModule,
     MatChipsModule,
+    MatDatepickerModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -103,9 +129,7 @@ export class Profile implements OnInit {
 
   cancel(): void {
     const saved = this.profileData();
-    if (!saved) {
-      return;
-    }
+    if (!saved) return;
     this.populateForm(saved);
     this.mode.set('view');
   }
@@ -150,17 +174,85 @@ export class Profile implements OnInit {
     );
   }
 
+  onProjectPresentChange(index: number, checked: boolean): void {
+    const ctrl = this.projects.at(index).controls.date_to;
+    checked ? ctrl.disable() : ctrl.enable();
+  }
+
+  onExperiencePresentChange(index: number, checked: boolean): void {
+    const ctrl = this.experience.at(index).controls.date_to;
+    checked ? ctrl.disable() : ctrl.enable();
+  }
+
+  onProjectFromMonth(index: number, date: Date, picker: MatDatepicker<Date>): void {
+    this.projects.at(index).controls.date_from.setValue(this.firstOfMonth(date));
+    picker.close();
+  }
+
+  onProjectToMonth(index: number, date: Date, picker: MatDatepicker<Date>): void {
+    this.projects.at(index).controls.date_to.setValue(this.firstOfMonth(date));
+    picker.close();
+  }
+
+  onExperienceFromMonth(index: number, date: Date, picker: MatDatepicker<Date>): void {
+    this.experience.at(index).controls.date_from.setValue(this.firstOfMonth(date));
+    picker.close();
+  }
+
+  onExperienceToMonth(index: number, date: Date, picker: MatDatepicker<Date>): void {
+    this.experience.at(index).controls.date_to.setValue(this.firstOfMonth(date));
+    picker.close();
+  }
+
+  formatDate(dateStr: string): string {
+    if (!dateStr || dateStr === 'Present') return dateStr;
+    const [yearStr, monthStr] = dateStr.split('-');
+    if (!yearStr || !monthStr) return dateStr;
+    const date = new Date(Number(yearStr), Number(monthStr) - 1);
+    return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  }
+
+  private firstOfMonth(date: Date): Date {
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  }
+
+  private parseYearMonth(str: string | undefined | null): Date | null {
+    if (!str || str === 'Present') return null;
+    const [yearStr, monthStr] = str.split('-');
+    if (!yearStr || !monthStr) return null;
+    return new Date(Number(yearStr), Number(monthStr) - 1, 1);
+  }
+
+  private formatYearMonth(date: Date | null): string {
+    if (!date) return '';
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  }
+
   private offerUndo(message: string, undo: () => void): void {
     const ref = this.snackBar.open(message, 'Undo', { duration: 5000 });
     ref.onAction().subscribe(undo);
   }
 
-  private toProject(raw: Project): Project {
-    return { ...raw, tech_stack: [...raw.tech_stack] };
+  private toProject(raw: ProjectRaw): Project {
+    return {
+      name: raw.name,
+      repository_link: raw.repository_link,
+      summary: raw.summary,
+      date_from: this.formatYearMonth(raw.date_from),
+      date_to: raw.date_to_present ? 'Present' : this.formatYearMonth(raw.date_to),
+      tech_stack: [...raw.tech_stack],
+    };
   }
 
-  private toExperience(raw: Experience): Experience {
-    return { ...raw, tech_stack: [...raw.tech_stack] };
+  private toExperience(raw: ExperienceRaw): Experience {
+    return {
+      title: raw.title,
+      company: raw.company,
+      description: raw.description,
+      date_from: this.formatYearMonth(raw.date_from),
+      date_to: raw.date_to_present ? 'Present' : this.formatYearMonth(raw.date_to),
+      tech_stack: [...raw.tech_stack],
+    };
   }
 
   addProjectTech(index: number, event: MatChipInputEvent): void {
@@ -180,9 +272,13 @@ export class Profile implements OnInit {
   }
 
   private addTech(control: FormControl<string[]>, event: MatChipInputEvent): void {
-    const value = event.value.trim();
-    if (value && !control.value.includes(value)) {
-      control.setValue([...control.value, value]);
+    const existing = new Set(control.value);
+    const toAdd = event.value
+      .split(',')
+      .map((v) => v.trim())
+      .filter((v) => v && !existing.has(v));
+    if (toAdd.length) {
+      control.setValue([...control.value, ...toAdd]);
     }
     event.chipInput.clear();
   }
@@ -202,8 +298,8 @@ export class Profile implements OnInit {
     const profile: UserProfile = {
       summary: value.summary,
       skills: value.skills.map((skill) => ({ name: skill.name, rating: Number(skill.rating) })),
-      projects: value.projects.map((project) => ({ ...project, tech_stack: [...project.tech_stack] })),
-      experience: value.experience.map((exp) => ({ ...exp, tech_stack: [...exp.tech_stack] })),
+      projects: value.projects.map((p) => this.toProject(p)),
+      experience: value.experience.map((e) => this.toExperience(e)),
     };
 
     this.saving.set(true);
@@ -245,24 +341,32 @@ export class Profile implements OnInit {
   }
 
   private buildProjectGroup(project?: Project): ProjectGroup {
-    return this.fb.group({
+    const isPresent = project?.date_to === 'Present';
+    const group = this.fb.group({
       name: this.fb.control(project?.name ?? '', { nonNullable: true, validators: Validators.required }),
       repository_link: this.fb.control(project?.repository_link ?? '', { nonNullable: true }),
       summary: this.fb.control(project?.summary ?? '', { nonNullable: true }),
-      date_from: this.fb.control(project?.date_from ?? '', { nonNullable: true }),
-      date_to: this.fb.control(project?.date_to ?? '', { nonNullable: true }),
+      date_from: this.fb.control<Date | null>(this.parseYearMonth(project?.date_from)),
+      date_to: this.fb.control<Date | null>(this.parseYearMonth(isPresent ? null : project?.date_to)),
+      date_to_present: this.fb.control(isPresent, { nonNullable: true }),
       tech_stack: this.fb.control(project?.tech_stack ?? [], { nonNullable: true }),
     });
+    if (isPresent) group.controls.date_to.disable();
+    return group;
   }
 
   private buildExperienceGroup(exp?: Experience): ExperienceGroup {
-    return this.fb.group({
+    const isPresent = exp?.date_to === 'Present';
+    const group = this.fb.group({
       title: this.fb.control(exp?.title ?? '', { nonNullable: true, validators: Validators.required }),
       company: this.fb.control(exp?.company ?? '', { nonNullable: true }),
       description: this.fb.control(exp?.description ?? '', { nonNullable: true }),
-      date_from: this.fb.control(exp?.date_from ?? '', { nonNullable: true }),
-      date_to: this.fb.control(exp?.date_to ?? '', { nonNullable: true }),
+      date_from: this.fb.control<Date | null>(this.parseYearMonth(exp?.date_from)),
+      date_to: this.fb.control<Date | null>(this.parseYearMonth(isPresent ? null : exp?.date_to)),
+      date_to_present: this.fb.control(isPresent, { nonNullable: true }),
       tech_stack: this.fb.control(exp?.tech_stack ?? [], { nonNullable: true }),
     });
+    if (isPresent) group.controls.date_to.disable();
+    return group;
   }
 }

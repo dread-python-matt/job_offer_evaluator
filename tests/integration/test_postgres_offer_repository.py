@@ -33,3 +33,18 @@ def test_list_offers_returns_offers_from_real_read_only_database():
     assert sample.company
     assert isinstance(sample.tech_stack, list)
     assert isinstance(sample.tech_stack_nice_to_have, list)
+
+
+def test_count_offers_matches_number_of_listed_offers():
+    repository = PostgresOfferRepository(DATABASE_URL)
+
+    assert repository.count_offers() == len(repository.list_offers())
+
+
+def test_list_offers_returns_offers_sorted_by_published_date_newest_first():
+    repository = PostgresOfferRepository(DATABASE_URL)
+
+    offers = repository.list_offers()
+
+    dates = [o.published for o in offers if o.published]
+    assert dates == sorted(dates, reverse=True)

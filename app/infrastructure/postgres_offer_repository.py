@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from app.application.ports import OfferRepository
@@ -14,6 +14,12 @@ class PostgresOfferRepository(OfferRepository):
 
     def list_offers(self) -> list[Offer]:
         with Session(self._engine) as session:
-            rows = session.scalars(select(OfferRow)).all()
+            rows = session.scalars(
+                select(OfferRow).order_by(OfferRow.published_date.desc(), OfferRow.link.asc())
+            ).all()
 
         return [row.to_offer() for row in rows]
+
+    def count_offers(self) -> int:
+        with Session(self._engine) as session:
+            return session.scalar(select(func.count()).select_from(OfferRow)) or 0

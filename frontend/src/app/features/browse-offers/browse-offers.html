@@ -1,0 +1,159 @@
+<section class="page">
+  <div class="page-header">
+    <div class="page-header-icon"><mat-icon>list_alt</mat-icon></div>
+    <div>
+      <h2>Browse all offers</h2>
+      <p class="hint">Every scraped offer, newest first.</p>
+    </div>
+  </div>
+
+  <mat-card appearance="outlined" class="filters-card">
+    <mat-card-header>
+      <div mat-card-avatar class="section-avatar"><mat-icon>tune</mat-icon></div>
+      <mat-card-title>Filters</mat-card-title>
+      <mat-card-subtitle>Narrow down the offers shown below.</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      <form [formGroup]="filters" (ngSubmit)="applyFilters()" class="filters">
+        <mat-form-field class="location-field">
+          <mat-label>Location</mat-label>
+          <input matInput formControlName="location" placeholder="e.g. Warsaw" />
+        </mat-form-field>
+
+        <mat-form-field class="salary-field">
+          <mat-label>Min salary</mat-label>
+          <input matInput type="number" min="0" formControlName="minSalary" />
+          <span matTextSuffix>PLN/mo</span>
+          @if (filters.controls.minSalary.invalid && filters.controls.minSalary.touched) {
+            <mat-error>Must be 0 or more</mat-error>
+          }
+        </mat-form-field>
+
+        <mat-form-field class="tech-field">
+          <mat-label>Tech stack</mat-label>
+          <input matInput formControlName="tech" placeholder="e.g. Python" />
+        </mat-form-field>
+
+        <mat-form-field class="search-field">
+          <mat-label>Title / company</mat-label>
+          <input matInput formControlName="search" placeholder="e.g. backend" />
+        </mat-form-field>
+
+        <mat-form-field class="level-field">
+          <mat-label>Level</mat-label>
+          <mat-select formControlName="level">
+            <mat-option [value]="null">Any level</mat-option>
+            @for (level of levelOptions; track level) {
+              <mat-option [value]="level">{{ level }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+
+        <div class="filter-actions">
+          <button mat-button type="button" (click)="clearFilters()">Clear</button>
+          <button mat-raised-button color="primary" type="submit" [disabled]="filters.invalid">
+            <mat-icon>filter_alt</mat-icon>
+            Apply filters
+          </button>
+        </div>
+      </form>
+    </mat-card-content>
+  </mat-card>
+
+  <div class="sort-bar">
+    <mat-form-field class="sort-field">
+      <mat-label>Sort by</mat-label>
+      <mat-select [value]="sort()" (selectionChange)="onSortChange($event.value)">
+        <mat-option value="relevance">Default order</mat-option>
+        <mat-option value="salary-desc">Salary: high to low</mat-option>
+        <mat-option value="salary-asc">Salary: low to high</mat-option>
+        <mat-option value="recent-desc">Most recent</mat-option>
+        <mat-option value="recent-asc">Oldest first</mat-option>
+      </mat-select>
+    </mat-form-field>
+  </div>
+
+  @if (loading()) {
+    <div class="status-block">
+      <mat-spinner diameter="36" />
+      <p>Loading offers…</p>
+    </div>
+  }
+
+  @if (!loading() && total() === 0) {
+    <div class="status-block">
+      <mat-icon class="empty-icon">search_off</mat-icon>
+      <p>No offers found.</p>
+    </div>
+  }
+
+  @if (!loading() && offers().length) {
+    <div class="results-grid">
+      @for (offer of offers(); track offer.link) {
+        <mat-card appearance="outlined" class="result-card">
+          <mat-card-content>
+            <div class="result-top">
+              <div>
+                <h3 class="result-title">{{ offer.title }}</h3>
+                <p class="result-company">{{ offer.company }}</p>
+              </div>
+            </div>
+
+            @if (offer.locations.length || offer.salaries.length) {
+              <div class="result-meta">
+                @if (offer.locations.length) {
+                  <span class="meta-item">
+                    <mat-icon>place</mat-icon>
+                    {{ offer.locations.join(', ') }}
+                  </span>
+                }
+                @if (salaryLabel(offer)) {
+                  <span class="meta-item">
+                    <mat-icon>payments</mat-icon>
+                    {{ salaryLabel(offer) }}
+                  </span>
+                }
+              </div>
+            }
+
+            @if (offer.levels.length) {
+              <mat-chip-set class="result-levels">
+                @for (level of offer.levels; track level) {
+                  <mat-chip disableRipple>{{ level }}</mat-chip>
+                }
+              </mat-chip-set>
+            }
+
+            @if (offer.tech_stack.length) {
+              <mat-chip-set class="result-skills">
+                @for (tech of offer.tech_stack; track tech) {
+                  <mat-chip disableRipple>{{ tech }}</mat-chip>
+                }
+              </mat-chip-set>
+            }
+
+            <a
+              mat-stroked-button
+              class="result-link"
+              [href]="offer.link"
+              target="_blank"
+              rel="noopener"
+              [attr.aria-label]="'Open ' + offer.title + ' at ' + offer.company + ' (opens in new tab)'"
+            >
+              Open offer
+              <mat-icon iconPositionEnd>open_in_new</mat-icon>
+            </a>
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+
+    <mat-paginator
+      [length]="total()"
+      [pageSize]="pageSize()"
+      [pageIndex]="pageIndex()"
+      [pageSizeOptions]="[10, 20, 50]"
+      (page)="onPage($event)"
+    />
+  }
+</section>

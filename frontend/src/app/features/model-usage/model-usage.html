@@ -1,0 +1,107 @@
+<section class="page">
+  <div class="page-header">
+    <div class="page-header-icon"><mat-icon>monitoring</mat-icon></div>
+    <div>
+      <h2>Model usage</h2>
+      <p class="hint">Cumulative LLM token consumption aggregated by model, persisted across sessions.</p>
+    </div>
+    @if (currentModel(); as cm) {
+      <div class="active-model-badge">
+        <mat-icon>smart_toy</mat-icon>
+        <span class="active-model-label">Active</span>
+        <span class="active-model-name">{{ cm.model }}</span>
+        <span class="active-model-sep">·</span>
+        <span class="active-model-company">{{ cm.company }}</span>
+      </div>
+    }
+    <button mat-icon-button (click)="load()" [disabled]="loading()" aria-label="Refresh usage data" class="refresh-btn">
+      <mat-icon [class.spin]="loading()">refresh</mat-icon>
+    </button>
+  </div>
+
+  @if (loading() && items().length === 0) {
+    <div class="status-block">
+      <mat-spinner diameter="36" />
+      <p>Loading usage data…</p>
+    </div>
+  }
+
+  @if (error()) {
+    <div class="status-block error-block">
+      <mat-icon class="status-icon">error_outline</mat-icon>
+      <p>Failed to load usage data.</p>
+      <button mat-stroked-button (click)="load()">Try again</button>
+    </div>
+  }
+
+  @if (!loading() && !error() && items().length === 0) {
+    <div class="status-block">
+      <mat-icon class="status-icon">toll</mat-icon>
+      <p>No usage recorded yet. Run an AI match to generate data.</p>
+    </div>
+  }
+
+  @if (items().length) {
+    <div class="usage-grid">
+      @for (item of items(); track item.model) {
+        <mat-card appearance="outlined" class="usage-card" [class.active-card]="isActive(item)">
+          <mat-card-content>
+
+            <div class="card-header">
+              <div>
+                <p class="model-company">{{ item.company }}</p>
+                <h3 class="model-name">{{ item.model }}</h3>
+              </div>
+              @if (isActive(item)) {
+                <span class="active-chip">
+                  <mat-icon>radio_button_checked</mat-icon>
+                  Active
+                </span>
+              } @else {
+                <mat-icon class="model-icon">smart_toy</mat-icon>
+              }
+            </div>
+
+            <div class="usage-bar-wrap">
+              <div
+                class="usage-bar"
+                [matTooltip]="(item.input_tokens | number) + ' in · ' + (item.output_tokens | number) + ' out'"
+              >
+                <div class="bar-segment bar-input" [style.width.%]="inputPct(item)"></div>
+                <div class="bar-segment bar-output" [style.width.%]="100 - inputPct(item)"></div>
+              </div>
+              <div class="bar-legend">
+                <span class="legend-item">
+                  <span class="legend-dot dot-input"></span>
+                  In · {{ item.input_tokens | number }}
+                </span>
+                <span class="legend-total">{{ total(item) | number }} total</span>
+                <span class="legend-item">
+                  {{ item.output_tokens | number }} · Out
+                  <span class="legend-dot dot-output"></span>
+                </span>
+              </div>
+            </div>
+
+            @if (item.limits) {
+              <div class="limits-section">
+                <p class="limits-label">
+                  <mat-icon>speed</mat-icon>
+                  Free-tier limits
+                </p>
+                <div class="limits-row">
+                  <span class="limit-chip" matTooltip="Requests per minute">{{ item.limits.rpm | number }} rpm</span>
+                  <span class="limit-chip" matTooltip="Tokens per minute">{{ item.limits.tpm | number }} tpm</span>
+                  <span class="limit-chip" matTooltip="Requests per day">{{ item.limits.rpd | number }} rpd</span>
+                </div>
+              </div>
+            } @else {
+              <p class="no-limits">Limits unavailable for this model</p>
+            }
+
+          </mat-card-content>
+        </mat-card>
+      }
+    </div>
+  }
+</section>

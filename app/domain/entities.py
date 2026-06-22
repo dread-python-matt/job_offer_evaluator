@@ -43,6 +43,15 @@ class UserProfile:
 
 
 @dataclass(frozen=True)
+class Salary:
+    contract_type: str
+    min_amount: float | None
+    max_amount: float | None
+    currency: str
+    period: str
+
+
+@dataclass(frozen=True)
 class Offer:
     link: str
     title: str
@@ -51,7 +60,11 @@ class Offer:
     tech_stack_nice_to_have: list[str] = field(default_factory=list)
     description: str = ""
     locations: list[str] = field(default_factory=list)
-    salary_range: str | None = None
+    salaries: list[Salary] = field(default_factory=list)
+    expired: bool = False
+    expires: str | None = None
+    levels: list[str] = field(default_factory=list)
+    published: str | None = None
 
     def skill_set(self) -> set[str]:
         return {tech.lower() for tech in (*self.tech_stack, *self.tech_stack_nice_to_have)}

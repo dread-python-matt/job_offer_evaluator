@@ -1,7 +1,15 @@
 import pytest
 
-from app.domain.entities import Offer, UserProfile
-from app.domain.matching import FilterChain, MatchCriteria, MatchScore, OfferFilter, ScoreComponent
+from app.domain.entities import Offer, Salary, UserProfile
+from app.domain.matching import (
+    FilterChain,
+    MatchCriteria,
+    MatchedOffer,
+    MatchScore,
+    OfferFilter,
+    ScoreComponent,
+    sort_matched_offers,
+)
 
 
 def test_overall_score_is_zero_with_no_components():
@@ -83,3 +91,93 @@ def test_remove_filter_removes_a_filter_from_the_chain():
     chain.remove_filter(failing_filter)
 
     assert chain.passes(_offer(), _criteria()) is True
+
+
+def _matched(link: str, score: float, salary: Salary | None = None, published: str | None = None) -> MatchedOffer:
+    offer = Offer(
+        link=link,
+        title="Dev",
+        company="Acme",
+        salaries=[salary] if salary else [],
+        published=published,
+    )
+    return MatchedOffer(offer=offer, score=score, matched_skills=set())
+
+
+def test_sort_matched_offers_sorts_by_score_descending_by_default():
+    matches = [_matched("a", 0.2), _matched("b", 0.9)]
+
+    sorted_matches = sort_matched_offers(matches, "score", "desc")
+
+    assert [m.offer.link for m in sorted_matches] == ["b", "a"]
+
+
+def test_sort_matched_offers_sorts_by_score_ascending_when_requested():
+    matches = [_matched("a", 0.9), _matched("b", 0.2)]
+
+    sorted_matches = sort_matched_offers(matches, "score", "asc")
+
+    assert [m.offer.link for m in sorted_matches] == ["b", "a"]
+
+
+def test_sort_matched_offers_sorts_by_salary():
+    matches = [
+        _matched("a", 0.5, salary=Salary("permanent", 5000, 6000, "PLN", "month")),
+        _matched("b", 0.5, salary=Salary("permanent", 20000, 25000, "PLN", "month")),
+    ]
+
+    sorted_matches = sort_matched_offers(matches, "salary", "desc")
+
+    assert [m.offer.link for m in sorted_matches] == ["b", "a"]
+
+
+def test_sort_matched_offers_sorts_offers_missing_salary_last():
+    matches = [
+        _matched("a", 0.5),
+        _matched("b", 0.5, salary=Salary("permanent", 20000, 25000, "PLN", "month")),
+    ]
+
+    sorted_matches = sort_matched_offers(matches, "salary", "desc")
+
+    assert [m.offer.link for m in sorted_matches] == ["b", "a"]
+
+
+def test_sort_matched_offers_sorts_by_recent():
+    matches = [
+        _matched("a", 0.5, published="2026-05-01"),
+        _matched("b", 0.5, published="2026-06-10"),
+    ]
+
+    sorted_matches = sort_matched_offers(matches, "recent", "desc")
+
+    assert [m.offer.link for m in sorted_matches] == ["b", "a"]
+
+
+def test_sort_matched_offers_score_recent_sorts_by_score_primarily():
+    matches = [_matched("a", 0.3, published="2026-06-20"), _matched("b", 0.9, published="2026-01-01")]
+
+    sorted_matches = sort_matched_offers(matches, "score_recent", "desc")
+
+    assert [m.offer.link for m in sorted_matches] == ["b", "a"]
+
+
+def test_sort_matched_offers_score_recent_breaks_ties_by_recency():
+    matches = [
+        _matched("a", 0.7, published="2026-05-01"),
+        _matched("b", 0.7, published="2026-06-10"),
+    ]
+
+    sorted_matches = sort_matched_offers(matches, "score_recent", "desc")
+
+    assert [m.offer.link for m in sorted_matches] == ["b", "a"]
+
+
+def test_sort_matched_offers_score_recent_puts_missing_published_last_on_tie():
+    matches = [
+        _matched("a", 0.7),
+        _matched("b", 0.7, published="2026-06-10"),
+    ]
+
+    sorted_matches = sort_matched_offers(matches, "score_recent", "desc")
+
+    assert [m.offer.link for m in sorted_matches] == ["b", "a"]
