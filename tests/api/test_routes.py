@@ -12,9 +12,11 @@ from app.application.use_cases import (
     MatchOffersWithAiUseCase,
     SaveUserProfileUseCase,
 )
-from app.application.ports import AiScoringError, ModelUsageSummary
+from app.application.ports import ModelUsageSummary
+from app.domain.errors import AiScoringError
 from app.domain.entities import Offer, Salary, Skill, UserProfile
-from app.domain.matching import FilterChain, MatchScore, OfferScorer
+from app.domain.filters import FilterChain
+from app.domain.scoring import MatchScore, OfferScorer
 from app.domain.salary_calculator import ContractType, SalaryCalculator, net_monthly_take_home
 from app.infrastructure.offer_filters import (
     ExpiredFilter,
@@ -35,7 +37,7 @@ from app.presentation.api.routes import (
     get_save_profile_use_case,
     router,
 )
-from tests.unit.application.test_use_cases import (
+from tests.fakes import (
     FakeModelUsageRepository,
     FakeOfferRepository,
     FakeUserProfileRepository,

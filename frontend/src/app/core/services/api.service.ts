@@ -1,4 +1,4 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, map } from 'rxjs';
 
@@ -15,6 +15,23 @@ import {
   UserProfile,
 } from '../models/profile.model';
 
+export interface MatchOffersOptions {
+  candidate: UserProfile;
+  offersLimit: number | null;
+  minScore: number;
+  location: string | null;
+  minSalary: number | null;
+  level: string[];
+  tech: string[];
+  sortBy?: MatchSortBy;
+  sortOrder?: SortOrder;
+}
+
+export interface MatchOffersWithAiOptions extends MatchOffersOptions {
+  offersToScore?: number;
+  aiMinScore?: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
@@ -28,17 +45,8 @@ export class ApiService {
     return this.http.post<UserProfile>(`${this.baseUrl}/profile`, profile);
   }
 
-  matchOffers(
-    candidate: UserProfile,
-    offersLimit: number | null,
-    minScore: number,
-    location: string | null,
-    minSalary: number | null,
-    level: string[],
-    tech: string[],
-    sortBy: MatchSortBy = 'score',
-    sortOrder: SortOrder = 'desc',
-  ): Observable<MatchedOffer[]> {
+  matchOffers(options: MatchOffersOptions): Observable<MatchedOffer[]> {
+    const { candidate, offersLimit, minScore, location, minSalary, level, tech, sortBy = 'score', sortOrder = 'desc' } = options;
     return this.http.post<MatchedOffer[]>(`${this.baseUrl}/offers/match`, {
       candidate,
       offers_limit: offersLimit,
@@ -52,19 +60,20 @@ export class ApiService {
     });
   }
 
-  matchOffersWithAi(
-    candidate: UserProfile,
-    offersLimit: number | null,
-    minScore: number,
-    location: string | null,
-    minSalary: number | null,
-    level: string[],
-    tech: string[],
-    sortBy: MatchSortBy = 'score',
-    sortOrder: SortOrder = 'desc',
-    offersToScore: number = 20,
-    aiMinScore: number = 0,
-  ): Observable<AiMatchResult> {
+  matchOffersWithAi(options: MatchOffersWithAiOptions): Observable<AiMatchResult> {
+    const {
+      candidate,
+      offersLimit,
+      minScore,
+      location,
+      minSalary,
+      level,
+      tech,
+      sortBy = 'score',
+      sortOrder = 'desc',
+      offersToScore = 20,
+      aiMinScore = 0,
+    } = options;
     return this.http.post<AiMatchResult>(`${this.baseUrl}/offers/match/ai`, {
       candidate,
       offers_limit: offersLimit,
@@ -95,15 +104,20 @@ export class ApiService {
   }
 
   getOffers(limit: number, offset: number, filters: OfferFilters): Observable<OffersPage> {
-    const params: Record<string, string | number> = { limit, offset };
-    if (filters.location) params['location'] = filters.location;
-    if (filters.minSalary != null) params['min_salary'] = filters.minSalary;
-    if (filters.tech) params['tech'] = filters.tech;
-    if (filters.search) params['search'] = filters.search;
-    if (filters.level) params['level'] = filters.level;
+    let params = new HttpParams().set('limit', limit).set('offset', offset);
+
+    if (filters.location) params = params.set('location', filters.location);
+    if (filters.minSalary != null) params = params.set('min_salary', filters.minSalary);
+    if (filters.tech?.length) {
+      for (const t of filters.tech) {
+        params = params.append('tech', t);
+      }
+    }
+    if (filters.search) params = params.set('search', filters.search);
+    if (filters.level) params = params.set('level', filters.level);
     if (filters.sortBy) {
-      params['sort_by'] = filters.sortBy;
-      params['sort_order'] = filters.sortOrder;
+      params = params.set('sort_by', filters.sortBy);
+      params = params.set('sort_order', filters.sortOrder);
     }
 
     return this.http.get<OffersPage>(`${this.baseUrl}/offers`, { params });

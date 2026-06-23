@@ -14,3 +14,6 @@ class LoggingModelUsageTracker(ModelUsageTracker):
             usage.output_tokens,
             usage.input_tokens + usage.output_tokens,
         )
+
+    def flush(self) -> list[ModelUsage]:
+        return []

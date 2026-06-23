@@ -1,5 +1,6 @@
 import { PercentPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { COMMA, ENTER } from '@angular/cdk/keycodes';
 import { MatButtonModule } from '@angular/material/button';
@@ -11,27 +12,13 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSliderModule } from '@angular/material/slider';
-import { MatSnackBar } from '@angular/material/snack-bar';
 import { HttpErrorResponse } from '@angular/common/http';
-import { switchMap } from 'rxjs';
+import { EMPTY, Subject, catchError, switchMap, tap } from 'rxjs';
 
 import { ApiService } from '../../core/services/api.service';
-import { MatchedOffer, MatchSortBy } from '../../core/models/profile.model';
-import { formatSalaries } from '../../core/utils/offer-format';
+import { MatchSortBy } from '../../core/models/profile.model';
+import { MatchedOfferRow, toMatchedOfferRow } from '../../core/utils/offer-row';
 import { LEVEL_OPTIONS } from '../../core/constants/offer-levels';
-
-interface MatchedOfferRow {
-  title: string;
-  company: string;
-  score: number;
-  scoreLabel: string;
-  scoreClass: 'score-high' | 'score-medium' | 'score-low';
-  matchedSkills: string[];
-  link: string;
-  locations: string[];
-  salaryLabel: string | null;
-  levels: string[];
-}
 
 export type MatchSortOption =
   | 'score'
@@ -75,7 +62,6 @@ const MATCH_SORT_OPTION_VALUES: Record<
 export class MatchOffers implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly api = inject(ApiService);
-  private readonly snackBar = inject(MatSnackBar);
 
   readonly levelOptions = LEVEL_OPTIONS;
   readonly separatorKeyCodes = [ENTER, COMMA] as const;
@@ -85,10 +71,9 @@ export class MatchOffers implements OnInit {
   readonly results = signal<MatchedOfferRow[]>([]);
   readonly totalOffers = signal<number | null>(null);
   readonly techFilter = signal<string[]>([]);
+  readonly errorMessage = signal<string | null>(null);
 
-  ngOnInit(): void {
-    this.api.getOffersCount().subscribe((total) => this.totalOffers.set(total));
-  }
+  private readonly searchTrigger$ = new Subject<void>();
 
   readonly filters = this.fb.group({
     offersLimit: this.fb.control<number | null>(null, { validators: [Validators.min(1)] }),
@@ -98,6 +83,57 @@ export class MatchOffers implements OnInit {
     level: this.fb.control<string[]>([], { nonNullable: true }),
     sort: this.fb.control<MatchSortOption>('score', { nonNullable: true }),
   });
+
+  constructor() {
+    this.searchTrigger$
+      .pipe(
+        tap(() => {
+          this.loading.set(true);
+          this.errorMessage.set(null);
+        }),
+        switchMap(() => {
+          const { offersLimit, minScore, location, minSalary, level, sort } =
+            this.filters.getRawValue();
+          const trimmedLocation = location?.trim() || null;
+          const { sortBy, sortOrder } = MATCH_SORT_OPTION_VALUES[sort];
+
+          return this.api.getProfile().pipe(
+            switchMap((candidate) =>
+              this.api.matchOffers({
+                candidate,
+                offersLimit,
+                minScore,
+                location: trimmedLocation,
+                minSalary,
+                level,
+                tech: this.techFilter(),
+                sortBy,
+                sortOrder,
+              }),
+            ),
+            catchError((err: HttpErrorResponse) => {
+              this.loading.set(false);
+              const message =
+                err.status === 404
+                  ? 'Save your profile before matching offers.'
+                  : 'Failed to load matched offers.';
+              this.errorMessage.set(message);
+              return EMPTY;
+            }),
+          );
+        }),
+        takeUntilDestroyed(),
+      )
+      .subscribe((matches) => {
+        this.results.set(matches.map(toMatchedOfferRow));
+        this.loading.set(false);
+        this.searched.set(true);
+      });
+  }
+
+  ngOnInit(): void {
+    this.api.getOffersCount().subscribe((total) => this.totalOffers.set(total));
+  }
 
   addTech(event: MatChipInputEvent): void {
     const value = (event.value || '').trim();
@@ -116,63 +152,6 @@ export class MatchOffers implements OnInit {
       this.filters.markAllAsTouched();
       return;
     }
-
-    const { offersLimit, minScore, location, minSalary, level, sort } = this.filters.getRawValue();
-    const trimmedLocation = location?.trim() || null;
-    const { sortBy, sortOrder } = MATCH_SORT_OPTION_VALUES[sort];
-    this.loading.set(true);
-    this.api
-      .getProfile()
-      .pipe(
-        switchMap((candidate) =>
-          this.api.matchOffers(
-            candidate,
-            offersLimit,
-            minScore,
-            trimmedLocation,
-            minSalary,
-            level,
-            this.techFilter(),
-            sortBy,
-            sortOrder,
-          ),
-        ),
-      )
-      .subscribe({
-        next: (matches) => {
-          this.results.set(matches.map((match) => this.toRow(match)));
-          this.loading.set(false);
-          this.searched.set(true);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.loading.set(false);
-          const message =
-            err.status === 404
-              ? 'Save your profile before matching offers.'
-              : 'Failed to load matched offers.';
-          this.snackBar.open(message, 'Dismiss', { duration: 4000 });
-        },
-      });
-  }
-
-  private toRow(match: MatchedOffer): MatchedOfferRow {
-    return {
-      title: match.title,
-      company: match.company,
-      score: match.score,
-      scoreLabel: `${Math.round(match.score * 100)}%`,
-      scoreClass: this.scoreClass(match.score),
-      matchedSkills: [...match.matched_skills].sort(),
-      link: match.link,
-      locations: match.locations,
-      salaryLabel: formatSalaries(match.salaries),
-      levels: match.levels,
-    };
-  }
-
-  private scoreClass(score: number): MatchedOfferRow['scoreClass'] {
-    if (score >= 0.7) return 'score-high';
-    if (score >= 0.4) return 'score-medium';
-    return 'score-low';
+    this.searchTrigger$.next();
   }
 }

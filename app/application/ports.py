@@ -1,7 +1,11 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from app.domain.entities import Offer, UserProfile
+
+if TYPE_CHECKING:
+    from app.domain.filters import OfferBrowseFilters
 
 
 class UserProfileRepository(ABC):
@@ -19,6 +23,11 @@ class OfferRepository(ABC):
     @abstractmethod
     def count_offers(self) -> int: ...
 
+    @abstractmethod
+    def browse_offers(
+        self, filters: "OfferBrowseFilters", limit: int, offset: int
+    ) -> tuple[list[Offer], int]: ...
+
 
 @dataclass(frozen=True)
 class ModelUsage:
@@ -32,6 +41,9 @@ class ModelUsage:
 class ModelUsageTracker(ABC):
     @abstractmethod
     def record(self, usage: ModelUsage) -> None: ...
+
+    @abstractmethod
+    def flush(self) -> list[ModelUsage]: ...
 
 
 class InMemoryModelUsageTracker(ModelUsageTracker):
@@ -87,7 +99,3 @@ class ModelLimitsRegistry(ABC):
 class ExternalUsageProvider(ABC):
     @abstractmethod
     def get_today_usage(self) -> list[ModelUsageSummary]: ...
-
-
-class AiScoringError(Exception):
-    pass

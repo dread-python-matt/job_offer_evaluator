@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.application.ports import ExternalUsageProvider, ModelUsageSummary
-from app.infrastructure.llm_scoring_strategy import company_from_model
+from app.infrastructure.llm_utils import company_from_model
 
 
 class OpenAIExternalUsageProvider(ExternalUsageProvider):
@@ -11,10 +11,16 @@ class OpenAIExternalUsageProvider(ExternalUsageProvider):
         self._client = client
 
     def get_today_usage(self) -> list[ModelUsageSummary]:
-        today_start = int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+        today_start = int(
+            datetime.now(timezone.utc)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+            .timestamp()
+        )
         response = self._client.organization.usage.completions.list(start_time=today_start)
 
-        totals: dict[str, dict[str, int]] = defaultdict(lambda: {"input_tokens": 0, "output_tokens": 0})
+        totals: dict[str, dict[str, int]] = defaultdict(
+            lambda: {"input_tokens": 0, "output_tokens": 0}
+        )
         for bucket in response.data:
             for result in bucket.results:
                 if not result.model:

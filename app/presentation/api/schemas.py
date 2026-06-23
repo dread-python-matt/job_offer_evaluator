@@ -4,8 +4,10 @@ from pydantic import BaseModel, Field
 
 from app.application.ports import ModelUsageWithLimits
 from app.domain.entities import Experience, Offer, Project, Salary, Skill, UserProfile
-from app.domain.matching import MatchCriteria, MatchedOffer, MatchSortBy, SortOrder
+from app.domain.filters import MatchCriteria
 from app.domain.salary_calculator import ContractType, NetSalaryBreakdown, net_monthly_take_home
+from app.domain.scoring import MatchedOffer
+from app.domain.sorting import MatchSortBy, SortOrder
 
 
 class SkillSchema(BaseModel):

@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormArray, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { MatButtonModule } from '@angular/material/button';
@@ -88,13 +89,14 @@ export class Profile implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly api = inject(ApiService);
   private readonly snackBar = inject(MatSnackBar);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly saving = signal(false);
   readonly mode = signal<'view' | 'edit'>('edit');
   readonly profileData = signal<UserProfile | null>(null);
 
   readonly form = this.fb.group({
-    summary: this.fb.control('', { nonNullable: true }),
+    summary: this.fb.control('', { nonNullable: true, validators: Validators.required }),
     skills: this.fb.array<SkillGroup>([]),
     projects: this.fb.array<ProjectGroup>([]),
     experience: this.fb.array<ExperienceGroup>([]),
@@ -230,7 +232,7 @@ export class Profile implements OnInit {
 
   private offerUndo(message: string, undo: () => void): void {
     const ref = this.snackBar.open(message, 'Undo', { duration: 5000 });
-    ref.onAction().subscribe(undo);
+    ref.onAction().pipe(takeUntilDestroyed(this.destroyRef)).subscribe(undo);
   }
 
   private toProject(raw: ProjectRaw): Project {
@@ -345,8 +347,13 @@ export class Profile implements OnInit {
     const group = this.fb.group({
       name: this.fb.control(project?.name ?? '', { nonNullable: true, validators: Validators.required }),
       repository_link: this.fb.control(project?.repository_link ?? '', { nonNullable: true }),
-      summary: this.fb.control(project?.summary ?? '', { nonNullable: true }),
-      date_from: this.fb.control<Date | null>(this.parseYearMonth(project?.date_from)),
+      summary: this.fb.control(project?.summary ?? '', {
+        nonNullable: true,
+        validators: Validators.required,
+      }),
+      date_from: this.fb.control<Date | null>(this.parseYearMonth(project?.date_from), {
+        validators: Validators.required,
+      }),
       date_to: this.fb.control<Date | null>(this.parseYearMonth(isPresent ? null : project?.date_to)),
       date_to_present: this.fb.control(isPresent, { nonNullable: true }),
       tech_stack: this.fb.control(project?.tech_stack ?? [], { nonNullable: true }),
@@ -359,9 +366,17 @@ export class Profile implements OnInit {
     const isPresent = exp?.date_to === 'Present';
     const group = this.fb.group({
       title: this.fb.control(exp?.title ?? '', { nonNullable: true, validators: Validators.required }),
-      company: this.fb.control(exp?.company ?? '', { nonNullable: true }),
-      description: this.fb.control(exp?.description ?? '', { nonNullable: true }),
-      date_from: this.fb.control<Date | null>(this.parseYearMonth(exp?.date_from)),
+      company: this.fb.control(exp?.company ?? '', {
+        nonNullable: true,
+        validators: Validators.required,
+      }),
+      description: this.fb.control(exp?.description ?? '', {
+        nonNullable: true,
+        validators: Validators.required,
+      }),
+      date_from: this.fb.control<Date | null>(this.parseYearMonth(exp?.date_from), {
+        validators: Validators.required,
+      }),
       date_to: this.fb.control<Date | null>(this.parseYearMonth(isPresent ? null : exp?.date_to)),
       date_to_present: this.fb.control(isPresent, { nonNullable: true }),
       tech_stack: this.fb.control(exp?.tech_stack ?? [], { nonNullable: true }),

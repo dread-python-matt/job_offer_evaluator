@@ -1,5 +1,5 @@
 from app.domain.entities import Offer, UserProfile
-from app.domain.matching import MatchCriteria
+from app.domain.filters import MatchCriteria
 from app.infrastructure.offer_filters import LevelFilter
 
 

@@ -1,5 +1,5 @@
 from app.domain.entities import Offer
-from app.domain.matching import level_matches, text_matches, tech_stack_matches
+from app.domain.filters import level_matches, tech_stack_matches, text_matches
 
 
 def _offer(

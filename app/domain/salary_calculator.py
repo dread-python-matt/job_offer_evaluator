@@ -9,8 +9,41 @@ calculator that needs only a single month's gross amount as input.
 from dataclasses import dataclass
 from enum import Enum
 
-from app.domain.entities import Salary
-from app.domain.matching import monthly_gross_amount
+from app.domain.entities import Offer, Salary
+
+_HOURS_PER_MONTH = 168
+_DAYS_PER_MONTH = 21
+_MONTHS_PER_YEAR = 12
+
+_MONTHLY_FACTOR_BY_PERIOD = {
+    "month": 1.0,
+    "hour": float(_HOURS_PER_MONTH),
+    "day": float(_DAYS_PER_MONTH),
+    "year": 1.0 / _MONTHS_PER_YEAR,
+}
+
+
+def monthly_gross_amount(salary: Salary) -> float | None:
+    """A salary entry's amount normalized to a monthly gross figure, or `None` if its
+    `period` can't be normalized (e.g. unknown/blank)."""
+    amount = salary.max_amount if salary.max_amount is not None else salary.min_amount
+    if amount is None:
+        return None
+    factor = _MONTHLY_FACTOR_BY_PERIOD.get(salary.period)
+    if factor is None:
+        return None
+    return amount * factor
+
+
+def representative_monthly_salary(offer: Offer) -> float | None:
+    """The offer's best (highest) salary entry normalized to a monthly amount, or
+    `None` if it has no salary entries whose period can be normalized."""
+    monthly_amounts = [
+        amount
+        for salary in offer.salaries
+        if (amount := monthly_gross_amount(salary)) is not None
+    ]
+    return max(monthly_amounts) if monthly_amounts else None
 
 # -- Employee-side ZUS rates (employment & civil contracts; the employer/payer
 # finances the remaining share, which doesn't reduce the worker's own take-home). --

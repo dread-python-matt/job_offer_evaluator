@@ -31,7 +31,23 @@
 
         <mat-form-field class="tech-field">
           <mat-label>Tech stack</mat-label>
-          <input matInput formControlName="tech" placeholder="e.g. Python" />
+          <mat-chip-grid #techChipGrid>
+            @for (tech of techFilter(); track tech) {
+              <mat-chip removable (removed)="removeTech(tech)">
+                {{ tech }}
+                <button matChipRemove [attr.aria-label]="'Remove ' + tech">
+                  <mat-icon>cancel</mat-icon>
+                </button>
+              </mat-chip>
+            }
+            <input
+              placeholder="e.g. Python"
+              [matChipInputFor]="techChipGrid"
+              [matChipInputSeparatorKeyCodes]="separatorKeyCodes"
+              (matChipInputTokenEnd)="addTech($event)"
+            />
+          </mat-chip-grid>
+          <mat-hint>Enter or comma to add</mat-hint>
         </mat-form-field>
 
         <mat-form-field class="search-field">

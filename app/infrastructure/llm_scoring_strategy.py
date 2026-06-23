@@ -5,20 +5,12 @@ import openai
 from agents import Agent, Runner
 from pydantic import BaseModel, Field
 
-from app.application.ports import AiScoringError, ModelUsage, ModelUsageTracker
+from app.application.ports import ModelUsage, ModelUsageTracker
+from app.domain.errors import AiScoringError
 from app.domain.entities import Offer, UserProfile
-from app.domain.matching import MatchScore, OfferScorer, ScoreComponent
+from app.domain.scoring import MatchScore, OfferScorer, ScoreComponent
+from app.infrastructure.llm_utils import company_from_model
 from app.infrastructure.scoring_strategies import SkillBasedScorer
-
-def company_from_model(model: str) -> str:
-    if model.startswith("gemini"):
-        return "Google"
-    if model.startswith(("gpt-", "o1-", "o3-", "o4-")):
-        return "OpenAI"
-    if model.startswith("claude"):
-        return "Anthropic"
-    return "Unknown"
-
 
 _INSTRUCTIONS = (
     "You evaluate how well a candidate fits a job offer, based on the candidate's "

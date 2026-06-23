@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.application.ports import AiScoringError
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     CountOffersUseCase,
@@ -11,7 +10,9 @@ from app.application.use_cases import (
     MatchOffersWithAiUseCase,
     SaveUserProfileUseCase,
 )
-from app.domain.matching import OfferBrowseFilters, SortBy, SortOrder
+from app.domain.errors import AiScoringError
+from app.domain.filters import OfferBrowseFilters
+from app.domain.sorting import SortBy, SortOrder
 from app.presentation.api.schemas import (
     AiMatchResponseSchema,
     AiUsageSchema,

@@ -15,6 +15,9 @@ class PostgresModelUsageRepository(ModelUsageRepository, ModelUsageTracker):
     def record(self, usage: ModelUsage) -> None:
         self.save(usage)
 
+    def flush(self) -> list[ModelUsage]:
+        return []
+
     def save(self, usage: ModelUsage) -> None:
         with Session(self._engine) as session:
             session.add(ModelUsageRow(

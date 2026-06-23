@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.application.ports import InMemoryModelUsageTracker
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     CountOffersUseCase,
@@ -11,20 +12,24 @@ from app.application.use_cases import (
     MatchOffersWithAiUseCase,
     SaveUserProfileUseCase,
 )
-from app.application.ports import InMemoryModelUsageTracker
-from app.config import DATABASE_URL, GEMINI_API_KEY, LLM_PROVIDER, OPENAI_ADMIN_KEY, OPENAI_API_KEY, SCORING_AGENT_MODEL, USER_PROFILE_PATH
-from app.domain.matching import FilterChain
-from app.infrastructure.gemini_client import configure_gemini
-from app.infrastructure.openai_client import configure_openai
+from app.config import (
+    CORS_ORIGINS,
+    DATABASE_URL,
+    GEMINI_API_KEY,
+    LLM_PROVIDER,
+    OPENAI_ADMIN_KEY,
+    OPENAI_API_KEY,
+    SCORING_AGENT_MODEL,
+    USER_PROFILE_PATH,
+)
+from app.domain.filters import FilterChain
 from app.infrastructure.composite_model_usage_tracker import CompositeModelUsageTracker
-from app.infrastructure.llm_scoring_strategy import LLMScoringStrategy, company_from_model
+from app.infrastructure.gemini_client import configure_gemini
+from app.infrastructure.llm_scoring_strategy import LLMScoringStrategy
+from app.infrastructure.llm_utils import company_from_model
+from app.infrastructure.markdown_profile_repository import MarkdownUserProfileRepository
 from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
 from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
-from app.infrastructure.openai_usage_provider import OpenAIExternalUsageProvider
-from app.infrastructure.postgres_model_usage_repository import PostgresModelUsageRepository
-from app.infrastructure.translation_agents import build_polish_to_english_agent
-from app.infrastructure.markdown_profile_repository import MarkdownUserProfileRepository
-from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
 from app.infrastructure.offer_filters import (
     ExpiredFilter,
     LevelFilter,
@@ -32,7 +37,12 @@ from app.infrastructure.offer_filters import (
     SalaryFilter,
     SkillFilter,
 )
+from app.infrastructure.openai_client import configure_openai
+from app.infrastructure.openai_usage_provider import OpenAIExternalUsageProvider
+from app.infrastructure.postgres_model_usage_repository import PostgresModelUsageRepository
+from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
 from app.infrastructure.scoring_strategies import SkillBasedScorer
+from app.infrastructure.translation_agents import build_polish_to_english_agent
 from app.presentation.api.routes import (
     get_calculate_salary_use_case,
     get_count_offers_use_case,
@@ -98,7 +108,7 @@ get_model_usage_summary_use_case_instance = GetModelUsageSummaryUseCase(
 app = FastAPI(title="Job Offer Matcher")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:4200"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

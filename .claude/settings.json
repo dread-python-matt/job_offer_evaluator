@@ -1,5 +1,37 @@
 {
   "permissions": {
-    "defaultMode": "acceptEdits"
+    "defaultMode": "acceptEdits",
+    "allow": [
+
+      "PowerShell(uv run ruff check *)",
+      "PowerShell(uv run pytest *)",
+      "PowerShell(uv run mypy *)",
+      "PowerShell(git status)",
+      "PowerShell(git diff *)"
+    ],
+    "ask": [
+      "PowerShell(git commit *)",
+      "PowerShell(git push *)",
+      "PowerShell(git reset *)",
+      "PowerShell(git clean *)",
+      "PowerShell(Remove-Item *)",
+      "PowerShell(New-Item *)",
+      "PowerShell(Set-Content *)",
+      "PowerShell(Move-Item *)",
+      "PowerShell(Copy-Item *)"
+    ],
+    "deny": [
+      "Read(//**/.env)",
+      "Read(//**/.env.*)",
+      "Read(//**/secrets/**)",
+      "Read(//c/Users/roman/.ssh/**)",
+      "Read(//c/Users/roman/.aws/**)",
+      "PowerShell(Invoke-WebRequest *)",
+      "PowerShell(curl.exe *)",
+      "PowerShell(wget *)",
+      "PowerShell(Start-Process *)",
+      "PowerShell(powershell *)",
+      "PowerShell(pwsh *)"
+    ]
   }
 }

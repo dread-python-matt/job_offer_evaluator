@@ -32,6 +32,7 @@ export interface Salary {
   contract_type: string;
   min: number | null;
   max: number | null;
+  net_monthly: number | null;
   currency: string;
   period: string;
 }
@@ -78,7 +79,7 @@ export interface OffersPage {
 export interface OfferFilters {
   location: string | null;
   minSalary: number | null;
-  tech: string | null;
+  tech: string[] | null;
   search: string | null;
   level: string | null;
   sortBy: SortBy | null;

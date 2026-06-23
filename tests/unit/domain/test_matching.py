@@ -1,15 +1,9 @@
 import pytest
 
 from app.domain.entities import Offer, Salary, UserProfile
-from app.domain.matching import (
-    FilterChain,
-    MatchCriteria,
-    MatchedOffer,
-    MatchScore,
-    OfferFilter,
-    ScoreComponent,
-    sort_matched_offers,
-)
+from app.domain.filters import FilterChain, MatchCriteria, OfferFilter
+from app.domain.scoring import MatchedOffer, MatchScore, ScoreComponent
+from app.domain.sorting import sort_matched_offers, sort_offers
 
 
 def test_overall_score_is_zero_with_no_components():
@@ -181,3 +175,116 @@ def test_sort_matched_offers_score_recent_puts_missing_published_last_on_tie():
     sorted_matches = sort_matched_offers(matches, "score_recent", "desc")
 
     assert [m.offer.link for m in sorted_matches] == ["b", "a"]
+
+
+def test_sort_matched_offers_score_recent_puts_missing_published_last_on_tie_ascending():
+    matches = [
+        _matched("a", 0.7),
+        _matched("b", 0.7, published="2026-06-10"),
+    ]
+
+    sorted_matches = sort_matched_offers(matches, "score_recent", "asc")
+
+    assert [m.offer.link for m in sorted_matches] == ["b", "a"]
+
+
+# --- sort_offers ---
+
+
+def _simple_offer(link: str, salary: Salary | None = None, published: str | None = None) -> Offer:
+    return Offer(
+        link=link,
+        title="Dev",
+        company="Acme",
+        salaries=[salary] if salary else [],
+        published=published,
+    )
+
+
+def test_sort_offers_with_no_sort_by_defaults_to_recent_desc():
+    offers = [
+        _simple_offer("a", published="2026-01-01"),
+        _simple_offer("b", published="2026-06-10"),
+    ]
+
+    result = sort_offers(offers, sort_by=None)
+
+    assert [o.link for o in result] == ["b", "a"]
+
+
+def test_sort_offers_with_no_sort_by_respects_asc_order():
+    offers = [
+        _simple_offer("b", published="2026-06-10"),
+        _simple_offer("a", published="2026-01-01"),
+    ]
+
+    result = sort_offers(offers, sort_by=None, sort_order="asc")
+
+    assert [o.link for o in result] == ["a", "b"]
+
+
+def test_sort_offers_with_no_sort_by_places_undated_offers_last():
+    offers = [
+        _simple_offer("a"),
+        _simple_offer("b", published="2026-06-10"),
+    ]
+
+    result = sort_offers(offers, sort_by=None)
+
+    assert [o.link for o in result] == ["b", "a"]
+
+
+def test_sort_offers_sorts_by_salary_descending():
+    offers = [
+        _simple_offer("a", salary=Salary("permanent", 5000, 6000, "PLN", "month")),
+        _simple_offer("b", salary=Salary("permanent", 20000, 25000, "PLN", "month")),
+        _simple_offer("c", salary=Salary("permanent", 10000, 12000, "PLN", "month")),
+    ]
+
+    result = sort_offers(offers, sort_by="salary", sort_order="desc")
+
+    assert [o.link for o in result] == ["b", "c", "a"]
+
+
+def test_sort_offers_sorts_by_salary_ascending():
+    offers = [
+        _simple_offer("a", salary=Salary("permanent", 10000, 12000, "PLN", "month")),
+        _simple_offer("b", salary=Salary("permanent", 5000, 6000, "PLN", "month")),
+    ]
+
+    result = sort_offers(offers, sort_by="salary", sort_order="asc")
+
+    assert [o.link for o in result] == ["b", "a"]
+
+
+def test_sort_offers_places_offers_without_salary_last():
+    offers = [
+        _simple_offer("a"),
+        _simple_offer("b", salary=Salary("permanent", 20000, 25000, "PLN", "month")),
+    ]
+
+    result = sort_offers(offers, sort_by="salary", sort_order="desc")
+
+    assert [o.link for o in result] == ["b", "a"]
+
+
+def test_sort_offers_sorts_by_recent_descending():
+    offers = [
+        _simple_offer("a", published="2026-05-01"),
+        _simple_offer("b", published="2026-06-10"),
+    ]
+
+    result = sort_offers(offers, sort_by="recent", sort_order="desc")
+
+    assert [o.link for o in result] == ["b", "a"]
+
+
+def test_sort_offers_places_offers_without_published_date_last():
+    offers = [
+        _simple_offer("a"),
+        _simple_offer("b", published="2026-06-10"),
+    ]
+
+    result = sort_offers(offers, sort_by="recent", sort_order="desc")
+
+    assert [o.link for o in result] == ["b", "a"]

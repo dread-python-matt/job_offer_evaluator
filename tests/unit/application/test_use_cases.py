@@ -1,6 +1,6 @@
 import pytest
 
-from app.application.ports import ExternalUsageProvider, InMemoryModelUsageTracker, ModelUsage, ModelUsageRepository, ModelUsageSummary, OfferRepository, UserProfileRepository
+from app.application.ports import ExternalUsageProvider, InMemoryModelUsageTracker, ModelUsage, ModelUsageSummary
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     GetModelUsageSummaryUseCase,
@@ -13,15 +13,8 @@ from app.application.use_cases import (
 )
 from app.domain.salary_calculator import ContractType, SalaryCalculator
 from app.domain.entities import Offer, Salary, Skill, UserProfile
-from app.domain.matching import (
-    FilterChain,
-    MatchCriteria,
-    MatchScore,
-    OfferBrowseFilters,
-    OfferFilter,
-    OfferScorer,
-    ScoreComponent,
-)
+from app.domain.filters import FilterChain, MatchCriteria, OfferBrowseFilters, OfferFilter
+from app.domain.scoring import MatchScore, OfferScorer, ScoreComponent
 from app.infrastructure.offer_filters import (
     ExpiredFilter,
     LevelFilter,
@@ -30,6 +23,12 @@ from app.infrastructure.offer_filters import (
     SkillFilter,
 )
 from app.infrastructure.scoring_strategies import SkillBasedScorer
+from tests.fakes import (
+    FakeModelUsageRepository,
+    FakeOfferRepository,
+    FakeUserProfileRepository,
+    ScoreByLinkScorer,
+)
 
 
 def _salary(min_amount: float, max_amount: float, period: str = "month") -> Salary:
@@ -40,28 +39,6 @@ def _salary(min_amount: float, max_amount: float, period: str = "month") -> Sala
         currency="PLN",
         period=period,
     )
-
-
-class FakeUserProfileRepository(UserProfileRepository):
-    def __init__(self, profile: UserProfile | None = None) -> None:
-        self.profile = profile
-
-    def save(self, profile: UserProfile) -> None:
-        self.profile = profile
-
-    def load(self) -> UserProfile | None:
-        return self.profile
-
-
-class FakeOfferRepository(OfferRepository):
-    def __init__(self, offers: list[Offer]) -> None:
-        self.offers = offers
-
-    def list_offers(self) -> list[Offer]:
-        return self.offers
-
-    def count_offers(self) -> int:
-        return len(self.offers)
 
 
 class FixedScoringStrategy(OfferScorer):
@@ -77,21 +54,6 @@ class FixedScoringStrategy(OfferScorer):
 class RejectAllOfferFilter(OfferFilter):
     def passes(self, offer: Offer, criteria: MatchCriteria) -> bool:
         return False
-
-
-class ScoreByLinkScorer(OfferScorer):
-    """Scores offers by a fixed link->score mapping, and records which offers it was
-    asked to score, so tests can assert on call counts/order."""
-
-    def __init__(self, scores_by_link: dict[str, float]) -> None:
-        self._scores_by_link = scores_by_link
-        self.scored_links: list[str] = []
-
-    def score(self, candidate: UserProfile, offer: Offer) -> MatchScore:
-        self.scored_links.append(offer.link)
-        return MatchScore().with_component(
-            ScoreComponent(name="fixed", value=self._scores_by_link[offer.link], weight=1.0)
-        )
 
 
 def _profile(*skill_names: str) -> UserProfile:
@@ -482,7 +444,7 @@ def test_list_offers_use_case_filters_by_tech():
     ]
     use_case = ListOffersUseCase(FakeOfferRepository(offers))
 
-    results, total = use_case.execute(limit=10, offset=0, filters=OfferBrowseFilters(tech="python"))
+    results, total = use_case.execute(limit=10, offset=0, filters=OfferBrowseFilters(tech=["python"]))
 
     assert [offer.link for offer in results] == ["a"]
     assert total == 1
@@ -525,7 +487,7 @@ def test_list_offers_use_case_combines_filters():
     results, total = use_case.execute(
         limit=10,
         offset=0,
-        filters=OfferBrowseFilters(location="warsaw", tech="python", search="backend"),
+        filters=OfferBrowseFilters(location="warsaw", tech=["python"], search="backend"),
     )
 
     assert [offer.link for offer in results] == ["a"]
@@ -767,18 +729,6 @@ def test_match_offers_use_case_includes_expired_offers_when_requested():
 
 
 # --- GetModelUsageSummaryUseCase ---
-
-
-class FakeModelUsageRepository(ModelUsageRepository):
-    def __init__(self, summaries: list[ModelUsageSummary] | None = None) -> None:
-        self._summaries = summaries or []
-        self.saved: list[ModelUsage] = []
-
-    def save(self, usage: ModelUsage) -> None:
-        self.saved.append(usage)
-
-    def get_summary(self) -> list[ModelUsageSummary]:
-        return self._summaries
 
 
 def test_get_model_usage_summary_returns_summaries_with_known_limits():

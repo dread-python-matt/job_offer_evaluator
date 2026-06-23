@@ -19,6 +19,18 @@
       "skillPath": "skills/clean-ddd-hexagonal/SKILL.md",
       "computedHash": "3e2bcc45e58cd714b336e04c96544859d6577c4c6faf762cdf8ce3d02dbf9a79"
     },
+    "cloud-design-patterns": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/cloud-design-patterns/SKILL.md",
+      "computedHash": "be69c23d717e7f1ddd9b288c5ce36a582eb5717086392cbe5b0dd1faa5423c8e"
+    },
+    "design-patterns": {
+      "source": "miles990/claude-software-skills",
+      "sourceType": "github",
+      "skillPath": "software-design/design-patterns/SKILL.md",
+      "computedHash": "436741d92ddb180530f1df3944ffce5d744157f375c55567c69af40d1401de22"
+    },
     "fastapi": {
       "source": "fastapi/fastapi",
       "sourceType": "github",

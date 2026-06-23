@@ -1,7 +1,7 @@
 import pytest
 
 from app.domain.entities import Offer, Salary, UserProfile
-from app.domain.matching import MatchCriteria
+from app.domain.filters import MatchCriteria
 from app.infrastructure.offer_filters import SalaryFilter
 
 

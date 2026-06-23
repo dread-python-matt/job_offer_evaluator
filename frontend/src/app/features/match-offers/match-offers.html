@@ -122,6 +122,13 @@
     </div>
   }
 
+  @if (!loading() && errorMessage()) {
+    <div class="status-block error-block">
+      <mat-icon class="error-icon">error_outline</mat-icon>
+      <p>{{ errorMessage() }}</p>
+    </div>
+  }
+
   @if (!loading() && searched() && results().length) {
     <p class="results-count">
       <mat-icon>fact_check</mat-icon>

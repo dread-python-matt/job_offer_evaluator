@@ -4,9 +4,11 @@ import httpx
 import openai
 import pytest
 
-from app.application.ports import AiScoringError, ModelUsage, ModelUsageTracker
+from app.application.ports import ModelUsage, ModelUsageTracker
+from app.domain.errors import AiScoringError
 from app.domain.entities import Experience, Offer, Project, Skill, UserProfile
 from app.infrastructure.llm_scoring_strategy import AgentScore, LLMScoringStrategy
+from app.infrastructure.llm_utils import company_from_model
 
 
 class FakeModelUsageTracker(ModelUsageTracker):
@@ -15,6 +17,10 @@ class FakeModelUsageTracker(ModelUsageTracker):
 
     def record(self, usage: ModelUsage) -> None:
         self.recorded.append(usage)
+
+    def flush(self) -> list[ModelUsage]:
+        flushed, self.recorded = self.recorded, []
+        return flushed
 
 
 def _fake_run_with_usage(rate: int, input_tokens: int = 100, output_tokens: int = 50):
@@ -158,18 +164,23 @@ def test_prompt_includes_summary_project_summaries_and_job_description():
 
 
 def test_constructor_builds_agent_with_the_given_model_when_no_agent_is_passed():
-    strategy = LLMScoringStrategy(model="gpt-test-model")
+    run, captured = _fake_run(rate=3)
+    strategy = LLMScoringStrategy(model="gpt-test-model", run=run)
 
-    assert strategy._agent.model == "gpt-test-model"
-    assert strategy._agent.output_type is AgentScore
+    strategy.score(_candidate(), _offer())
+
+    assert captured["agent"].model == "gpt-test-model"
+    assert captured["agent"].output_type is AgentScore
 
 
 def test_constructor_uses_the_provided_agent_instead_of_building_one():
     sentinel_agent = object()
+    run, captured = _fake_run(rate=3)
+    strategy = LLMScoringStrategy(agent=sentinel_agent, run=run)
 
-    strategy = LLMScoringStrategy(agent=sentinel_agent)
+    strategy.score(_candidate(), _offer())
 
-    assert strategy._agent is sentinel_agent
+    assert captured["agent"] is sentinel_agent
 
 
 def test_offer_description_is_passed_to_translator_before_scoring():
@@ -308,3 +319,34 @@ def test_score_raises_ai_scoring_error_when_api_call_fails():
 
     with pytest.raises(AiScoringError):
         strategy.score(_candidate(), _offer())
+
+
+# --- company_from_model ---
+
+
+def test_company_from_model_returns_google_for_gemini_prefix():
+    assert company_from_model("gemini-2.0-flash") == "Google"
+
+
+def test_company_from_model_returns_openai_for_gpt_prefix():
+    assert company_from_model("gpt-4o") == "OpenAI"
+
+
+def test_company_from_model_returns_openai_for_o1_prefix():
+    assert company_from_model("o1-mini") == "OpenAI"
+
+
+def test_company_from_model_returns_openai_for_o3_prefix():
+    assert company_from_model("o3-turbo") == "OpenAI"
+
+
+def test_company_from_model_returns_openai_for_o4_prefix():
+    assert company_from_model("o4-mini") == "OpenAI"
+
+
+def test_company_from_model_returns_anthropic_for_claude_prefix():
+    assert company_from_model("claude-sonnet-4-6") == "Anthropic"
+
+
+def test_company_from_model_returns_unknown_for_unrecognised_model():
+    assert company_from_model("llama-3-8b") == "Unknown"

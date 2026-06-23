@@ -1,5 +1,6 @@
 import { DecimalPipe, PercentPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { COMMA, ENTER } from '@angular/cdk/keycodes';
 import { MatButtonModule } from '@angular/material/button';
@@ -12,33 +13,27 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSliderModule } from '@angular/material/slider';
 import { HttpErrorResponse } from '@angular/common/http';
-import { switchMap } from 'rxjs';
+import { EMPTY, Subject, catchError, switchMap, tap } from 'rxjs';
 
 import { ApiService } from '../../core/services/api.service';
-import { MatchedOffer, MatchSortBy, ModelUsage } from '../../core/models/profile.model';
-import { formatSalaries } from '../../core/utils/offer-format';
+import { MatchSortBy, ModelUsage } from '../../core/models/profile.model';
+import { MatchedOfferRow, toMatchedOfferRow } from '../../core/utils/offer-row';
 import { LEVEL_OPTIONS } from '../../core/constants/offer-levels';
 
-interface MatchedOfferRow {
-  title: string;
-  company: string;
-  score: number;
-  scoreLabel: string;
-  scoreClass: 'score-high' | 'score-medium' | 'score-low';
-  matchedSkills: string[];
-  link: string;
-  locations: string[];
-  salaryLabel: string | null;
-  levels: string[];
-}
-
-export type AiMatchSortOption = 'score' | 'salary-desc' | 'salary-asc' | 'recent-desc' | 'recent-asc';
+export type AiMatchSortOption =
+  | 'score'
+  | 'score-recent'
+  | 'salary-desc'
+  | 'salary-asc'
+  | 'recent-desc'
+  | 'recent-asc';
 
 const AI_MATCH_SORT_OPTION_VALUES: Record<
   AiMatchSortOption,
   { sortBy: MatchSortBy; sortOrder: 'asc' | 'desc' }
 > = {
   score: { sortBy: 'score', sortOrder: 'desc' },
+  'score-recent': { sortBy: 'score_recent', sortOrder: 'desc' },
   'salary-desc': { sortBy: 'salary', sortOrder: 'desc' },
   'salary-asc': { sortBy: 'salary', sortOrder: 'asc' },
   'recent-desc': { sortBy: 'recent', sortOrder: 'desc' },
@@ -80,13 +75,14 @@ export class AiMatchOffers implements OnInit {
   readonly techFilter = signal<string[]>([]);
   readonly errorMessage = signal<string | null>(null);
 
-  ngOnInit(): void {
-    this.api.getOffersCount().subscribe((total) => this.totalOffers.set(total));
-  }
+  private readonly searchTrigger$ = new Subject<void>();
 
   readonly filters = this.fb.group({
     offersLimit: this.fb.control<number | null>(null, { validators: [Validators.min(1)] }),
-    offersToScore: this.fb.control(20, { nonNullable: true, validators: [Validators.min(1), Validators.max(50)] }),
+    offersToScore: this.fb.control(20, {
+      nonNullable: true,
+      validators: [Validators.min(1), Validators.max(50)],
+    }),
     minScore: this.fb.control(0.5, { nonNullable: true }),
     aiMinScore: this.fb.control(0.0, { nonNullable: true }),
     location: this.fb.control<string | null>(null),
@@ -94,6 +90,66 @@ export class AiMatchOffers implements OnInit {
     level: this.fb.control<string[]>([], { nonNullable: true }),
     sort: this.fb.control<AiMatchSortOption>('score', { nonNullable: true }),
   });
+
+  constructor() {
+    this.searchTrigger$
+      .pipe(
+        tap(() => {
+          this.loading.set(true);
+          this.errorMessage.set(null);
+        }),
+        switchMap(() => {
+          const { offersLimit, offersToScore, minScore, aiMinScore, location, minSalary, level, sort } =
+            this.filters.getRawValue();
+          const trimmedLocation = location?.trim() || null;
+          const { sortBy, sortOrder } = AI_MATCH_SORT_OPTION_VALUES[sort];
+
+          return this.api.getProfile().pipe(
+            switchMap((candidate) =>
+              this.api.matchOffersWithAi({
+                candidate,
+                offersLimit,
+                minScore,
+                location: trimmedLocation,
+                minSalary,
+                level,
+                tech: this.techFilter(),
+                sortBy,
+                sortOrder,
+                offersToScore,
+                aiMinScore,
+              }),
+            ),
+            catchError((err: HttpErrorResponse) => {
+              this.loading.set(false);
+              let message: string;
+              if (err.status === 404) {
+                message = 'Save your profile before matching offers.';
+              } else if (err.status === 503 && err.error?.detail) {
+                message = err.error.detail;
+              } else {
+                message = 'Failed to load AI-matched offers.';
+              }
+              this.errorMessage.set(message);
+              return EMPTY;
+            }),
+          );
+        }),
+        takeUntilDestroyed(),
+      )
+      .subscribe((result) => {
+        this.results.set(result.matches.map(toMatchedOfferRow));
+        if (result.usage != null) {
+          this.usage.set(result.usage);
+        }
+        this.loading.set(false);
+        this.searched.set(true);
+      });
+  }
+
+  ngOnInit(): void {
+    this.api.getOffersCount().subscribe((total) => this.totalOffers.set(total));
+  }
 
   addTech(event: MatChipInputEvent): void {
     const value = (event.value || '').trim();
@@ -112,74 +168,6 @@ export class AiMatchOffers implements OnInit {
       this.filters.markAllAsTouched();
       return;
     }
-
-    const { offersLimit, offersToScore, minScore, aiMinScore, location, minSalary, level, sort } =
-      this.filters.getRawValue();
-    const trimmedLocation = location?.trim() || null;
-    const { sortBy, sortOrder } = AI_MATCH_SORT_OPTION_VALUES[sort];
-    this.loading.set(true);
-    this.errorMessage.set(null);
-    this.api
-      .getProfile()
-      .pipe(
-        switchMap((candidate) =>
-          this.api.matchOffersWithAi(
-            candidate,
-            offersLimit,
-            minScore,
-            trimmedLocation,
-            minSalary,
-            level,
-            this.techFilter(),
-            sortBy,
-            sortOrder,
-            offersToScore,
-            aiMinScore,
-          ),
-        ),
-      )
-      .subscribe({
-        next: (result) => {
-          this.results.set(result.matches.map((match) => this.toRow(match)));
-          if (result.usage != null) {
-            this.usage.set(result.usage);
-          }
-          this.loading.set(false);
-          this.searched.set(true);
-        },
-        error: (err: HttpErrorResponse) => {
-          this.loading.set(false);
-          let message: string;
-          if (err.status === 404) {
-            message = 'Save your profile before matching offers.';
-          } else if (err.status === 503 && err.error?.detail) {
-            message = err.error.detail;
-          } else {
-            message = 'Failed to load AI-matched offers.';
-          }
-          this.errorMessage.set(message);
-        },
-      });
-  }
-
-  private toRow(match: MatchedOffer): MatchedOfferRow {
-    return {
-      title: match.title,
-      company: match.company,
-      score: match.score,
-      scoreLabel: `${Math.round(match.score * 100)}%`,
-      scoreClass: this.scoreClass(match.score),
-      matchedSkills: [...match.matched_skills].sort(),
-      link: match.link,
-      locations: match.locations,
-      salaryLabel: formatSalaries(match.salaries),
-      levels: match.levels,
-    };
-  }
-
-  private scoreClass(score: number): MatchedOfferRow['scoreClass'] {
-    if (score >= 0.7) return 'score-high';
-    if (score >= 0.4) return 'score-medium';
-    return 'score-low';
+    this.searchTrigger$.next();
   }
 }

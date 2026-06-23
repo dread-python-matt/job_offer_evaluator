@@ -9,6 +9,10 @@ class RecordingTracker(ModelUsageTracker):
     def record(self, usage: ModelUsage) -> None:
         self.recorded.append(usage)
 
+    def flush(self) -> list[ModelUsage]:
+        flushed, self.recorded = self.recorded, []
+        return flushed
+
 
 def test_composite_broadcasts_to_all_trackers():
     t1, t2 = RecordingTracker(), RecordingTracker()

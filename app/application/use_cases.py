@@ -1,25 +1,20 @@
 from dataclasses import dataclass
 
-from app.application.ports import ExternalUsageProvider, InMemoryModelUsageTracker, ModelLimitsRegistry, ModelUsage, ModelUsageRepository, ModelUsageWithLimits, OfferRepository, UserProfileRepository
-from app.domain.entities import Offer, UserProfile
-from app.domain.matching import (
-    FilterChain,
-    MatchCriteria,
-    MatchedOffer,
-    MatchSortBy,
-    OfferBrowseFilters,
-    OfferScorer,
-    SortOrder,
-    expired_matches,
-    level_matches,
-    location_matches,
-    salary_meets_minimum,
-    sort_matched_offers,
-    sort_offers,
-    tech_stack_matches,
-    text_matches,
+from app.application.ports import (
+    ExternalUsageProvider,
+    ModelLimitsRegistry,
+    ModelUsage,
+    ModelUsageRepository,
+    ModelUsageTracker,
+    ModelUsageWithLimits,
+    OfferRepository,
+    UserProfileRepository,
 )
+from app.domain.entities import Offer, UserProfile
+from app.domain.filters import FilterChain, MatchCriteria, OfferBrowseFilters
 from app.domain.salary_calculator import ContractType, NetSalaryBreakdown, SalaryCalculator
+from app.domain.scoring import MatchedOffer, OfferScorer
+from app.domain.sorting import MatchSortBy, SortOrder, sort_matched_offers
 
 
 @dataclass
@@ -80,21 +75,7 @@ class ListOffersUseCase:
     def execute(
         self, limit: int, offset: int, filters: OfferBrowseFilters
     ) -> tuple[list[Offer], int]:
-        matching = [
-            offer for offer in self._offer_repository.list_offers() if self._matches(offer, filters)
-        ]
-        matching = sort_offers(matching, filters.sort_by, filters.sort_order)
-        return matching[offset : offset + limit], len(matching)
-
-    def _matches(self, offer: Offer, filters: OfferBrowseFilters) -> bool:
-        return (
-            expired_matches(offer, filters.include_expired)
-            and location_matches(offer, filters.location)
-            and salary_meets_minimum(offer, filters.min_salary)
-            and tech_stack_matches(offer, filters.tech)
-            and text_matches(offer, filters.search)
-            and level_matches(offer, filters.level)
-        )
+        return self._offer_repository.browse_offers(filters, limit, offset)
 
 
 class MatchOffersUseCase:
@@ -147,7 +128,7 @@ class MatchOffersWithAiUseCase:
         filter_chain: FilterChain,
         ranking_scorer: OfferScorer,
         ai_scorer: OfferScorer,
-        usage_tracker: InMemoryModelUsageTracker | None = None,
+        usage_tracker: ModelUsageTracker | None = None,
     ) -> None:
         self._offer_repository = offer_repository
         self._filter_chain = filter_chain
