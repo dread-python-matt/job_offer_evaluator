@@ -115,10 +115,7 @@ export class ApiService {
     }
     if (filters.search) params = params.set('search', filters.search);
     if (filters.level) params = params.set('level', filters.level);
-    if (filters.sortBy) {
-      params = params.set('sort_by', filters.sortBy);
-      params = params.set('sort_order', filters.sortOrder);
-    }
+    params = params.set('sort_by', filters.sortBy).set('sort_order', filters.sortOrder);
 
     return this.http.get<OffersPage>(`${this.baseUrl}/offers`, { params });
   }

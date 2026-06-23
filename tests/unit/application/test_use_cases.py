@@ -320,7 +320,7 @@ def test_match_offers_with_ai_use_case_respects_offers_limit():
 
 
 def test_calculate_net_salary_use_case_delegates_to_the_domain_calculator():
-    use_case = CalculateNetSalaryUseCase()
+    use_case = CalculateNetSalaryUseCase(SalaryCalculator())
 
     breakdown = use_case.execute(ContractType.EMPLOYMENT, 10000.0)
 
@@ -328,7 +328,7 @@ def test_calculate_net_salary_use_case_delegates_to_the_domain_calculator():
 
 
 def test_calculate_net_salary_use_case_forwards_optional_parameters():
-    use_case = CalculateNetSalaryUseCase()
+    use_case = CalculateNetSalaryUseCase(SalaryCalculator())
 
     breakdown = use_case.execute(
         ContractType.B2B, 10000.0, business_costs=500.0, include_voluntary_sickness=True
@@ -733,11 +733,12 @@ def test_match_offers_use_case_includes_expired_offers_when_requested():
 
 def test_get_model_usage_summary_returns_summaries_with_known_limits():
     from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
+    from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
 
     repo = FakeModelUsageRepository([
         ModelUsageSummary(company="Google", model="gemini-2.0-flash", input_tokens=1000, output_tokens=200),
     ])
-    use_case = GetModelUsageSummaryUseCase(repo, HardcodedModelLimitsRegistry())
+    use_case = GetModelUsageSummaryUseCase(repo, HardcodedModelLimitsRegistry(), NoExternalUsageProvider())
 
     result = use_case.execute()
 
@@ -755,11 +756,12 @@ def test_get_model_usage_summary_returns_summaries_with_known_limits():
 
 def test_get_model_usage_summary_limits_are_none_for_unknown_model():
     from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
+    from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
 
     repo = FakeModelUsageRepository([
         ModelUsageSummary(company="OpenAI", model="gpt-99-turbo", input_tokens=500, output_tokens=100),
     ])
-    use_case = GetModelUsageSummaryUseCase(repo, HardcodedModelLimitsRegistry())
+    use_case = GetModelUsageSummaryUseCase(repo, HardcodedModelLimitsRegistry(), NoExternalUsageProvider())
 
     result = use_case.execute()
 
@@ -768,8 +770,9 @@ def test_get_model_usage_summary_limits_are_none_for_unknown_model():
 
 def test_get_model_usage_summary_returns_empty_when_no_usage():
     from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
+    from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
 
-    use_case = GetModelUsageSummaryUseCase(FakeModelUsageRepository(), HardcodedModelLimitsRegistry())
+    use_case = GetModelUsageSummaryUseCase(FakeModelUsageRepository(), HardcodedModelLimitsRegistry(), NoExternalUsageProvider())
 
     assert use_case.execute() == []
 
@@ -791,7 +794,7 @@ def test_use_case_prefers_external_provider_over_db_when_it_returns_data():
     use_case = GetModelUsageSummaryUseCase(
         FakeModelUsageRepository(db_summaries),
         HardcodedModelLimitsRegistry(),
-        external_provider=FakeExternalUsageProvider(external_summaries),
+        FakeExternalUsageProvider(external_summaries),
     )
 
     result = use_case.execute()
@@ -808,7 +811,7 @@ def test_use_case_falls_back_to_db_when_external_provider_returns_empty():
     use_case = GetModelUsageSummaryUseCase(
         FakeModelUsageRepository(db_summaries),
         HardcodedModelLimitsRegistry(),
-        external_provider=FakeExternalUsageProvider([]),
+        FakeExternalUsageProvider([]),
     )
 
     result = use_case.execute()
@@ -816,12 +819,17 @@ def test_use_case_falls_back_to_db_when_external_provider_returns_empty():
     assert result[0].input_tokens == 500
 
 
-def test_use_case_works_without_external_provider():
+def test_use_case_uses_db_when_no_useful_external_data():
     from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
+    from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
 
     db_summaries = [ModelUsageSummary(company="Google", model="gemini-2.0-flash", input_tokens=200, output_tokens=80)]
 
-    use_case = GetModelUsageSummaryUseCase(FakeModelUsageRepository(db_summaries), HardcodedModelLimitsRegistry())
+    use_case = GetModelUsageSummaryUseCase(
+        FakeModelUsageRepository(db_summaries),
+        HardcodedModelLimitsRegistry(),
+        NoExternalUsageProvider(),
+    )
 
     result = use_case.execute()
 

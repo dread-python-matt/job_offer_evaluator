@@ -163,9 +163,9 @@ def test_prompt_includes_summary_project_summaries_and_job_description():
     assert "Looking for a backend developer skilled in Python and FastAPI." in prompt
 
 
-def test_constructor_builds_agent_with_the_given_model_when_no_agent_is_passed():
+def test_create_builds_agent_with_the_given_model():
     run, captured = _fake_run(rate=3)
-    strategy = LLMScoringStrategy(model="gpt-test-model", run=run)
+    strategy = LLMScoringStrategy.create(model="gpt-test-model", run=run)
 
     strategy.score(_candidate(), _offer())
 
@@ -173,7 +173,7 @@ def test_constructor_builds_agent_with_the_given_model_when_no_agent_is_passed()
     assert captured["agent"].output_type is AgentScore
 
 
-def test_constructor_uses_the_provided_agent_instead_of_building_one():
+def test_init_uses_the_provided_agent_directly():
     sentinel_agent = object()
     run, captured = _fake_run(rate=3)
     strategy = LLMScoringStrategy(agent=sentinel_agent, run=run)
@@ -248,7 +248,7 @@ def test_usage_tracker_records_scoring_call_with_token_counts():
 def test_usage_tracker_records_model_and_company_for_gemini():
     run, _ = _fake_run_with_usage(rate=4, input_tokens=100, output_tokens=50)
     tracker = FakeModelUsageTracker()
-    strategy = LLMScoringStrategy(model="gemini-2.0-flash", run=run, usage_tracker=tracker)
+    strategy = LLMScoringStrategy(agent=object(), model="gemini-2.0-flash", run=run, usage_tracker=tracker)
 
     strategy.score(_candidate(), _offer())
 
@@ -260,7 +260,7 @@ def test_usage_tracker_records_model_and_company_for_gemini():
 def test_usage_tracker_records_openai_company_for_gpt_model():
     run, _ = _fake_run_with_usage(rate=4, input_tokens=100, output_tokens=50)
     tracker = FakeModelUsageTracker()
-    strategy = LLMScoringStrategy(model="gpt-4o", run=run, usage_tracker=tracker)
+    strategy = LLMScoringStrategy(agent=object(), model="gpt-4o", run=run, usage_tracker=tracker)
 
     strategy.score(_candidate(), _offer())
 
@@ -319,6 +319,85 @@ def test_score_raises_ai_scoring_error_when_api_call_fails():
 
     with pytest.raises(AiScoringError):
         strategy.score(_candidate(), _offer())
+
+
+def _status_error(status_code: int) -> openai.APIStatusError:
+    return openai.APIStatusError(
+        "error",
+        response=httpx.Response(status_code, request=httpx.Request("POST", "https://api.example.com")),
+        body=None,
+    )
+
+
+def test_retries_on_503_and_succeeds_on_second_attempt():
+    calls = []
+
+    def run_fails_once(agent, prompt):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _status_error(503)
+        return SimpleNamespace(final_output=AgentScore(rate=4, pros=[], cons=[], rate_reason="ok"))
+
+    strategy = LLMScoringStrategy(agent=object(), run=run_fails_once, _sleep=lambda _: None)
+    score = strategy.score(_candidate(), _offer())
+
+    assert len(calls) == 2
+    assert score.get("description") is not None
+
+
+def test_retries_on_429_and_succeeds_on_second_attempt():
+    calls = []
+
+    def run_fails_once(agent, prompt):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _status_error(429)
+        return SimpleNamespace(final_output=AgentScore(rate=3, pros=[], cons=[], rate_reason="ok"))
+
+    strategy = LLMScoringStrategy(agent=object(), run=run_fails_once, _sleep=lambda _: None)
+    strategy.score(_candidate(), _offer())
+
+    assert len(calls) == 2
+
+
+def test_raises_ai_scoring_error_after_all_retries_exhausted():
+    def always_503(agent, prompt):
+        raise _status_error(503)
+
+    strategy = LLMScoringStrategy(agent=object(), run=always_503, _sleep=lambda _: None)
+
+    with pytest.raises(AiScoringError, match="503"):
+        strategy.score(_candidate(), _offer())
+
+
+def test_non_retryable_4xx_raises_immediately():
+    calls = []
+
+    def bad_request(agent, prompt):
+        calls.append(1)
+        raise _status_error(400)
+
+    strategy = LLMScoringStrategy(agent=object(), run=bad_request, _sleep=lambda _: None)
+
+    with pytest.raises(AiScoringError):
+        strategy.score(_candidate(), _offer())
+
+    assert len(calls) == 1
+
+
+def test_backoff_sleep_is_called_between_retries():
+    slept: list[float] = []
+
+    def always_503(agent, prompt):
+        raise _status_error(503)
+
+    strategy = LLMScoringStrategy(agent=object(), run=always_503, _sleep=slept.append)
+
+    with pytest.raises(AiScoringError):
+        strategy.score(_candidate(), _offer())
+
+    assert len(slept) == 2  # two sleeps for two failed retries before giving up
+    assert slept[1] > slept[0]  # backoff grows
 
 
 # --- company_from_model ---

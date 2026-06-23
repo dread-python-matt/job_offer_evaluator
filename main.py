@@ -23,13 +23,13 @@ from app.config import (
     USER_PROFILE_PATH,
 )
 from app.domain.filters import FilterChain
+from app.domain.salary_calculator import SalaryCalculator
 from app.infrastructure.composite_model_usage_tracker import CompositeModelUsageTracker
-from app.infrastructure.gemini_client import configure_gemini
+from app.infrastructure.llm_provider_factory import build_llm_provider_factory
 from app.infrastructure.llm_scoring_strategy import LLMScoringStrategy
 from app.infrastructure.llm_utils import company_from_model
 from app.infrastructure.markdown_profile_repository import MarkdownUserProfileRepository
 from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
-from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
 from app.infrastructure.offer_filters import (
     ExpiredFilter,
     LevelFilter,
@@ -37,8 +37,7 @@ from app.infrastructure.offer_filters import (
     SalaryFilter,
     SkillFilter,
 )
-from app.infrastructure.openai_client import configure_openai
-from app.infrastructure.openai_usage_provider import OpenAIExternalUsageProvider
+from app.infrastructure.persisting_model_usage_tracker import PersistingModelUsageTracker
 from app.infrastructure.postgres_model_usage_repository import PostgresModelUsageRepository
 from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
 from app.infrastructure.scoring_strategies import SkillBasedScorer
@@ -57,16 +56,8 @@ from app.presentation.api.routes import (
 )
 from app.presentation.api.schemas import CurrentModelSchema
 
-if LLM_PROVIDER == "openai":
-    if not OPENAI_API_KEY:
-        raise ValueError("OPENAI_API_KEY must be set in .env when LLM_PROVIDER=openai")
-    configure_openai(OPENAI_API_KEY)
-elif LLM_PROVIDER == "gemini":
-    if not GEMINI_API_KEY:
-        raise ValueError("GEMINI_API_KEY must be set in .env when LLM_PROVIDER=gemini")
-    configure_gemini(GEMINI_API_KEY)
-else:
-    raise ValueError(f"Unknown LLM_PROVIDER={LLM_PROVIDER!r}. Supported values: 'gemini', 'openai'")
+_llm_factory = build_llm_provider_factory(LLM_PROVIDER, OPENAI_API_KEY, OPENAI_ADMIN_KEY, GEMINI_API_KEY)
+_llm_factory.configure_sdk()
 
 profile_repository = MarkdownUserProfileRepository(USER_PROFILE_PATH)
 offer_repository = PostgresOfferRepository(DATABASE_URL)
@@ -81,28 +72,23 @@ count_offers_use_case = CountOffersUseCase(offer_repository)
 list_offers_use_case = ListOffersUseCase(offer_repository)
 match_offers_use_case = MatchOffersUseCase(offer_repository, SkillBasedScorer(), filter_chain)
 _in_memory_tracker = InMemoryModelUsageTracker()
-_composite_tracker = CompositeModelUsageTracker([_in_memory_tracker, model_usage_repository])
+_persisting_tracker = PersistingModelUsageTracker(model_usage_repository)
+_composite_tracker = CompositeModelUsageTracker([_in_memory_tracker, _persisting_tracker])
 match_offers_ai_use_case = MatchOffersWithAiUseCase(
     offer_repository,
     filter_chain,
     SkillBasedScorer(),
-    LLMScoringStrategy(
+    LLMScoringStrategy.create(
         model=SCORING_AGENT_MODEL,
         translator_agent=build_polish_to_english_agent(model=SCORING_AGENT_MODEL),
         usage_tracker=_composite_tracker,
     ),
     usage_tracker=_in_memory_tracker,
 )
-calculate_salary_use_case = CalculateNetSalaryUseCase()
-
-if LLM_PROVIDER == "openai" and OPENAI_ADMIN_KEY:
-    from openai import OpenAI
-    _external_usage_provider = OpenAIExternalUsageProvider(OpenAI(api_key=OPENAI_ADMIN_KEY))
-else:
-    _external_usage_provider = NoExternalUsageProvider()
-
+calculate_salary_use_case = CalculateNetSalaryUseCase(SalaryCalculator())
+_external_usage_provider = _llm_factory.build_external_usage_provider()
 get_model_usage_summary_use_case_instance = GetModelUsageSummaryUseCase(
-    model_usage_repository, HardcodedModelLimitsRegistry(), external_provider=_external_usage_provider
+    model_usage_repository, HardcodedModelLimitsRegistry(), _external_usage_provider
 )
 
 app = FastAPI(title="Job Offer Matcher")

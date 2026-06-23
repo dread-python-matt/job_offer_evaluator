@@ -79,12 +79,11 @@
   <div class="sort-bar">
     <mat-form-field class="sort-field">
       <mat-label>Sort by</mat-label>
-      <mat-select [value]="sort()" (selectionChange)="onSortChange($event.value)">
-        <mat-option value="relevance">Default order</mat-option>
-        <mat-option value="salary-desc">Salary: high to low</mat-option>
-        <mat-option value="salary-asc">Salary: low to high</mat-option>
+      <mat-select [formControl]="filters.controls.sort" (selectionChange)="onSortChange()">
         <mat-option value="recent-desc">Most recent</mat-option>
         <mat-option value="recent-asc">Oldest first</mat-option>
+        <mat-option value="salary-desc">Salary: high to low</mat-option>
+        <mat-option value="salary-asc">Salary: low to high</mat-option>
       </mat-select>
     </mat-form-field>
   </div>

@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Literal
 
 from app.domain.entities import Offer
 
@@ -35,27 +36,32 @@ def sort_offers(
     return with_value + without_value
 
 
+def _build_match_sort_key(sort_by: MatchSortBy, reverse: bool) -> Callable[["MatchedOffer"], Any]:
+    """Return a sort-key function for the given sort mode and direction.
+
+    None-valued items are always placed last via a direction-aware sentinel so that
+    a single sorted() call handles both the "has value" and "no value" cases."""
+    from app.domain.salary_calculator import representative_monthly_salary
+
+    date_sentinel = "" if reverse else "z"
+
+    match sort_by:
+        case "score":
+            return lambda m: m.score
+        case "score_recent":
+            return lambda m: (m.score, m.offer.published or date_sentinel)
+        case "recent":
+            return lambda m: m.offer.published or date_sentinel
+        case "salary":
+            none_sentinel: float = float("-inf") if reverse else float("inf")
+            def _salary_key(m: "MatchedOffer", _s: float = none_sentinel) -> float:
+                amt = representative_monthly_salary(m.offer)
+                return amt if amt is not None else _s
+            return _salary_key
+
+
 def sort_matched_offers(
     matched_offers: list["MatchedOffer"], sort_by: MatchSortBy, sort_order: SortOrder = "desc"
 ) -> list["MatchedOffer"]:
     reverse = sort_order == "desc"
-    if sort_by == "score":
-        return sorted(matched_offers, key=lambda m: m.score, reverse=reverse)
-
-    if sort_by == "score_recent":
-        # For DESC (reverse=True): "" < any ISO date, so None-published sorts last within score group.
-        # For ASC (reverse=False): "z" > any ISO date digit, so None-published sorts last within score group.
-        published_sentinel = "" if reverse else "z"
-        return sorted(
-            matched_offers,
-            key=lambda m: (m.score, m.offer.published or published_sentinel),
-            reverse=reverse,
-        )
-
-    def key(matched: "MatchedOffer") -> float | str | None:
-        return offer_sort_key(matched.offer, sort_by)
-
-    with_value = [m for m in matched_offers if key(m) is not None]
-    without_value = [m for m in matched_offers if key(m) is None]
-    with_value.sort(key=key, reverse=reverse)
-    return with_value + without_value
+    return sorted(matched_offers, key=_build_match_sort_key(sort_by, reverse), reverse=reverse)

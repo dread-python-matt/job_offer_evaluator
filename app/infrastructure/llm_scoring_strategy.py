@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -11,6 +12,10 @@ from app.domain.entities import Offer, UserProfile
 from app.domain.scoring import MatchScore, OfferScorer, ScoreComponent
 from app.infrastructure.llm_utils import company_from_model
 from app.infrastructure.scoring_strategies import SkillBasedScorer
+
+_RETRYABLE_STATUS_CODES = frozenset({429, 503})
+_MAX_RETRIES = 2
+_BACKOFF_BASE = 1.0  # seconds; doubles each attempt: 1s, 2s
 
 _INSTRUCTIONS = (
     "You evaluate how well a candidate fits a job offer, based on the candidate's "
@@ -30,33 +35,54 @@ class AgentScore(BaseModel):
 class LLMScoringStrategy(OfferScorer):
     """Scores candidate/offer fit via an OpenAI Agent.
 
-    Pass `model` to swap which model is used without touching the rest of the app
-    (it also falls back to the SDK's OPENAI_DEFAULT_MODEL env var when omitted).
-    Pass `agent` and/or `run` to fully control execution, e.g. to inject a fake in tests.
+    Use the `create()` classmethod for production — it builds the Agent from a model
+    name. Pass `agent` directly to `__init__` in tests to inject a controlled fake.
     Pass `translator_agent` to translate the offer description to English before scoring;
     skipped when the description is empty.
     """
 
-    def __init__(
-        self,
-        model: str | None = None,
-        agent: Agent | None = None,
+    @classmethod
+    def create(
+        cls,
+        model: str,
+        *,
         run: Callable[[Agent, str], Any] = Runner.run_sync,
         skills_scorer: OfferScorer | None = None,
         translator_agent: Agent | None = None,
         usage_tracker: ModelUsageTracker | None = None,
-    ) -> None:
-        self._agent = agent or Agent(
+    ) -> "LLMScoringStrategy":
+        agent = Agent(
             name="Offer Fit Scorer",
             model=model,
             instructions=_INSTRUCTIONS,
             output_type=AgentScore,
         )
-        self._model = model or (getattr(agent, "model", None) or "")
+        return cls(
+            agent=agent,
+            model=model,
+            run=run,
+            skills_scorer=skills_scorer,
+            translator_agent=translator_agent,
+            usage_tracker=usage_tracker,
+        )
+
+    def __init__(
+        self,
+        agent: Agent,
+        model: str = "",
+        run: Callable[[Agent, str], Any] = Runner.run_sync,
+        skills_scorer: OfferScorer | None = None,
+        translator_agent: Agent | None = None,
+        usage_tracker: ModelUsageTracker | None = None,
+        _sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self._agent = agent
+        self._model = model
         self._run = run
         self._skills_scorer = skills_scorer or SkillBasedScorer()
         self._translator_agent = translator_agent
         self._usage_tracker = usage_tracker
+        self._sleep = _sleep
 
     def score(self, candidate: UserProfile, offer: Offer) -> MatchScore:
         description = self._translate_to_english(offer.description)
@@ -77,23 +103,28 @@ class LLMScoringStrategy(OfferScorer):
         return result.final_output
 
     def _run_tracked(self, agent: Agent, prompt: str, label: str) -> Any:
-        try:
-            result = self._run(agent, prompt)
-        except openai.APIError as exc:
-            raise AiScoringError(str(exc)) from exc
-        if self._usage_tracker:
-            sdk_usage = result.context_wrapper.usage
-            if sdk_usage is not None:
-                self._usage_tracker.record(
-                    ModelUsage(
-                        label=label,
-                        input_tokens=sdk_usage.input_tokens,
-                        output_tokens=sdk_usage.output_tokens,
-                        model=self._model,
-                        company=company_from_model(self._model),
-                    )
-                )
-        return result
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                result = self._run(agent, prompt)
+                if self._usage_tracker:
+                    sdk_usage = result.context_wrapper.usage
+                    if sdk_usage is not None:
+                        self._usage_tracker.record(
+                            ModelUsage(
+                                label=label,
+                                input_tokens=sdk_usage.input_tokens,
+                                output_tokens=sdk_usage.output_tokens,
+                                model=self._model,
+                                company=company_from_model(self._model),
+                            )
+                        )
+                return result
+            except openai.APIStatusError as exc:
+                if exc.status_code not in _RETRYABLE_STATUS_CODES or attempt == _MAX_RETRIES:
+                    raise AiScoringError(f"AI service error ({exc.status_code}). Please try again.") from exc
+                self._sleep(_BACKOFF_BASE * (2**attempt))
+            except openai.APIError as exc:
+                raise AiScoringError(str(exc)) from exc
 
     @staticmethod
     def _build_prompt(candidate: UserProfile, description: str) -> str:

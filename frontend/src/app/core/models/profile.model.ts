@@ -82,7 +82,7 @@ export interface OfferFilters {
   tech: string[] | null;
   search: string | null;
   level: string | null;
-  sortBy: SortBy | null;
+  sortBy: SortBy;
   sortOrder: SortOrder;
 }
 

@@ -6,6 +6,7 @@ assumptions, documented per contract type below, trade a few edge cases for a
 calculator that needs only a single month's gross amount as input.
 """
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
 
@@ -151,25 +152,20 @@ def _progressive_tax(taxable_income_monthly: float) -> float:
     return max(0.0, tax - TAX_CREDIT_MONTHLY)
 
 
-class SalaryCalculator:
+class _SalaryStrategy(ABC):
+    @abstractmethod
     def calculate(
         self,
-        contract_type: ContractType,
-        gross_monthly: float,
+        gross: float,
         *,
         business_costs: float = 0.0,
         include_ppk: bool = False,
         include_voluntary_sickness: bool = False,
-    ) -> NetSalaryBreakdown:
-        if gross_monthly <= 0:
-            raise ValueError("gross_monthly must be positive")
-        if contract_type is ContractType.B2B:
-            return self._b2b(gross_monthly, business_costs, include_voluntary_sickness)
-        if contract_type is ContractType.EMPLOYMENT:
-            return self._employment(gross_monthly, include_ppk)
-        return self._civil(gross_monthly, include_voluntary_sickness)
+    ) -> NetSalaryBreakdown: ...
 
-    def _employment(self, gross: float, include_ppk: bool) -> NetSalaryBreakdown:
+
+class _EmploymentStrategy(_SalaryStrategy):
+    def calculate(self, gross: float, *, include_ppk: bool = False, **_: object) -> NetSalaryBreakdown:
         social_security = gross * EMPLOYMENT_SOCIAL_SECURITY_RATE
         health_insurance = (gross - social_security) * HEALTH_INSURANCE_RATE
         taxable_income = max(0.0, gross - social_security - EMPLOYMENT_KUP_MONTHLY)
@@ -183,7 +179,9 @@ class SalaryCalculator:
             ppk=ppk,
         )
 
-    def _civil(self, gross: float, include_voluntary_sickness: bool) -> NetSalaryBreakdown:
+
+class _CivilContractStrategy(_SalaryStrategy):
+    def calculate(self, gross: float, *, include_voluntary_sickness: bool = False, **_: object) -> NetSalaryBreakdown:
         rate = CIVIL_CONTRACT_BASE_SOCIAL_SECURITY_RATE
         if include_voluntary_sickness:
             rate += EMPLOYEE_SICKNESS_RATE
@@ -199,8 +197,15 @@ class SalaryCalculator:
             income_tax=income_tax,
         )
 
-    def _b2b(
-        self, gross: float, business_costs: float, include_voluntary_sickness: bool
+
+class _B2BStrategy(_SalaryStrategy):
+    def calculate(
+        self,
+        gross: float,
+        *,
+        business_costs: float = 0.0,
+        include_voluntary_sickness: bool = False,
+        **_: object,
     ) -> NetSalaryBreakdown:
         rate = B2B_MANDATORY_SOCIAL_SECURITY_RATE
         if include_voluntary_sickness:
@@ -220,13 +225,39 @@ class SalaryCalculator:
             gross - social_security - health_insurance * B2B_RYCZALT_HEALTH_DEDUCTIBLE_SHARE,
         )
         income_tax = taxable_revenue * B2B_RYCZALT_TAX_RATE
-
         return NetSalaryBreakdown(
             gross=gross,
             social_security=social_security,
             health_insurance=health_insurance,
             income_tax=income_tax,
             business_costs=business_costs,
+        )
+
+
+_STRATEGIES: dict[ContractType, _SalaryStrategy] = {
+    ContractType.EMPLOYMENT: _EmploymentStrategy(),
+    ContractType.CIVIL: _CivilContractStrategy(),
+    ContractType.B2B: _B2BStrategy(),
+}
+
+
+class SalaryCalculator:
+    def calculate(
+        self,
+        contract_type: ContractType,
+        gross_monthly: float,
+        *,
+        business_costs: float = 0.0,
+        include_ppk: bool = False,
+        include_voluntary_sickness: bool = False,
+    ) -> NetSalaryBreakdown:
+        if gross_monthly <= 0:
+            raise ValueError("gross_monthly must be positive")
+        return _STRATEGIES[contract_type].calculate(
+            gross_monthly,
+            business_costs=business_costs,
+            include_ppk=include_ppk,
+            include_voluntary_sickness=include_voluntary_sickness,
         )
 
 

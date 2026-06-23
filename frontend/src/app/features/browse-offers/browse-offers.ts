@@ -19,14 +19,13 @@ import { Offer, OfferFilters, SortBy, SortOrder } from '../../core/models/profil
 import { formatSalaries } from '../../core/utils/offer-format';
 import { LEVEL_OPTIONS } from '../../core/constants/offer-levels';
 
-export type SortOption = 'relevance' | 'salary-desc' | 'salary-asc' | 'recent-desc' | 'recent-asc';
+export type SortOption = 'recent-desc' | 'recent-asc' | 'salary-desc' | 'salary-asc';
 
-const SORT_OPTION_VALUES: Record<SortOption, { sortBy: SortBy | null; sortOrder: SortOrder }> = {
-  relevance: { sortBy: null, sortOrder: 'desc' },
-  'salary-desc': { sortBy: 'salary', sortOrder: 'desc' },
-  'salary-asc': { sortBy: 'salary', sortOrder: 'asc' },
+const SORT_OPTION_VALUES: Record<SortOption, { sortBy: SortBy; sortOrder: SortOrder }> = {
   'recent-desc': { sortBy: 'recent', sortOrder: 'desc' },
   'recent-asc': { sortBy: 'recent', sortOrder: 'asc' },
+  'salary-desc': { sortBy: 'salary', sortOrder: 'desc' },
+  'salary-asc': { sortBy: 'salary', sortOrder: 'asc' },
 };
 
 @Component({
@@ -60,7 +59,6 @@ export class BrowseOffers implements OnInit {
   readonly total = signal(0);
   readonly pageIndex = signal(0);
   readonly pageSize = signal(20);
-  readonly sort = signal<SortOption>('recent-desc');
   readonly techFilter = signal<string[]>([]);
 
   readonly filters = this.fb.group({
@@ -68,6 +66,7 @@ export class BrowseOffers implements OnInit {
     minSalary: this.fb.control<number | null>(null, { validators: [Validators.min(0)] }),
     search: this.fb.control<string | null>(null),
     level: this.fb.control<string | null>(null),
+    sort: this.fb.control<SortOption>('recent-desc', { nonNullable: true }),
   });
 
   private readonly pageTrigger$ = new Subject<void>();
@@ -100,8 +99,7 @@ export class BrowseOffers implements OnInit {
     this.pageTrigger$.next();
   }
 
-  onSortChange(sort: SortOption): void {
-    this.sort.set(sort);
+  onSortChange(): void {
     this.pageIndex.set(0);
     this.pageTrigger$.next();
   }
@@ -145,8 +143,8 @@ export class BrowseOffers implements OnInit {
   }
 
   private currentFilters(): OfferFilters {
-    const { location, minSalary, search, level } = this.filters.getRawValue();
-    const { sortBy, sortOrder } = SORT_OPTION_VALUES[this.sort()];
+    const { location, minSalary, search, level, sort } = this.filters.getRawValue();
+    const { sortBy, sortOrder } = SORT_OPTION_VALUES[sort];
     return {
       location: location?.trim() || null,
       minSalary,

@@ -1,3 +1,4 @@
+from abc import ABC
 from dataclasses import dataclass
 
 from app.application.ports import (
@@ -40,8 +41,8 @@ class GetUserProfileUseCase:
 
 
 class CalculateNetSalaryUseCase:
-    def __init__(self, calculator: SalaryCalculator | None = None) -> None:
-        self._calculator = calculator or SalaryCalculator()
+    def __init__(self, calculator: SalaryCalculator) -> None:
+        self._calculator = calculator
 
     def execute(
         self,
@@ -78,16 +79,46 @@ class ListOffersUseCase:
         return self._offer_repository.browse_offers(filters, limit, offset)
 
 
-class MatchOffersUseCase:
+class _BaseMatchOffersUseCase(ABC):
+    def __init__(self, offer_repository: OfferRepository, filter_chain: FilterChain) -> None:
+        self._offer_repository = offer_repository
+        self._filter_chain = filter_chain
+
+    def _load_candidates(self, criteria: MatchCriteria) -> list[Offer]:
+        return [
+            offer
+            for offer in self._offer_repository.list_offers()
+            if self._filter_chain.passes(offer, criteria)
+        ]
+
+    def _make_matched(self, offer: Offer, score: float, criteria: MatchCriteria) -> MatchedOffer:
+        return MatchedOffer(
+            offer=offer,
+            score=score,
+            matched_skills=criteria.candidate.skill_names() & offer.skill_set(),
+        )
+
+    def _finalize(
+        self,
+        matched: list[MatchedOffer],
+        min_score: float,
+        sort_by: MatchSortBy,
+        sort_order: SortOrder,
+        offers_limit: int | None,
+    ) -> list[MatchedOffer]:
+        filtered = [m for m in matched if m.score >= min_score]
+        return sort_matched_offers(filtered, sort_by, sort_order)[:offers_limit]
+
+
+class MatchOffersUseCase(_BaseMatchOffersUseCase):
     def __init__(
         self,
         offer_repository: OfferRepository,
         offer_scorer: OfferScorer,
         filter_chain: FilterChain,
     ) -> None:
-        self._offer_repository = offer_repository
+        super().__init__(offer_repository, filter_chain)
         self._offer_scorer = offer_scorer
-        self._filter_chain = filter_chain
 
     def execute(
         self,
@@ -96,27 +127,15 @@ class MatchOffersUseCase:
         sort_by: MatchSortBy = "score",
         sort_order: SortOrder = "desc",
     ) -> list[MatchedOffer]:
-        candidate_offers = [
-            offer
-            for offer in self._offer_repository.list_offers()
-            if self._filter_chain.passes(offer, criteria)
+        candidates = self._load_candidates(criteria)
+        matched = [
+            self._make_matched(offer, self._offer_scorer.score(criteria.candidate, offer).overall_score, criteria)
+            for offer in candidates
         ]
-
-        matched_offers = [
-            MatchedOffer(
-                offer=offer,
-                score=self._offer_scorer.score(criteria.candidate, offer).overall_score,
-                matched_skills=criteria.candidate.skill_names() & offer.skill_set(),
-            )
-            for offer in candidate_offers
-        ]
-
-        matched_offers = [m for m in matched_offers if m.score >= criteria.min_score]
-        matched_offers = sort_matched_offers(matched_offers, sort_by, sort_order)
-        return matched_offers[:offers_limit]
+        return self._finalize(matched, criteria.min_score, sort_by, sort_order, offers_limit)
 
 
-class MatchOffersWithAiUseCase:
+class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
     """Like `MatchOffersUseCase`, but scores offers with an (expensive) AI scorer
     instead of a cheap deterministic one. To bound cost/latency, filtered candidates
     are pre-ranked with `ranking_scorer` and only the top `offers_to_score` are sent
@@ -130,8 +149,7 @@ class MatchOffersWithAiUseCase:
         ai_scorer: OfferScorer,
         usage_tracker: ModelUsageTracker | None = None,
     ) -> None:
-        self._offer_repository = offer_repository
-        self._filter_chain = filter_chain
+        super().__init__(offer_repository, filter_chain)
         self._ranking_scorer = ranking_scorer
         self._ai_scorer = ai_scorer
         self._usage_tracker = usage_tracker
@@ -145,32 +163,18 @@ class MatchOffersWithAiUseCase:
         sort_order: SortOrder = "desc",
         ai_min_score: float = 0.0,
     ) -> AiMatchResult:
-        candidate_offers = [
-            offer
-            for offer in self._offer_repository.list_offers()
-            if self._filter_chain.passes(offer, criteria)
-        ]
-
-        ranked_offers = sorted(
-            candidate_offers,
+        candidates = self._load_candidates(criteria)
+        ranked = sorted(
+            candidates,
             key=lambda offer: self._ranking_scorer.score(criteria.candidate, offer).overall_score,
             reverse=True,
         )
-        offers_to_send = ranked_offers[:offers_to_score]
-
-        matched_offers = [
-            MatchedOffer(
-                offer=offer,
-                score=self._ai_scorer.score(criteria.candidate, offer).overall_score,
-                matched_skills=criteria.candidate.skill_names() & offer.skill_set(),
-            )
-            for offer in offers_to_send
+        matched = [
+            self._make_matched(offer, self._ai_scorer.score(criteria.candidate, offer).overall_score, criteria)
+            for offer in ranked[:offers_to_score]
         ]
-
-        matched_offers = [m for m in matched_offers if m.score >= ai_min_score]
-        matched_offers = sort_matched_offers(matched_offers, sort_by, sort_order)
         usage = self._usage_tracker.flush() if self._usage_tracker else []
-        return AiMatchResult(matches=matched_offers[:offers_limit], usage=usage)
+        return AiMatchResult(matches=self._finalize(matched, ai_min_score, sort_by, sort_order, offers_limit), usage=usage)
 
 
 class GetModelUsageSummaryUseCase:
@@ -178,17 +182,16 @@ class GetModelUsageSummaryUseCase:
         self,
         repository: ModelUsageRepository,
         limits_registry: ModelLimitsRegistry,
-        external_provider: ExternalUsageProvider | None = None,
+        external_provider: ExternalUsageProvider,
     ) -> None:
         self._repository = repository
         self._limits_registry = limits_registry
         self._external_provider = external_provider
 
     def execute(self) -> list[ModelUsageWithLimits]:
-        if self._external_provider:
-            summaries = self._external_provider.get_today_usage()
-            if summaries:
-                return self._enrich(summaries)
+        summaries = self._external_provider.get_today_usage()
+        if summaries:
+            return self._enrich(summaries)
         return self._enrich(self._repository.get_summary())
 
     def _enrich(self, summaries: list) -> list[ModelUsageWithLimits]:
