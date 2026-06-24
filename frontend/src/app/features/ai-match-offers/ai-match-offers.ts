@@ -16,17 +16,12 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { EMPTY, Subject, catchError, switchMap, tap } from 'rxjs';
 
 import { ApiService } from '../../core/services/api.service';
-import { MatchSortBy, ModelUsage } from '../../core/models/profile.model';
-import { MatchedOfferRow, toMatchedOfferRow } from '../../core/utils/offer-row';
+import { MatchSortBy } from '../../core/models/profile.model';
+import { toMatchedOfferRow } from '../../core/utils/offer-row';
 import { LEVEL_OPTIONS } from '../../core/constants/offer-levels';
+import { AiMatchSortOption, AiMatchStateService } from './ai-match-state.service';
 
-export type AiMatchSortOption =
-  | 'score'
-  | 'score-recent'
-  | 'salary-desc'
-  | 'salary-asc'
-  | 'recent-desc'
-  | 'recent-asc';
+export type { AiMatchSortOption } from './ai-match-state.service';
 
 const AI_MATCH_SORT_OPTION_VALUES: Record<
   AiMatchSortOption,
@@ -63,17 +58,22 @@ const AI_MATCH_SORT_OPTION_VALUES: Record<
 export class AiMatchOffers implements OnInit {
   private readonly fb = inject(FormBuilder);
   private readonly api = inject(ApiService);
+  private readonly state = inject(AiMatchStateService);
 
   readonly levelOptions = LEVEL_OPTIONS;
   readonly separatorKeyCodes = [ENTER, COMMA] as const;
 
+  // Transient, per-component state — reset every time the view is entered.
   readonly loading = signal(false);
-  readonly searched = signal(false);
-  readonly results = signal<MatchedOfferRow[]>([]);
   readonly totalOffers = signal<number | null>(null);
-  readonly usage = signal<ModelUsage | null>(null);
-  readonly techFilter = signal<string[]>([]);
-  readonly errorMessage = signal<string | null>(null);
+
+  // Persistent state, kept in a root-scoped service so the last AI-match result
+  // is restored when the user navigates back to this section.
+  readonly searched = this.state.searched;
+  readonly results = this.state.results;
+  readonly usage = this.state.usage;
+  readonly techFilter = this.state.techFilter;
+  readonly errorMessage = this.state.errorMessage;
 
   private readonly searchTrigger$ = new Subject<void>();
 
@@ -92,6 +92,11 @@ export class AiMatchOffers implements OnInit {
   });
 
   constructor() {
+    const savedFilters = this.state.filters();
+    if (savedFilters) {
+      this.filters.setValue(savedFilters);
+    }
+
     this.searchTrigger$
       .pipe(
         tap(() => {
@@ -168,6 +173,7 @@ export class AiMatchOffers implements OnInit {
       this.filters.markAllAsTouched();
       return;
     }
+    this.state.filters.set(this.filters.getRawValue());
     this.searchTrigger$.next();
   }
 }

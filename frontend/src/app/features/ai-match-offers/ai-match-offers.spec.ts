@@ -137,6 +137,48 @@ describe('AiMatchOffers', () => {
     expect(el.textContent).toContain('90%');
   });
 
+  it('renders the AI insight: star rate, pros, cons and reasoning', () => {
+    const fixture = TestBed.createComponent(AiMatchOffers);
+    fixture.detectChanges();
+    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+
+    const offer = {
+      ...OFFER,
+      ai_insight: {
+        rate: 4,
+        pros: ['Strong Python overlap', 'Remote friendly'],
+        cons: ['Requires Kubernetes'],
+        rate_reason: 'Great fit for your backend skills.',
+      },
+    };
+    flush(fixture, httpMock, [offer]);
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.querySelector('.ai-insight')).not.toBeNull();
+    expect(el.textContent).toContain('4/5');
+    expect(el.querySelectorAll('.ai-rate .ai-star').length).toBe(5);
+    expect(el.textContent).toContain('Strong Python overlap');
+    expect(el.textContent).toContain('Remote friendly');
+    expect(el.querySelectorAll('.ai-pros li').length).toBe(2);
+    expect(el.textContent).toContain('Requires Kubernetes');
+    expect(el.querySelectorAll('.ai-cons li').length).toBe(1);
+    expect(el.querySelector('.ai-reason')!.textContent).toContain(
+      'Great fit for your backend skills.',
+    );
+  });
+
+  it('omits the AI insight block when an offer has none', () => {
+    const fixture = TestBed.createComponent(AiMatchOffers);
+    fixture.detectChanges();
+    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+
+    flush(fixture, httpMock, [OFFER]);
+
+    const el = fixture.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('AI Architect');
+    expect(el.querySelector('.ai-insight')).toBeNull();
+  });
+
   it('does not post when the form is invalid', () => {
     const fixture = TestBed.createComponent(AiMatchOffers);
     fixture.detectChanges();
@@ -241,5 +283,41 @@ describe('AiMatchOffers', () => {
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('.error-block')).toBeNull();
     expect(el.querySelector('.usage-stats')).not.toBeNull();
+  });
+
+  it('restores the previous results and usage after the component is recreated', () => {
+    const first = TestBed.createComponent(AiMatchOffers);
+    first.detectChanges();
+    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    flush(first, httpMock, [OFFER], { input_tokens: 100, output_tokens: 50 });
+    first.destroy();
+
+    const second = TestBed.createComponent(AiMatchOffers);
+    second.detectChanges();
+    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    second.detectChanges();
+
+    expect(second.componentInstance.results().length).toBe(1);
+    const el = second.nativeElement as HTMLElement;
+    expect(el.textContent).toContain('AI Architect');
+    expect(el.querySelector('.usage-stats')!.textContent).toContain('100');
+    httpMock.expectNone((req) => req.url.endsWith('/offers/match/ai'));
+  });
+
+  it('restores the saved filter values after the component is recreated', () => {
+    const first = TestBed.createComponent(AiMatchOffers);
+    first.detectChanges();
+    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    first.componentInstance.filters.controls.offersToScore.setValue(35);
+    first.componentInstance.addTech({ value: 'Python', chipInput: { clear: () => {} } } as any);
+    flush(first, httpMock, [], null);
+    first.destroy();
+
+    const second = TestBed.createComponent(AiMatchOffers);
+    second.detectChanges();
+    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+
+    expect(second.componentInstance.filters.controls.offersToScore.value).toBe(35);
+    expect(second.componentInstance.techFilter()).toEqual(['Python']);
   });
 });

@@ -5,7 +5,10 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
   AiMatchResult,
+  AvailableModels,
+  Budget,
   CurrentModelConfig,
+  DailyCost,
   MatchedOffer,
   MatchSortBy,
   ModelUsageSummaryItem,
@@ -99,6 +102,26 @@ export class ApiService {
     return this.http.get<CurrentModelConfig>(`${this.baseUrl}/config/model`);
   }
 
+  getAvailableModels(): Observable<AvailableModels> {
+    return this.http.get<AvailableModels>(`${this.baseUrl}/config/models`);
+  }
+
+  selectModel(model: string): Observable<CurrentModelConfig> {
+    return this.http.put<CurrentModelConfig>(`${this.baseUrl}/config/model`, { model });
+  }
+
+  getDailyCost(): Observable<DailyCost | null> {
+    return this.http.get<DailyCost | null>(`${this.baseUrl}/usage/cost`);
+  }
+
+  setBudgetLimit(limitUsd: number): Observable<Budget> {
+    return this.http.put<Budget>(`${this.baseUrl}/usage/limit`, { limit_usd: limitUsd });
+  }
+
+  resetUsage(): Observable<Budget> {
+    return this.http.post<Budget>(`${this.baseUrl}/usage/reset`, {});
+  }
+
   getUsageSummary(): Observable<ModelUsageSummaryItem[]> {
     return this.http.get<ModelUsageSummaryItem[]>(`${this.baseUrl}/usage/summary`);
   }
@@ -114,7 +137,11 @@ export class ApiService {
       }
     }
     if (filters.search) params = params.set('search', filters.search);
-    if (filters.level) params = params.set('level', filters.level);
+    if (filters.level?.length) {
+      for (const l of filters.level) {
+        params = params.append('level', l);
+      }
+    }
     params = params.set('sort_by', filters.sortBy).set('sort_order', filters.sortOrder);
 
     return this.http.get<OffersPage>(`${this.baseUrl}/offers`, { params });

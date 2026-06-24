@@ -1,6 +1,11 @@
+import asyncio
+from datetime import datetime, timezone
+
 import pytest
 
-from app.application.ports import ExternalUsageProvider, InMemoryModelUsageTracker, ModelUsage, ModelUsageSummary
+from app.application.ports import BudgetStatusReader, ExternalUsageProvider, InMemoryModelUsageTracker, ModelUsage, ModelUsageSummary
+from app.domain.budget import BudgetStatus
+from app.domain.errors import AiScoringError, BudgetExceededError
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     GetModelUsageSummaryUseCase,
@@ -14,7 +19,7 @@ from app.application.use_cases import (
 from app.domain.salary_calculator import ContractType, SalaryCalculator
 from app.domain.entities import Offer, Salary, Skill, UserProfile
 from app.domain.filters import FilterChain, MatchCriteria, OfferBrowseFilters, OfferFilter
-from app.domain.scoring import MatchScore, OfferScorer, ScoreComponent
+from app.domain.scoring import AiInsight, MatchScore, OfferScorer, ScoreComponent
 from app.infrastructure.offer_filters import (
     ExpiredFilter,
     LevelFilter,
@@ -680,6 +685,119 @@ def test_match_offers_use_case_sorts_by_recent_when_requested():
     assert [r.offer.link for r in results] == ["a", "b"]
 
 
+class ConcurrencyProbeScorer(OfferScorer):
+    """Async scorer that records how many scoring calls overlap, so tests can assert
+    the use case fans out concurrently (and respects the concurrency cap)."""
+
+    def __init__(self, value: float = 0.5, delay: float = 0.02) -> None:
+        self._value = value
+        self._delay = delay
+        self.in_flight = 0
+        self.max_in_flight = 0
+
+    async def score_async(self, candidate: UserProfile, offer: Offer) -> MatchScore:
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        await asyncio.sleep(self._delay)
+        self.in_flight -= 1
+        return MatchScore().with_component(ScoreComponent(name="fixed", value=self._value, weight=1.0))
+
+    def score(self, candidate: UserProfile, offer: Offer) -> MatchScore:  # pragma: no cover
+        raise NotImplementedError
+
+
+class FlakyScorer(OfferScorer):
+    """Async scorer that fails for a set of offer links and scores the rest."""
+
+    def __init__(self, fail_links: set[str], value: float = 0.5) -> None:
+        self._fail_links = fail_links
+        self._value = value
+
+    async def score_async(self, candidate: UserProfile, offer: Offer) -> MatchScore:
+        if offer.link in self._fail_links:
+            raise AiScoringError(f"scoring failed for {offer.link}")
+        return MatchScore().with_component(ScoreComponent(name="fixed", value=self._value, weight=1.0))
+
+    def score(self, candidate: UserProfile, offer: Offer) -> MatchScore:  # pragma: no cover
+        raise NotImplementedError
+
+
+def _offers(*links: str) -> list[Offer]:
+    return [Offer(link=link, title=link, company="C", tech_stack=["Python"]) for link in links]
+
+
+def test_match_offers_with_ai_caps_concurrent_scoring_at_max_concurrency():
+    candidate = _profile("Python")
+    offers = _offers("a", "b", "c", "d", "e", "f")
+    probe = ConcurrencyProbeScorer()
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({o.link: 0.5 for o in offers}),
+        probe,
+        max_concurrency=3,
+    )
+
+    result = use_case.execute(
+        criteria=MatchCriteria(candidate=candidate), offers_to_score=6, offers_limit=10
+    )
+
+    assert len(result.matches) == 6
+    assert probe.max_in_flight == 3
+
+
+def test_match_offers_with_ai_scores_all_in_parallel_when_concurrency_is_high():
+    candidate = _profile("Python")
+    offers = _offers("a", "b", "c", "d", "e")
+    probe = ConcurrencyProbeScorer()
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({o.link: 0.5 for o in offers}),
+        probe,
+        max_concurrency=10,
+    )
+
+    use_case.execute(criteria=MatchCriteria(candidate=candidate), offers_to_score=5, offers_limit=10)
+
+    assert probe.max_in_flight == 5
+
+
+def test_match_offers_with_ai_skips_offers_that_fail_to_score():
+    candidate = _profile("Python")
+    offers = _offers("a", "b", "c")
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9, "b": 0.9, "c": 0.9}),
+        FlakyScorer(fail_links={"b"}),
+        max_concurrency=10,
+    )
+
+    result = use_case.execute(
+        criteria=MatchCriteria(candidate=candidate), offers_to_score=3, offers_limit=10
+    )
+
+    assert sorted(m.offer.link for m in result.matches) == ["a", "c"]
+
+
+def test_match_offers_with_ai_raises_when_every_offer_fails_to_score():
+    candidate = _profile("Python")
+    offers = _offers("a", "b")
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9, "b": 0.9}),
+        FlakyScorer(fail_links={"a", "b"}),
+        max_concurrency=10,
+    )
+
+    with pytest.raises(AiScoringError):
+        use_case.execute(
+            criteria=MatchCriteria(candidate=candidate), offers_to_score=2, offers_limit=10
+        )
+
+
 def test_match_offers_with_ai_use_case_returns_usage_recorded_during_scoring():
     class UsageRecordingScorer(OfferScorer):
         def __init__(self, score: float, tracker: InMemoryModelUsageTracker) -> None:
@@ -817,6 +935,126 @@ def test_use_case_falls_back_to_db_when_external_provider_returns_empty():
     result = use_case.execute()
 
     assert result[0].input_tokens == 500
+
+
+# --- Budget guard in MatchOffersWithAiUseCase ---
+
+
+class FakeBudget(BudgetStatusReader):
+    def __init__(self, limit_usd: float, used_usd: float | None) -> None:
+        self._status = BudgetStatus(
+            limit_usd=limit_usd,
+            used_usd=used_usd,
+            tracking_since=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+
+    def status(self) -> BudgetStatus:
+        return self._status
+
+
+def _ai_use_case_with_budget(offers, budget):
+    return MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9}),
+        ScoreByLinkScorer({"a": 0.8}),
+        budget=budget,
+    )
+
+
+def test_match_offers_with_ai_raises_budget_exceeded_when_usage_at_limit():
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = _ai_use_case_with_budget(offers, FakeBudget(limit_usd=5.0, used_usd=5.0))
+
+    with pytest.raises(BudgetExceededError):
+        use_case.execute(criteria=MatchCriteria(candidate=candidate), offers_to_score=10, offers_limit=10)
+
+
+def test_match_offers_with_ai_raises_budget_exceeded_when_usage_exceeds_limit():
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = _ai_use_case_with_budget(offers, FakeBudget(limit_usd=5.0, used_usd=5.50))
+
+    with pytest.raises(BudgetExceededError) as exc_info:
+        use_case.execute(criteria=MatchCriteria(candidate=candidate), offers_to_score=10, offers_limit=10)
+
+    assert exc_info.value.cost_usd == 5.50
+    assert exc_info.value.limit_usd == 5.0
+
+
+def test_match_offers_with_ai_proceeds_when_usage_below_limit():
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = _ai_use_case_with_budget(offers, FakeBudget(limit_usd=5.0, used_usd=4.99))
+
+    result = use_case.execute(criteria=MatchCriteria(candidate=candidate), offers_to_score=10, offers_limit=10)
+
+    assert len(result.matches) == 1
+
+
+def test_match_offers_with_ai_proceeds_when_usage_is_unknown():
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = _ai_use_case_with_budget(offers, FakeBudget(limit_usd=5.0, used_usd=None))
+
+    result = use_case.execute(criteria=MatchCriteria(candidate=candidate), offers_to_score=10, offers_limit=10)
+
+    assert len(result.matches) == 1
+
+
+class InsightScorer(OfferScorer):
+    """Scores every offer the same and attaches a fixed AI insight via metadata."""
+
+    def __init__(self, insight: AiInsight, value: float = 0.8) -> None:
+        self._insight = insight
+        self._value = value
+
+    def score(self, candidate: UserProfile, offer: Offer) -> MatchScore:
+        return MatchScore().with_component(
+            ScoreComponent(name="description", value=self._value, weight=1.0, metadata={"ai_insight": self._insight})
+        )
+
+
+def test_match_offers_with_ai_attaches_ai_insight_from_the_scorer():
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    insight = AiInsight(rate=5, pros=["Strong match"], cons=["Remote only"], rate_reason="Great fit")
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9}),
+        InsightScorer(insight),
+    )
+
+    result = use_case.execute(criteria=MatchCriteria(candidate=candidate), offers_to_score=10, offers_limit=10)
+
+    assert result.matches[0].ai_insight == insight
+
+
+def test_match_offers_without_ai_leaves_ai_insight_unset():
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = MatchOffersUseCase(FakeOfferRepository(offers), ScoreByLinkScorer({"a": 0.9}), FilterChain([]))
+
+    result = use_case.execute(criteria=MatchCriteria(candidate=candidate), offers_limit=10)
+
+    assert result[0].ai_insight is None
+
+
+def test_match_offers_with_ai_proceeds_without_budget_check_when_no_cost_provider():
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9}),
+        ScoreByLinkScorer({"a": 0.8}),
+    )
+
+    result = use_case.execute(criteria=MatchCriteria(candidate=candidate), offers_to_score=10, offers_limit=10)
+
+    assert len(result.matches) == 1
 
 
 def test_use_case_uses_db_when_no_useful_external_data():

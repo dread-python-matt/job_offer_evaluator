@@ -2,21 +2,27 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from datetime import datetime, timezone
+
+from app.application.ai_scoring_context import AiScoringContext
+from app.application.budget_service import BudgetService
+from app.application.ports import AvailableModel, ModelUsageSummary
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     CountOffersUseCase,
     GetModelUsageSummaryUseCase,
     GetUserProfileUseCase,
+    ListAvailableModelsUseCase,
     ListOffersUseCase,
     MatchOffersUseCase,
     MatchOffersWithAiUseCase,
     SaveUserProfileUseCase,
 )
-from app.application.ports import ModelUsageSummary
+from app.domain.budget import BudgetSettings
 from app.domain.errors import AiScoringError
 from app.domain.entities import Offer, Salary, Skill, UserProfile
 from app.domain.filters import FilterChain
-from app.domain.scoring import MatchScore, OfferScorer
+from app.domain.scoring import AiInsight, MatchScore, OfferScorer, ScoreComponent
 from app.domain.salary_calculator import ContractType, SalaryCalculator, net_monthly_take_home
 from app.infrastructure.offer_filters import (
     ExpiredFilter,
@@ -26,9 +32,13 @@ from app.infrastructure.offer_filters import (
     SkillFilter,
 )
 from app.infrastructure.scoring_strategies import SkillBasedScorer
+from app.domain.errors import BudgetExceededError
 from app.presentation.api.routes import (
+    get_ai_scoring_context,
+    get_budget_service,
     get_calculate_salary_use_case,
     get_count_offers_use_case,
+    get_list_available_models_use_case,
     get_list_offers_use_case,
     get_match_offers_ai_use_case,
     get_match_offers_use_case,
@@ -41,6 +51,8 @@ from tests.fakes import (
     FakeModelUsageRepository,
     FakeOfferRepository,
     FakeUserProfileRepository,
+    FixedSpendProvider,
+    InMemoryBudgetRepository,
     ScoreByLinkScorer,
 )
 
@@ -517,6 +529,60 @@ def test_match_offers_sorts_by_recent_when_requested():
     assert [offer["link"] for offer in response.json()] == ["a", "b"]
 
 
+def test_match_offers_score_recent_ranks_by_score_first():
+    # "a" is more recent but requires Rust which the candidate barely knows (rating 1)
+    # "b" is older but requires Python which the candidate knows well (rating 5)
+    # score wins over recency → "b" should come first
+    offers = [
+        Offer(link="a", title="A", company="C", tech_stack=["Rust"], published="2026-06-20"),
+        Offer(link="b", title="B", company="C", tech_stack=["Python"], published="2026-01-01"),
+    ]
+    client = _build_client(offers=offers)
+
+    response = client.post(
+        "/offers/match",
+        json={
+            "candidate": {
+                "summary": "",
+                "skills": [{"name": "Python", "rating": 5}, {"name": "Rust", "rating": 1}],
+                "projects": [],
+                "experience": [],
+            },
+            "min_score": 0.0,
+            "sort_by": "score_recent",
+        },
+    )
+
+    assert response.status_code == 200
+    assert [offer["link"] for offer in response.json()] == ["b", "a"]
+
+
+def test_match_offers_score_recent_breaks_ties_by_recency():
+    # same tech stack → equal scores, more recent published date wins
+    offers = [
+        Offer(link="a", title="A", company="C", tech_stack=["Python"], published="2026-05-01"),
+        Offer(link="b", title="B", company="C", tech_stack=["Python"], published="2026-06-10"),
+    ]
+    client = _build_client(offers=offers)
+
+    response = client.post(
+        "/offers/match",
+        json={
+            "candidate": {
+                "summary": "",
+                "skills": [{"name": "Python", "rating": 5}],
+                "projects": [],
+                "experience": [],
+            },
+            "min_score": 0.0,
+            "sort_by": "score_recent",
+        },
+    )
+
+    assert response.status_code == 200
+    assert [offer["link"] for offer in response.json()] == ["b", "a"]
+
+
 def test_match_offers_filters_by_location():
     offers = [
         Offer(link="a", title="A", company="C", tech_stack=["Python"], locations=["Warsaw"]),
@@ -685,6 +751,54 @@ def test_match_offers_ai_filters_final_results_by_ai_min_score():
 
     assert response.status_code == 200
     assert [offer["link"] for offer in response.json()["matches"]] == ["a"]
+
+
+class _InsightScorer(OfferScorer):
+    def __init__(self, insight: AiInsight) -> None:
+        self._insight = insight
+
+    def score(self, candidate, offer) -> MatchScore:
+        return MatchScore().with_component(
+            ScoreComponent(name="description", value=0.9, weight=1.0, metadata={"ai_insight": self._insight})
+        )
+
+
+def test_match_offers_ai_response_includes_ai_insight():
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    insight = AiInsight(rate=4, pros=["Strong Python"], cons=["No K8s"], rate_reason="Solid fit")
+    client = _build_client(offers=offers, ai_scorer=_InsightScorer(insight))
+
+    response = client.post(
+        "/offers/match/ai",
+        json={
+            "candidate": {"summary": "", "skills": [{"name": "Python", "rating": 5}], "projects": [], "experience": []},
+            "offers_to_score": 10,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["matches"][0]["ai_insight"] == {
+        "rate": 4,
+        "pros": ["Strong Python"],
+        "cons": ["No K8s"],
+        "rate_reason": "Solid fit",
+    }
+
+
+def test_match_offers_response_has_null_ai_insight():
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    client = _build_client(offers=offers)
+
+    response = client.post(
+        "/offers/match",
+        json={
+            "candidate": {"summary": "", "skills": [{"name": "Python", "rating": 5}], "projects": [], "experience": []},
+            "offers_limit": 10,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()[0]["ai_insight"] is None
 
 
 def test_match_offers_ai_returns_offers_scored_by_the_ai_scorer():
@@ -976,3 +1090,171 @@ def test_usage_summary_limits_are_null_for_unknown_model():
 
     assert response.status_code == 200
     assert response.json()[0]["limits"] is None
+
+
+# --- GET /config/models and PUT /config/model ---
+
+
+class _FakeAvailableModelsProvider:
+    def __init__(self, models: list[AvailableModel]) -> None:
+        self._models = models
+
+    def list_models(self) -> list[AvailableModel]:
+        return self._models
+
+
+def _build_model_client(
+    available_models: list[AvailableModel],
+    initial_model: str = "gemini-2.0-flash",
+) -> tuple[TestClient, AiScoringContext]:
+    app = FastAPI()
+    app.include_router(router)
+
+    use_case = ListAvailableModelsUseCase(_FakeAvailableModelsProvider(available_models))
+    context = AiScoringContext(
+        initial_model=initial_model,
+        initial_use_case=object(),
+        build_use_case=lambda model: object(),
+        configure_sdk=lambda model: None,
+    )
+
+    app.dependency_overrides[get_list_available_models_use_case] = lambda: use_case
+    app.dependency_overrides[get_ai_scoring_context] = lambda: context
+    return TestClient(app), context
+
+
+def test_get_available_models_groups_by_company():
+    models = [
+        AvailableModel(model="gemini-2.0-flash", company="Google"),
+        AvailableModel(model="gemini-1.5-pro", company="Google"),
+        AvailableModel(model="gpt-4o", company="OpenAI"),
+    ]
+    client, _ = _build_model_client(models)
+
+    response = client.get("/config/models")
+
+    assert response.status_code == 200
+    body = response.json()
+    companies = {c["name"]: c["models"] for c in body["companies"]}
+    assert set(companies["Google"]) == {"gemini-2.0-flash", "gemini-1.5-pro"}
+    assert set(companies["OpenAI"]) == {"gpt-4o"}
+
+
+def test_get_available_models_includes_active_model():
+    models = [AvailableModel(model="gemini-2.0-flash", company="Google")]
+    client, _ = _build_model_client(models, initial_model="gemini-2.0-flash")
+
+    response = client.get("/config/models")
+
+    assert response.status_code == 200
+    assert response.json()["active"]["model"] == "gemini-2.0-flash"
+    assert response.json()["active"]["company"] == "Google"
+
+
+def test_put_model_switches_active_model():
+    models = [
+        AvailableModel(model="gemini-2.0-flash", company="Google"),
+        AvailableModel(model="gpt-4o", company="OpenAI"),
+    ]
+    client, context = _build_model_client(models, initial_model="gemini-2.0-flash")
+
+    response = client.put("/config/model", json={"model": "gpt-4o"})
+
+    assert response.status_code == 200
+    assert response.json()["model"] == "gpt-4o"
+    assert response.json()["company"] == "OpenAI"
+    assert context.active_model == "gpt-4o"
+
+
+def test_put_model_returns_404_for_unknown_model():
+    models = [AvailableModel(model="gemini-2.0-flash", company="Google")]
+    client, _ = _build_model_client(models)
+
+    response = client.put("/config/model", json={"model": "gpt-unknown-99"})
+
+    assert response.status_code == 404
+
+
+# --- /usage budget endpoints and budget blocking ---
+
+
+_ANCHOR = datetime(2026, 6, 1, tzinfo=timezone.utc)
+
+
+def _build_budget_client(limit_usd: float = 5.0, spend_provider=None) -> tuple[TestClient, BudgetService]:
+    app = FastAPI()
+    app.include_router(router)
+    repo = InMemoryBudgetRepository(BudgetSettings(limit_usd=limit_usd, tracking_since=_ANCHOR))
+    service = BudgetService(repo, spend_provider)
+    app.dependency_overrides[get_budget_service] = lambda: service
+    return TestClient(app), service
+
+
+def test_get_usage_cost_returns_used_and_limit():
+    client, _ = _build_budget_client(limit_usd=5.0, spend_provider=FixedSpendProvider(2.50))
+
+    response = client.get("/usage/cost")
+
+    assert response.status_code == 200
+    assert response.json() == {"cost_usd": 2.50, "limit_usd": 5.0}
+
+
+def test_get_usage_cost_returns_null_when_spend_unknown():
+    client, _ = _build_budget_client(spend_provider=None)
+
+    response = client.get("/usage/cost")
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+def test_put_usage_limit_sets_the_limit():
+    client, service = _build_budget_client(limit_usd=5.0, spend_provider=FixedSpendProvider(1.0))
+
+    response = client.put("/usage/limit", json={"limit_usd": 25.0})
+
+    assert response.status_code == 200
+    assert response.json()["limit_usd"] == 25.0
+    assert response.json()["used_usd"] == 1.0
+    assert service.status().limit_usd == 25.0
+
+
+def test_put_usage_limit_rejects_negative_limit():
+    client, _ = _build_budget_client()
+
+    response = client.put("/usage/limit", json={"limit_usd": -1.0})
+
+    assert response.status_code == 422
+
+
+def test_post_usage_reset_moves_the_tracking_anchor_forward():
+    client, service = _build_budget_client(spend_provider=FixedSpendProvider(0.0))
+
+    response = client.post("/usage/reset")
+
+    assert response.status_code == 200
+    assert datetime.fromisoformat(response.json()["tracking_since"]) > _ANCHOR
+
+
+def test_match_offers_ai_returns_402_when_budget_exceeded():
+    class BudgetExceededScorer(OfferScorer):
+        def score(self, candidate, offer) -> MatchScore:
+            raise BudgetExceededError(5.0, 5.0)
+
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    client = _build_client(offers=offers, ai_scorer=BudgetExceededScorer())
+
+    response = client.post(
+        "/offers/match/ai",
+        json={
+            "candidate": {
+                "summary": "",
+                "skills": [{"name": "Python", "rating": 5}],
+                "projects": [],
+                "experience": [],
+            },
+            "min_score": 0.0,
+        },
+    )
+
+    assert response.status_code == 402

@@ -1,10 +1,15 @@
+from datetime import datetime
+
 from app.application.ports import (
+    BudgetRepository,
     ModelUsage,
     ModelUsageRepository,
     ModelUsageSummary,
     OfferRepository,
+    SpendProvider,
     UserProfileRepository,
 )
+from app.domain.budget import BudgetSettings
 from app.domain.entities import Offer, UserProfile
 from app.domain.filters import (
     OfferBrowseFilters,
@@ -17,6 +22,29 @@ from app.domain.filters import (
 )
 from app.domain.scoring import MatchScore, OfferScorer, ScoreComponent
 from app.domain.sorting import sort_offers
+
+
+class InMemoryBudgetRepository(BudgetRepository):
+    def __init__(self, settings: BudgetSettings) -> None:
+        self.settings = settings
+
+    def load(self) -> BudgetSettings:
+        return self.settings
+
+    def save(self, settings: BudgetSettings) -> None:
+        self.settings = settings
+
+
+class FixedSpendProvider(SpendProvider):
+    """Returns a fixed spend and records the start instant it was asked about."""
+
+    def __init__(self, amount: float) -> None:
+        self.amount = amount
+        self.requested_start: datetime | None = None
+
+    def spend_since(self, start: datetime) -> float:
+        self.requested_start = start
+        return self.amount
 
 
 class FakeUserProfileRepository(UserProfileRepository):

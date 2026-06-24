@@ -16,7 +16,7 @@ class OpenAIExternalUsageProvider(ExternalUsageProvider):
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .timestamp()
         )
-        response = self._client.organization.usage.completions.list(start_time=today_start)
+        response = self._client.admin.organization.usage.completions(start_time=today_start)
 
         totals: dict[str, dict[str, int]] = defaultdict(
             lambda: {"input_tokens": 0, "output_tokens": 0}

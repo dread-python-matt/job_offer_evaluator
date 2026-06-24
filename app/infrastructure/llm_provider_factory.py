@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from app.application.ports import ExternalUsageProvider
+from app.application.ports import ExternalUsageProvider, SpendProvider
 from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
 
 
@@ -13,6 +13,9 @@ class LLMProviderFactory(ABC):
 
     @abstractmethod
     def build_external_usage_provider(self) -> ExternalUsageProvider: ...
+
+    @abstractmethod
+    def build_spend_provider(self) -> SpendProvider | None: ...
 
 
 class OpenAIProviderFactory(LLMProviderFactory):
@@ -31,6 +34,12 @@ class OpenAIProviderFactory(LLMProviderFactory):
             return OpenAIExternalUsageProvider(OpenAI(api_key=self._admin_key))
         return NoExternalUsageProvider()
 
+    def build_spend_provider(self) -> SpendProvider | None:
+        if not self._admin_key:
+            return None
+        from app.infrastructure.openai_spend_provider import OpenAISpendProvider
+        return OpenAISpendProvider(api_key=self._admin_key)
+
 
 class GeminiProviderFactory(LLMProviderFactory):
     def __init__(self, api_key: str) -> None:
@@ -42,6 +51,9 @@ class GeminiProviderFactory(LLMProviderFactory):
 
     def build_external_usage_provider(self) -> ExternalUsageProvider:
         return NoExternalUsageProvider()
+
+    def build_spend_provider(self) -> SpendProvider | None:
+        return None
 
 
 def build_llm_provider_factory(

@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING
 
+from app.domain.budget import BudgetSettings, BudgetStatus
 from app.domain.entities import Offer, UserProfile
 
 if TYPE_CHECKING:
@@ -99,3 +101,41 @@ class ModelLimitsRegistry(ABC):
 class ExternalUsageProvider(ABC):
     @abstractmethod
     def get_today_usage(self) -> list[ModelUsageSummary]: ...
+
+
+@dataclass(frozen=True)
+class AvailableModel:
+    model: str
+    company: str
+
+
+class AvailableModelsProvider(ABC):
+    @abstractmethod
+    def list_models(self) -> list[AvailableModel]: ...
+
+
+class SpendProvider(ABC):
+    """Reads actual money spent since a given instant. Raises CostUnavailableError
+    when the figure can't be retrieved."""
+
+    @abstractmethod
+    def spend_since(self, start: datetime) -> float: ...
+
+
+class BudgetRepository(ABC):
+    """Persists the single budget configuration. `load` returns the stored settings,
+    lazily initialising defaults on first use so it always returns a value."""
+
+    @abstractmethod
+    def load(self) -> BudgetSettings: ...
+
+    @abstractmethod
+    def save(self, settings: BudgetSettings) -> None: ...
+
+
+class BudgetStatusReader(ABC):
+    """Exposes the current budget status to consumers (e.g. the AI match gate) that
+    only need to read it, not change it."""
+
+    @abstractmethod
+    def status(self) -> BudgetStatus: ...

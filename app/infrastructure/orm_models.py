@@ -92,3 +92,14 @@ class ModelUsageRow(Base):
     input_tokens: Mapped[int]
     output_tokens: Mapped[int]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class BudgetRow(Base):
+    """Single-row table holding the spend budget. The usage anchor (`tracking_since`)
+    only moves on an explicit reset, so accrued usage never resets automatically."""
+
+    __tablename__ = "budget"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    limit_usd: Mapped[Decimal] = mapped_column(Numeric)
+    tracking_since: Mapped[datetime] = mapped_column(DateTime(timezone=True))

@@ -1,5 +1,6 @@
+import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import openai
@@ -9,7 +10,7 @@ from pydantic import BaseModel, Field
 from app.application.ports import ModelUsage, ModelUsageTracker
 from app.domain.errors import AiScoringError
 from app.domain.entities import Offer, UserProfile
-from app.domain.scoring import MatchScore, OfferScorer, ScoreComponent
+from app.domain.scoring import AiInsight, MatchScore, OfferScorer, ScoreComponent
 from app.infrastructure.llm_utils import company_from_model
 from app.infrastructure.scoring_strategies import SkillBasedScorer
 
@@ -47,6 +48,7 @@ class LLMScoringStrategy(OfferScorer):
         model: str,
         *,
         run: Callable[[Agent, str], Any] = Runner.run_sync,
+        run_async: Callable[[Agent, str], Awaitable[Any]] = Runner.run,
         skills_scorer: OfferScorer | None = None,
         translator_agent: Agent | None = None,
         usage_tracker: ModelUsageTracker | None = None,
@@ -61,6 +63,7 @@ class LLMScoringStrategy(OfferScorer):
             agent=agent,
             model=model,
             run=run,
+            run_async=run_async,
             skills_scorer=skills_scorer,
             translator_agent=translator_agent,
             usage_tracker=usage_tracker,
@@ -71,29 +74,60 @@ class LLMScoringStrategy(OfferScorer):
         agent: Agent,
         model: str = "",
         run: Callable[[Agent, str], Any] = Runner.run_sync,
+        run_async: Callable[[Agent, str], Awaitable[Any]] = Runner.run,
         skills_scorer: OfferScorer | None = None,
         translator_agent: Agent | None = None,
         usage_tracker: ModelUsageTracker | None = None,
         _sleep: Callable[[float], None] = time.sleep,
+        _asleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._agent = agent
         self._model = model
         self._run = run
+        self._run_async = run_async
         self._skills_scorer = skills_scorer or SkillBasedScorer()
         self._translator_agent = translator_agent
         self._usage_tracker = usage_tracker
         self._sleep = _sleep
+        self._asleep = _asleep
 
     def score(self, candidate: UserProfile, offer: Offer) -> MatchScore:
         description = self._translate_to_english(offer.description)
         result = self._run_tracked(self._agent, self._build_prompt(candidate, description), "scoring")
-        agent_score: AgentScore = result.final_output
+        return self._assemble_score(candidate, offer, result.final_output)
+
+    async def score_async(self, candidate: UserProfile, offer: Offer) -> MatchScore:
+        """Async twin of `score`, used by the parallel match use case so many offers
+        can be scored concurrently on one event loop. Mirrors `score` exactly but
+        awaits the agent runs instead of blocking."""
+        description = await self._translate_to_english_async(offer.description)
+        result = await self._run_tracked_async(
+            self._agent, self._build_prompt(candidate, description), "scoring"
+        )
+        return self._assemble_score(candidate, offer, result.final_output)
+
+    def _assemble_score(
+        self, candidate: UserProfile, offer: Offer, agent_score: AgentScore
+    ) -> MatchScore:
         skills_score = self._skills_scorer.score(candidate, offer).get("skills") or 0.0
         description_score = agent_score.rate * 20 / 100
+        insight = AiInsight(
+            rate=agent_score.rate,
+            pros=list(agent_score.pros),
+            cons=list(agent_score.cons),
+            rate_reason=agent_score.rate_reason,
+        )
         return (
             MatchScore()
             .with_component(ScoreComponent(name="skills", value=skills_score, weight=4.0))
-            .with_component(ScoreComponent(name="description", value=description_score, weight=1.0))
+            .with_component(
+                ScoreComponent(
+                    name="description",
+                    value=description_score,
+                    weight=1.0,
+                    metadata={"ai_insight": insight},
+                )
+            )
         )
 
     def _translate_to_english(self, description: str) -> str:
@@ -102,22 +136,17 @@ class LLMScoringStrategy(OfferScorer):
         result = self._run_tracked(self._translator_agent, description, "translation")
         return result.final_output
 
+    async def _translate_to_english_async(self, description: str) -> str:
+        if not self._translator_agent or not description:
+            return description
+        result = await self._run_tracked_async(self._translator_agent, description, "translation")
+        return result.final_output
+
     def _run_tracked(self, agent: Agent, prompt: str, label: str) -> Any:
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 result = self._run(agent, prompt)
-                if self._usage_tracker:
-                    sdk_usage = result.context_wrapper.usage
-                    if sdk_usage is not None:
-                        self._usage_tracker.record(
-                            ModelUsage(
-                                label=label,
-                                input_tokens=sdk_usage.input_tokens,
-                                output_tokens=sdk_usage.output_tokens,
-                                model=self._model,
-                                company=company_from_model(self._model),
-                            )
-                        )
+                self._record_usage(result, label)
                 return result
             except openai.APIStatusError as exc:
                 if exc.status_code not in _RETRYABLE_STATUS_CODES or attempt == _MAX_RETRIES:
@@ -125,6 +154,37 @@ class LLMScoringStrategy(OfferScorer):
                 self._sleep(_BACKOFF_BASE * (2**attempt))
             except openai.APIError as exc:
                 raise AiScoringError(str(exc)) from exc
+        raise AiScoringError("AI scoring failed after exhausting retries")
+
+    async def _run_tracked_async(self, agent: Agent, prompt: str, label: str) -> Any:
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                result = await self._run_async(agent, prompt)
+                self._record_usage(result, label)
+                return result
+            except openai.APIStatusError as exc:
+                if exc.status_code not in _RETRYABLE_STATUS_CODES or attempt == _MAX_RETRIES:
+                    raise AiScoringError(f"AI service error ({exc.status_code}). Please try again.") from exc
+                await self._asleep(_BACKOFF_BASE * (2**attempt))
+            except openai.APIError as exc:
+                raise AiScoringError(str(exc)) from exc
+        raise AiScoringError("AI scoring failed after exhausting retries")
+
+    def _record_usage(self, result: Any, label: str) -> None:
+        if not self._usage_tracker:
+            return
+        sdk_usage = result.context_wrapper.usage
+        if sdk_usage is None:
+            return
+        self._usage_tracker.record(
+            ModelUsage(
+                label=label,
+                input_tokens=sdk_usage.input_tokens,
+                output_tokens=sdk_usage.output_tokens,
+                model=self._model,
+                company=company_from_model(self._model),
+            )
+        )
 
     @staticmethod
     def _build_prompt(candidate: UserProfile, description: str) -> str:

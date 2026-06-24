@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 from app.application.ports import ModelUsageWithLimits
+from app.domain.budget import BudgetStatus
 from app.domain.entities import Experience, Offer, Project, Salary, Skill, UserProfile
 from app.domain.filters import MatchCriteria
 from app.domain.salary_calculator import ContractType, NetSalaryBreakdown, net_monthly_take_home
-from app.domain.scoring import MatchedOffer
+from app.domain.scoring import AiInsight, MatchedOffer
 from app.domain.sorting import MatchSortBy, SortOrder
 
 
@@ -212,6 +215,22 @@ class OffersPageSchema(BaseModel):
     offset: int
 
 
+class AiInsightSchema(BaseModel):
+    rate: int
+    pros: list[str]
+    cons: list[str]
+    rate_reason: str
+
+    @classmethod
+    def from_domain(cls, insight: AiInsight) -> "AiInsightSchema":
+        return cls(
+            rate=insight.rate,
+            pros=list(insight.pros),
+            cons=list(insight.cons),
+            rate_reason=insight.rate_reason,
+        )
+
+
 class MatchedOfferSchema(BaseModel):
     link: str
     title: str
@@ -224,6 +243,7 @@ class MatchedOfferSchema(BaseModel):
     expires: str | None
     levels: list[str]
     published: str | None
+    ai_insight: AiInsightSchema | None = None
 
     @classmethod
     def from_domain(cls, matched: MatchedOffer) -> "MatchedOfferSchema":
@@ -239,6 +259,9 @@ class MatchedOfferSchema(BaseModel):
             expires=matched.offer.expires,
             levels=matched.offer.levels,
             published=matched.offer.published,
+            ai_insight=(
+                AiInsightSchema.from_domain(matched.ai_insight) if matched.ai_insight else None
+            ),
         )
 
 
@@ -255,6 +278,43 @@ class AiMatchResponseSchema(BaseModel):
 class CurrentModelSchema(BaseModel):
     model: str
     company: str
+
+
+class SelectModelRequestSchema(BaseModel):
+    model: str
+
+
+class CompanyModelsSchema(BaseModel):
+    name: str
+    models: list[str]
+
+
+class AvailableModelsSchema(BaseModel):
+    companies: list[CompanyModelsSchema]
+    active: CurrentModelSchema
+
+
+class DailyCostSchema(BaseModel):
+    cost_usd: float
+    limit_usd: float
+
+
+class BudgetSchema(BaseModel):
+    limit_usd: float
+    used_usd: float | None
+    tracking_since: datetime
+
+    @classmethod
+    def from_domain(cls, status: BudgetStatus) -> "BudgetSchema":
+        return cls(
+            limit_usd=status.limit_usd,
+            used_usd=status.used_usd,
+            tracking_since=status.tracking_since,
+        )
+
+
+class SetBudgetLimitRequestSchema(BaseModel):
+    limit_usd: float = Field(ge=0)
 
 
 class ModelLimitsSchema(BaseModel):

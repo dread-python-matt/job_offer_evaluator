@@ -57,8 +57,7 @@
 
         <mat-form-field class="level-field">
           <mat-label>Level</mat-label>
-          <mat-select formControlName="level">
-            <mat-option [value]="null">Any level</mat-option>
+          <mat-select formControlName="level" multiple placeholder="Any">
             @for (level of levelOptions; track level) {
               <mat-option [value]="level">{{ level }}</mat-option>
             }

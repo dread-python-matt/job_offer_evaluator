@@ -41,6 +41,13 @@ export type SortBy = 'salary' | 'recent';
 export type MatchSortBy = 'score' | 'salary' | 'recent' | 'score_recent';
 export type SortOrder = 'asc' | 'desc';
 
+export interface AiInsight {
+  rate: number;
+  pros: string[];
+  cons: string[];
+  rate_reason: string;
+}
+
 export interface MatchedOffer {
   link: string;
   title: string;
@@ -53,6 +60,7 @@ export interface MatchedOffer {
   expires: string | null;
   levels: string[];
   published: string | null;
+  ai_insight: AiInsight | null;
 }
 
 export interface Offer {
@@ -81,7 +89,7 @@ export interface OfferFilters {
   minSalary: number | null;
   tech: string[] | null;
   search: string | null;
-  level: string | null;
+  level: string[] | null;
   sortBy: SortBy;
   sortOrder: SortOrder;
 }
@@ -94,6 +102,27 @@ export interface ModelUsage {
 export interface CurrentModelConfig {
   model: string;
   company: string;
+}
+
+export interface DailyCost {
+  cost_usd: number;
+  limit_usd: number;
+}
+
+export interface Budget {
+  limit_usd: number;
+  used_usd: number | null;
+  tracking_since: string;
+}
+
+export interface CompanyModels {
+  name: string;
+  models: string[];
+}
+
+export interface AvailableModels {
+  companies: CompanyModels[];
+  active: CurrentModelConfig;
 }
 
 export interface ModelLimits {

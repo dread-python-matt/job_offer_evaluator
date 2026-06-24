@@ -14,7 +14,7 @@ def _make_bucket(*results):
 
 def _make_client(buckets: list) -> MagicMock:
     client = MagicMock()
-    client.organization.usage.completions.list.return_value = SimpleNamespace(data=buckets)
+    client.admin.organization.usage.completions.return_value = SimpleNamespace(data=buckets)
     return client
 
 
@@ -77,6 +77,6 @@ def test_calls_api_with_todays_start_time():
 
     provider.get_today_usage()
 
-    call_kwargs = client.organization.usage.completions.list.call_args.kwargs
+    call_kwargs = client.admin.organization.usage.completions.call_args.kwargs
     assert "start_time" in call_kwargs
     assert call_kwargs["start_time"] > 0

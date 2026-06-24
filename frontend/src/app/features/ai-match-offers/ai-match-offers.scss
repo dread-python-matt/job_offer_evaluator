@@ -252,6 +252,105 @@ $score-medium-accent: #8a5a00;
   margin: 12px 0;
 }
 
+$rate-high: var(--mat-sys-tertiary);
+$rate-medium: #8a5a00;
+$pro-accent: #2e7d32;
+$con-accent: #b3261e;
+
+.ai-insight {
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--mat-sys-tertiary) 6%, var(--mat-sys-surface));
+  border: 1px solid color-mix(in srgb, var(--mat-sys-tertiary) 16%, transparent);
+}
+
+.ai-insight-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-insight-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mat-sys-on-surface-variant);
+
+  mat-icon {
+    font-size: 15px;
+    width: 15px;
+    height: 15px;
+    color: var(--mat-sys-tertiary);
+  }
+}
+
+.ai-rate {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+
+  &.rate-high { color: $rate-high; }
+  &.rate-medium { color: $rate-medium; }
+  &.rate-low { color: var(--mat-sys-on-surface-variant); }
+}
+
+.ai-star {
+  font-size: 18px;
+  width: 18px;
+  height: 18px;
+}
+
+.ai-rate-label {
+  margin-left: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.ai-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+
+  li {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 0.85em;
+    line-height: 1.35;
+    color: var(--mat-sys-on-surface);
+
+    mat-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+      margin-top: 1px;
+      flex-shrink: 0;
+    }
+  }
+}
+
+.ai-pros li mat-icon { color: $pro-accent; }
+.ai-cons li mat-icon { color: $con-accent; }
+
+.ai-reason {
+  margin: 10px 0 0;
+  padding-left: 10px;
+  border-left: 3px solid color-mix(in srgb, var(--mat-sys-tertiary) 35%, transparent);
+  font-size: 0.85em;
+  font-style: italic;
+  line-height: 1.4;
+  color: var(--mat-sys-on-surface-variant);
+}
+
 .status-block {
   display: flex;
   flex-direction: column;

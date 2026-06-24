@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 
 import httpx
@@ -120,6 +121,19 @@ def test_description_score_is_derived_from_the_agents_rate():
     score = strategy.score(_candidate(), _offer())
 
     assert score.get("description") == 1.0
+
+
+def test_score_attaches_ai_insight_from_the_agent_output():
+    run, _ = _fake_run(rate=4, pros=["Strong Python"], cons=["No cloud"], rate_reason="Good overall fit")
+    strategy = LLMScoringStrategy(agent=object(), run=run)
+
+    insight = strategy.score(_candidate(), _offer()).metadata("ai_insight")
+
+    assert insight is not None
+    assert insight.rate == 4
+    assert insight.pros == ["Strong Python"]
+    assert insight.cons == ["No cloud"]
+    assert insight.rate_reason == "Good overall fit"
 
 
 def test_lowest_agent_rate_gives_the_lowest_description_score():
@@ -398,6 +412,72 @@ def test_backoff_sleep_is_called_between_retries():
 
     assert len(slept) == 2  # two sleeps for two failed retries before giving up
     assert slept[1] > slept[0]  # backoff grows
+
+
+# --- async scoring (used by the parallel match use case) ---
+
+
+def _fake_async_run(rate: int, input_tokens: int | None = None, output_tokens: int | None = None):
+    captured: dict = {}
+
+    async def run(agent, prompt):
+        captured["agent"] = agent
+        captured["prompt"] = prompt
+        context = SimpleNamespace(
+            usage=SimpleNamespace(input_tokens=input_tokens, output_tokens=output_tokens)
+        ) if input_tokens is not None else SimpleNamespace(usage=None)
+        return SimpleNamespace(
+            final_output=AgentScore(rate=rate, pros=[], cons=[], rate_reason="ok"),
+            context_wrapper=context,
+        )
+
+    return run, captured
+
+
+def test_score_async_produces_the_same_score_as_sync():
+    sync_run, _ = _fake_run(rate=5)
+    async_run, _ = _fake_async_run(rate=5)
+    sync_strategy = LLMScoringStrategy(agent=object(), run=sync_run)
+    async_strategy = LLMScoringStrategy(agent=object(), run_async=async_run)
+
+    sync_score = sync_strategy.score(_candidate(), _offer())
+    async_score = asyncio.run(async_strategy.score_async(_candidate(), _offer()))
+
+    assert async_score.overall_score == sync_score.overall_score
+    assert async_score.get("skills") == sync_score.get("skills")
+    assert async_score.get("description") == sync_score.get("description")
+    assert async_score.metadata("ai_insight").rate == sync_score.metadata("ai_insight").rate
+
+
+def test_score_async_records_usage():
+    async_run, _ = _fake_async_run(rate=4, input_tokens=200, output_tokens=80)
+    tracker = FakeModelUsageTracker()
+    strategy = LLMScoringStrategy(agent=object(), run_async=async_run, usage_tracker=tracker)
+
+    asyncio.run(strategy.score_async(_candidate(), _offer()))
+
+    scoring_record = next(r for r in tracker.recorded if r.label == "scoring")
+    assert scoring_record.input_tokens == 200
+    assert scoring_record.output_tokens == 80
+
+
+def test_score_async_retries_on_503_then_succeeds():
+    calls = []
+
+    async def run_fails_once(agent, prompt):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _status_error(503)
+        return SimpleNamespace(final_output=AgentScore(rate=4, pros=[], cons=[], rate_reason="ok"))
+
+    async def no_sleep(_):
+        return None
+
+    strategy = LLMScoringStrategy(agent=object(), run_async=run_fails_once, _asleep=no_sleep)
+    score = asyncio.run(strategy.score_async(_candidate(), _offer()))
+
+    assert len(calls) == 2
+    assert score.get("description") is not None
 
 
 # --- company_from_model ---

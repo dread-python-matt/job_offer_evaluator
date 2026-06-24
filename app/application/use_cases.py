@@ -1,7 +1,12 @@
+import asyncio
+import logging
 from abc import ABC
 from dataclasses import dataclass
 
 from app.application.ports import (
+    AvailableModel,
+    AvailableModelsProvider,
+    BudgetStatusReader,
     ExternalUsageProvider,
     ModelLimitsRegistry,
     ModelUsage,
@@ -11,11 +16,14 @@ from app.application.ports import (
     OfferRepository,
     UserProfileRepository,
 )
+from app.domain.errors import BudgetExceededError
 from app.domain.entities import Offer, UserProfile
 from app.domain.filters import FilterChain, MatchCriteria, OfferBrowseFilters
 from app.domain.salary_calculator import ContractType, NetSalaryBreakdown, SalaryCalculator
-from app.domain.scoring import MatchedOffer, OfferScorer
+from app.domain.scoring import AiInsight, MatchedOffer, MatchScore, OfferScorer
 from app.domain.sorting import MatchSortBy, SortOrder, sort_matched_offers
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -91,11 +99,18 @@ class _BaseMatchOffersUseCase(ABC):
             if self._filter_chain.passes(offer, criteria)
         ]
 
-    def _make_matched(self, offer: Offer, score: float, criteria: MatchCriteria) -> MatchedOffer:
+    def _make_matched(
+        self,
+        offer: Offer,
+        score: float,
+        criteria: MatchCriteria,
+        ai_insight: AiInsight | None = None,
+    ) -> MatchedOffer:
         return MatchedOffer(
             offer=offer,
             score=score,
             matched_skills=criteria.candidate.skill_names() & offer.skill_set(),
+            ai_insight=ai_insight,
         )
 
     def _finalize(
@@ -139,7 +154,16 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
     """Like `MatchOffersUseCase`, but scores offers with an (expensive) AI scorer
     instead of a cheap deterministic one. To bound cost/latency, filtered candidates
     are pre-ranked with `ranking_scorer` and only the top `offers_to_score` are sent
-    to `ai_scorer`."""
+    to `ai_scorer`.
+
+    When `budget` is set, raises `BudgetExceededError` before scoring if usage has
+    reached or exceeded the configured limit. If the spend figure is unavailable the
+    budget reports no overage, so the match proceeds (fail-open guardrail).
+
+    The top `offers_to_score` offers are scored concurrently (up to `max_concurrency`
+    at once) since each AI call is a slow, I/O-bound round-trip. Scoring is best-effort:
+    an offer whose scoring fails is dropped from the results, but if every offer fails
+    the error is raised so callers see the outage rather than a silently empty match."""
 
     def __init__(
         self,
@@ -148,11 +172,15 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         ranking_scorer: OfferScorer,
         ai_scorer: OfferScorer,
         usage_tracker: ModelUsageTracker | None = None,
+        budget: BudgetStatusReader | None = None,
+        max_concurrency: int = 10,
     ) -> None:
         super().__init__(offer_repository, filter_chain)
         self._ranking_scorer = ranking_scorer
         self._ai_scorer = ai_scorer
         self._usage_tracker = usage_tracker
+        self._budget = budget
+        self._max_concurrency = max_concurrency
 
     def execute(
         self,
@@ -163,18 +191,53 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         sort_order: SortOrder = "desc",
         ai_min_score: float = 0.0,
     ) -> AiMatchResult:
+        if self._budget:
+            status = self._budget.status()
+            if status.exceeded:
+                raise BudgetExceededError(status.used_usd, status.limit_usd)
         candidates = self._load_candidates(criteria)
         ranked = sorted(
             candidates,
             key=lambda offer: self._ranking_scorer.score(criteria.candidate, offer).overall_score,
             reverse=True,
         )
+        scored = asyncio.run(self._score_concurrently(criteria.candidate, ranked[:offers_to_score]))
         matched = [
-            self._make_matched(offer, self._ai_scorer.score(criteria.candidate, offer).overall_score, criteria)
-            for offer in ranked[:offers_to_score]
+            self._make_matched(
+                offer, score.overall_score, criteria, ai_insight=score.metadata("ai_insight")
+            )
+            for offer, score in scored
         ]
         usage = self._usage_tracker.flush() if self._usage_tracker else []
         return AiMatchResult(matches=self._finalize(matched, ai_min_score, sort_by, sort_order, offers_limit), usage=usage)
+
+    async def _score_concurrently(
+        self, candidate: UserProfile, offers: list[Offer]
+    ) -> list[tuple[Offer, MatchScore]]:
+        semaphore = asyncio.Semaphore(self._max_concurrency)
+
+        async def score_one(offer: Offer) -> tuple[Offer, MatchScore]:
+            async with semaphore:
+                return offer, await self._ai_scorer.score_async(candidate, offer)
+
+        results = await asyncio.gather(
+            *(score_one(offer) for offer in offers), return_exceptions=True
+        )
+        scored = [r for r in results if not isinstance(r, BaseException)]
+        failures = [r for r in results if isinstance(r, BaseException)]
+        for exc in failures:
+            _logger.warning("Skipping offer; AI scoring failed: %s", exc)
+        if offers and not scored:
+            raise failures[0]
+        return scored
+
+
+class ListAvailableModelsUseCase:
+    def __init__(self, provider: AvailableModelsProvider) -> None:
+        self._provider = provider
+
+    def execute(self) -> list[AvailableModel]:
+        return self._provider.list_models()
 
 
 class GetModelUsageSummaryUseCase:

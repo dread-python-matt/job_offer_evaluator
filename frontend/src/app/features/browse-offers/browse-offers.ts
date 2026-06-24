@@ -65,7 +65,7 @@ export class BrowseOffers implements OnInit {
     location: this.fb.control<string | null>(null),
     minSalary: this.fb.control<number | null>(null, { validators: [Validators.min(0)] }),
     search: this.fb.control<string | null>(null),
-    level: this.fb.control<string | null>(null),
+    level: this.fb.control<string[]>([], { nonNullable: true }),
     sort: this.fb.control<SortOption>('recent-desc', { nonNullable: true }),
   });
 
@@ -150,7 +150,7 @@ export class BrowseOffers implements OnInit {
       minSalary,
       tech: this.techFilter().length ? this.techFilter() : null,
       search: search?.trim() || null,
-      level: level || null,
+      level: level.length ? level : null,
       sortBy,
       sortOrder,
     };

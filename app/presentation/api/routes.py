@@ -1,22 +1,30 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.application.ai_scoring_context import AiScoringContext
+from app.application.budget_service import BudgetService
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     CountOffersUseCase,
     GetModelUsageSummaryUseCase,
     GetUserProfileUseCase,
+    ListAvailableModelsUseCase,
     ListOffersUseCase,
     MatchOffersUseCase,
     MatchOffersWithAiUseCase,
     SaveUserProfileUseCase,
 )
-from app.domain.errors import AiScoringError
+from app.domain.errors import AiScoringError, BudgetExceededError
 from app.domain.filters import OfferBrowseFilters
 from app.domain.sorting import SortBy, SortOrder
+from app.infrastructure.llm_utils import company_from_model
 from app.presentation.api.schemas import (
     AiMatchResponseSchema,
     AiUsageSchema,
+    AvailableModelsSchema,
+    BudgetSchema,
+    CompanyModelsSchema,
     CurrentModelSchema,
+    DailyCostSchema,
     MatchAiRequestSchema,
     MatchedOfferSchema,
     MatchRequestSchema,
@@ -26,6 +34,8 @@ from app.presentation.api.schemas import (
     OfferSchema,
     SalaryCalculationRequestSchema,
     SalaryCalculationResponseSchema,
+    SelectModelRequestSchema,
+    SetBudgetLimitRequestSchema,
     UserProfileSchema,
 )
 
@@ -66,6 +76,18 @@ def get_current_model() -> CurrentModelSchema:
 
 def get_model_usage_summary_use_case() -> GetModelUsageSummaryUseCase:
     raise NotImplementedError("override with a configured use case")
+
+
+def get_list_available_models_use_case() -> ListAvailableModelsUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_ai_scoring_context() -> AiScoringContext:
+    raise NotImplementedError("override with a configured context")
+
+
+def get_budget_service() -> BudgetService:
+    raise NotImplementedError("override with a configured service")
 
 
 @router.post("/profile", response_model=UserProfileSchema)
@@ -152,6 +174,8 @@ def match_offers_ai(
             sort_order=match_request.sort_order,
             ai_min_score=match_request.ai_min_score,
         )
+    except BudgetExceededError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
     except AiScoringError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return AiMatchResponseSchema(
@@ -183,6 +207,61 @@ def get_model_config(
     current_model: CurrentModelSchema = Depends(get_current_model),
 ) -> CurrentModelSchema:
     return current_model
+
+
+@router.get("/config/models", response_model=AvailableModelsSchema)
+def get_available_models(
+    use_case: ListAvailableModelsUseCase = Depends(get_list_available_models_use_case),
+    context: AiScoringContext = Depends(get_ai_scoring_context),
+) -> AvailableModelsSchema:
+    all_models = use_case.execute()
+    by_company: dict[str, list[str]] = {}
+    for m in all_models:
+        by_company.setdefault(m.company, []).append(m.model)
+    companies = [CompanyModelsSchema(name=company, models=models) for company, models in sorted(by_company.items())]
+    active_model = context.active_model
+    return AvailableModelsSchema(
+        companies=companies,
+        active=CurrentModelSchema(model=active_model, company=company_from_model(active_model)),
+    )
+
+
+@router.put("/config/model", response_model=CurrentModelSchema)
+def select_model(
+    payload: SelectModelRequestSchema,
+    use_case: ListAvailableModelsUseCase = Depends(get_list_available_models_use_case),
+    context: AiScoringContext = Depends(get_ai_scoring_context),
+) -> CurrentModelSchema:
+    available = {m.model for m in use_case.execute()}
+    if payload.model not in available:
+        raise HTTPException(status_code=404, detail=f"Model '{payload.model}' is not available")
+    context.select_model(payload.model)
+    return CurrentModelSchema(model=payload.model, company=company_from_model(payload.model))
+
+
+@router.get("/usage/cost", response_model=DailyCostSchema | None)
+def get_usage_cost(
+    service: BudgetService = Depends(get_budget_service),
+) -> DailyCostSchema | None:
+    status = service.status()
+    if status.used_usd is None:
+        return None
+    return DailyCostSchema(cost_usd=status.used_usd, limit_usd=status.limit_usd)
+
+
+@router.put("/usage/limit", response_model=BudgetSchema)
+def set_usage_limit(
+    payload: SetBudgetLimitRequestSchema,
+    service: BudgetService = Depends(get_budget_service),
+) -> BudgetSchema:
+    return BudgetSchema.from_domain(service.set_limit(payload.limit_usd))
+
+
+@router.post("/usage/reset", response_model=BudgetSchema)
+def reset_usage(
+    service: BudgetService = Depends(get_budget_service),
+) -> BudgetSchema:
+    return BudgetSchema.from_domain(service.reset_usage())
 
 
 @router.get("/usage/summary", response_model=list[ModelUsageSummaryItemSchema])

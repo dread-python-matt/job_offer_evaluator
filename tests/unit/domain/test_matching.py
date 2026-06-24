@@ -10,6 +10,20 @@ def test_overall_score_is_zero_with_no_components():
     assert MatchScore().overall_score == 0.0
 
 
+def test_metadata_returns_value_stored_on_a_component():
+    score = MatchScore().with_component(
+        ScoreComponent(name="description", value=0.8, weight=1.0, metadata={"note": "hello"})
+    )
+
+    assert score.metadata("note") == "hello"
+
+
+def test_metadata_returns_none_when_key_is_absent():
+    score = MatchScore().with_component(ScoreComponent(name="skills", value=0.5, weight=1.0))
+
+    assert score.metadata("missing") is None
+
+
 def test_overall_score_is_the_weighted_average_of_its_components():
     score = (
         MatchScore()
