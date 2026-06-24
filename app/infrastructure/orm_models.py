@@ -116,6 +116,15 @@ class UserProfileRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
+class SelectedModelRow(Base):
+    """Single-row table holding the active scoring model, so all workers agree on it."""
+
+    __tablename__ = "selected_model"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    model: Mapped[str] = mapped_column(Text)
+
+
 class AiScoreRow(Base):
     """Content-addressed cache of AI scores: `key` is a hash of (model, candidate,
     offer inputs); `data` is the serialized MatchScore (components + AI insight)."""

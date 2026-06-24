@@ -24,7 +24,6 @@ from app.presentation.api.schemas import (
     BudgetSchema,
     CompanyModelsSchema,
     CurrentModelSchema,
-    DailyCostSchema,
     MatchAiRequestSchema,
     MatchedOfferSchema,
     MatchRequestSchema,
@@ -36,6 +35,7 @@ from app.presentation.api.schemas import (
     SalaryCalculationResponseSchema,
     SelectModelRequestSchema,
     SetBudgetLimitRequestSchema,
+    UsageCostSchema,
     UserProfileSchema,
 )
 
@@ -246,14 +246,14 @@ def select_model(
     return CurrentModelSchema(model=payload.model, company=company_from_model(payload.model))
 
 
-@router.get("/usage/cost", response_model=DailyCostSchema | None)
+@router.get("/usage/cost", response_model=UsageCostSchema | None)
 def get_usage_cost(
     service: BudgetService = Depends(get_budget_service),
-) -> DailyCostSchema | None:
+) -> UsageCostSchema | None:
     status = service.status()
     if status.used_usd is None:
         return None
-    return DailyCostSchema(cost_usd=status.used_usd, limit_usd=status.limit_usd)
+    return UsageCostSchema(cost_usd=status.used_usd, limit_usd=status.limit_usd)
 
 
 @router.put("/usage/limit", response_model=BudgetSchema)

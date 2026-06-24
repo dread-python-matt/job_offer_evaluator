@@ -34,6 +34,7 @@ from app.config import (
     OPENAI_ADMIN_KEY,
     OPENAI_API_KEY,
     PORT,
+    WORKERS,
 )
 from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
@@ -62,6 +63,7 @@ from app.infrastructure.postgres_ai_score_repository import PostgresAiScoreRepos
 from app.infrastructure.postgres_budget_repository import PostgresBudgetRepository
 from app.infrastructure.postgres_model_usage_repository import PostgresModelUsageRepository
 from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
+from app.infrastructure.postgres_selected_model_repository import PostgresSelectedModelRepository
 from app.infrastructure.postgres_user_profile_repository import PostgresUserProfileRepository
 from app.infrastructure.scoring_strategies import SkillBasedScorer
 from app.infrastructure.translation_agents import build_polish_to_english_agent
@@ -114,6 +116,7 @@ _composite_tracker = CompositeModelUsageTracker([_in_memory_tracker, _persisting
 
 
 _ai_score_repository = PostgresAiScoreRepository(_engine)
+_selected_model_repository = PostgresSelectedModelRepository(_engine)
 _budget_repository = PostgresBudgetRepository(_engine, default_limit_usd=DEFAULT_BUDGET_USD)
 _budget_service = BudgetService(
     _budget_repository,
@@ -191,10 +194,10 @@ _initial_model = _pick_initial_model()
 _disable_tracing(_initial_model)
 
 _ai_scoring_context = AiScoringContext(
-    initial_model=_initial_model,
-    initial_use_case=_build_ai_use_case(_initial_model),
+    repository=_selected_model_repository,
     build_use_case=_build_ai_use_case,
     configure_sdk=_disable_tracing,
+    default_model=_initial_model,
 )
 calculate_salary_use_case = CalculateNetSalaryUseCase(SalaryCalculator())
 _external_usage_provider = _llm_factory.build_external_usage_provider()
@@ -232,7 +235,11 @@ app.dependency_overrides[get_current_model] = lambda: CurrentModelSchema(
 def main() -> None:
     import uvicorn
 
-    uvicorn.run(app, host=HOST, port=PORT)
+    if WORKERS > 1:
+        # Multiple workers require an import string so uvicorn can spawn processes.
+        uvicorn.run("main:app", host=HOST, port=PORT, workers=WORKERS)
+    else:
+        uvicorn.run(app, host=HOST, port=PORT)
 
 
 if __name__ == "__main__":

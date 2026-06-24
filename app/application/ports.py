@@ -151,3 +151,14 @@ class AiScoreCacheRepository(ABC):
 
     @abstractmethod
     def put(self, key: str, score: MatchScore) -> None: ...
+
+
+class SelectedModelRepository(ABC):
+    """Persists the user-selected scoring model so it's shared across processes/workers
+    and survives restarts. `get` returns None when nothing has been selected yet."""
+
+    @abstractmethod
+    def get(self) -> str | None: ...
+
+    @abstractmethod
+    def set(self, model: str) -> None: ...

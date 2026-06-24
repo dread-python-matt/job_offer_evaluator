@@ -53,6 +53,7 @@ from tests.fakes import (
     FakeUserProfileRepository,
     FixedSpendProvider,
     InMemoryBudgetRepository,
+    InMemorySelectedModelRepository,
     ScoreByLinkScorer,
 )
 
@@ -1122,10 +1123,10 @@ def _build_model_client(
 
     use_case = ListAvailableModelsUseCase(_FakeAvailableModelsProvider(available_models))
     context = AiScoringContext(
-        initial_model=initial_model,
-        initial_use_case=object(),
+        repository=InMemorySelectedModelRepository(initial_model),
         build_use_case=lambda model: object(),
         configure_sdk=lambda model: None,
+        default_model=initial_model,
     )
 
     app.dependency_overrides[get_list_available_models_use_case] = lambda: use_case

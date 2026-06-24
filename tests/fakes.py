@@ -6,6 +6,7 @@ from app.application.ports import (
     ModelUsageRepository,
     ModelUsageSummary,
     OfferRepository,
+    SelectedModelRepository,
     SpendProvider,
     UserProfileRepository,
 )
@@ -33,6 +34,17 @@ class InMemoryBudgetRepository(BudgetRepository):
 
     def save(self, settings: BudgetSettings) -> None:
         self.settings = settings
+
+
+class InMemorySelectedModelRepository(SelectedModelRepository):
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model
+
+    def get(self) -> str | None:
+        return self.model
+
+    def set(self, model: str) -> None:
+        self.model = model
 
 
 class FixedSpendProvider(SpendProvider):

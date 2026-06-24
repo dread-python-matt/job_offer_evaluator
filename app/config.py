@@ -23,6 +23,9 @@ AI_MATCH_CONCURRENCY = int(os.environ.get("AI_MATCH_CONCURRENCY", "10"))
 # HOST=0.0.0.0 explicitly (behind auth / a gateway) for container/remote deploys.
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8000"))
+# Number of worker processes. The active model is persisted (shared across workers),
+# so >1 is safe for horizontal scaling.
+WORKERS = int(os.environ.get("WORKERS", "1"))
 # Timeout (seconds) for outbound LLM/provider HTTP calls, so a hung provider can't
 # tie up a worker indefinitely.
 LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "60.0"))

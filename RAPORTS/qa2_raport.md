@@ -42,7 +42,11 @@ Severity counts: **2 Critical · 4 High · 8 Medium · 9 Low**.
 - **M8** — global exception handler (generic 500, no internal leak) + base logging config.
 - **M1** (partial, by parallel work) — AI scoring now runs concurrently (`AI_MATCH_CONCURRENCY`).
 
-**Still open:** M3/M4 (SQL pushdown, needs the scraper-owned schema), L1 (cost/budget naming), L6 (frontend prod env), L8 (multi-worker server). C1 key rotation + history purge remain the owner's to do.
+- **L1** — renamed `DailyCostSchema` → `UsageCostSchema` (JSON contract unchanged) and documented that `cost_usd` is cumulative, not daily.
+- **L8** — active model now **persisted** (`PostgresSelectedModelRepository`, single row); `AiScoringContext` reads it per request and rebuilds when it changes, so all workers agree. Added a configurable `WORKERS` setting (uvicorn import-string form when >1). This supersedes the earlier "in-memory only" model-selection choice — by owner decision, the selection now survives restarts and is shared across workers.
+
+**Deferred by owner:** M3/M4 (SQL pushdown / salary filtering) — depends on the scraper-owned schema, which the owner will update later.
+**Still open:** L6 (frontend production environment config) — frontend work. C1 key rotation + git-history purge remain the owner's to do.
 
 ---
 

@@ -294,7 +294,9 @@ class AvailableModelsSchema(BaseModel):
     active: CurrentModelSchema
 
 
-class DailyCostSchema(BaseModel):
+class UsageCostSchema(BaseModel):
+    # `cost_usd` is cumulative spend since the budget tracking anchor (not daily); the
+    # field name is kept for the existing frontend contract.
     cost_usd: float
     limit_usd: float
 
