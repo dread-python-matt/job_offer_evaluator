@@ -36,16 +36,16 @@ class SaveUserProfileUseCase:
     def __init__(self, profile_repository: UserProfileRepository) -> None:
         self._profile_repository = profile_repository
 
-    def execute(self, profile: UserProfile) -> None:
-        self._profile_repository.save(profile)
+    def execute(self, user_id: str, profile: UserProfile) -> None:
+        self._profile_repository.save(user_id, profile)
 
 
 class GetUserProfileUseCase:
     def __init__(self, profile_repository: UserProfileRepository) -> None:
         self._profile_repository = profile_repository
 
-    def execute(self) -> UserProfile | None:
-        return self._profile_repository.load()
+    def execute(self, user_id: str) -> UserProfile | None:
+        return self._profile_repository.load(user_id)
 
 
 class CalculateNetSalaryUseCase:

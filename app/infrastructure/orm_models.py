@@ -131,22 +131,29 @@ class BudgetRow(Base):
 
 
 class UserProfileRow(Base):
-    """Single-row table holding the user profile as a JSON document (the app currently
-    has one profile). Replaces the Markdown file: atomic writes, no parser, DB-backed."""
+    """One profile per user, stored as a JSON document (atomic writes, no parser).
+    `user_id` is a unique FK to users — each account has at most one profile."""
 
     __tablename__ = "user_profile"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
     data: Mapped[dict] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class SelectedModelRow(Base):
-    """Single-row table holding the active scoring model, so all workers agree on it."""
+    """Each user's active scoring model, so all workers agree on it per user.
+    `user_id` is a unique FK to users."""
 
     __tablename__ = "selected_model"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
     model: Mapped[str] = mapped_column(Text)
 
 

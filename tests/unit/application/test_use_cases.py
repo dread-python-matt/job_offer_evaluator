@@ -75,29 +75,40 @@ def _profile(*skill_names: str) -> UserProfile:
     )
 
 
-def test_save_user_profile_use_case_persists_profile_via_repository():
+def test_save_user_profile_use_case_persists_profile_for_the_user():
     repository = FakeUserProfileRepository()
     profile = _profile("Python")
     use_case = SaveUserProfileUseCase(repository)
 
-    use_case.execute(profile)
+    use_case.execute("user-1", profile)
 
-    assert repository.load() == profile
+    assert repository.load("user-1") == profile
 
 
-def test_get_user_profile_use_case_returns_saved_profile():
+def test_get_user_profile_use_case_returns_the_users_saved_profile():
     profile = _profile("Python")
     repository = FakeUserProfileRepository(profile)
     use_case = GetUserProfileUseCase(repository)
 
-    assert use_case.execute() == profile
+    assert use_case.execute("user-1") == profile
 
 
-def test_get_user_profile_use_case_returns_none_when_no_profile_saved():
+def test_get_user_profile_use_case_returns_none_when_user_has_no_profile():
     repository = FakeUserProfileRepository(None)
     use_case = GetUserProfileUseCase(repository)
 
-    assert use_case.execute() is None
+    assert use_case.execute("user-1") is None
+
+
+def test_user_profiles_are_isolated_per_user():
+    repository = FakeUserProfileRepository()
+    save = SaveUserProfileUseCase(repository)
+    get = GetUserProfileUseCase(repository)
+
+    save.execute("alice", _profile("Python"))
+
+    assert get.execute("alice") is not None
+    assert get.execute("bob") is None
 
 
 def test_match_offers_use_case_filters_by_minimum_score_and_sorts_descending():

@@ -33,6 +33,12 @@ cd frontend && npm run build
 # Frontend — run tests
 cd frontend && npm test
 
+## Authentication
+- Every API route is gated except `/health`, `/auth/register`, `/auth/login`. Sessions are a JWT in an **httpOnly cookie** (`access_token`) plus a readable `csrf_token` cookie; state-changing requests must echo it in an `X-CSRF-Token` header (double-submit CSRF). Registration auto-logs-in. `token_version` in the JWT enables revocation/logout-everywhere.
+- Backend: `app/presentation/api/auth.py` (public/private routers, `get_current_user` + `verify_csrf` guards) wired in `main.py` via `include_router(router, dependencies=[...])`; ports/use cases in `app/application`; `Argon2PasswordHasher` + `JwtTokenService` adapters.
+- Frontend: `core/services/auth.service.ts`, `core/interceptors/auth.interceptor.ts` (sends cookies + CSRF header, redirects to /login on 401), `core/guards/auth.guard.ts`.
+- Required env: `JWT_SECRET` (override the dev default in prod). Cross-site prod also needs `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`.
+
 ## Required Skills
 
  /tdd

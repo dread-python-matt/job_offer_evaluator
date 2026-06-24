@@ -2,7 +2,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.application.ports import UserProfileRepository
@@ -54,9 +54,7 @@ def _utc_now() -> datetime:
 
 
 class PostgresUserProfileRepository(UserProfileRepository):
-    """Stores the single user profile as a JSON document in one row (id=1)."""
-
-    _ROW_ID = 1
+    """Stores each user's profile as a JSON document, one row per user (keyed by user_id)."""
 
     def __init__(
         self,
@@ -67,17 +65,21 @@ class PostgresUserProfileRepository(UserProfileRepository):
         Base.metadata.create_all(self._engine, tables=[UserProfileRow.__table__])
         self._clock = clock
 
-    def save(self, profile: UserProfile) -> None:
+    def save(self, user_id: str, profile: UserProfile) -> None:
         with Session(self._engine) as session:
-            row = session.get(UserProfileRow, self._ROW_ID)
+            row = session.scalar(
+                select(UserProfileRow).where(UserProfileRow.user_id == user_id)
+            )
             if row is None:
-                row = UserProfileRow(id=self._ROW_ID)
+                row = UserProfileRow(user_id=user_id)
                 session.add(row)
             row.data = profile_to_dict(profile)
             row.updated_at = self._clock()
             session.commit()
 
-    def load(self) -> UserProfile | None:
+    def load(self, user_id: str) -> UserProfile | None:
         with Session(self._engine) as session:
-            row = session.get(UserProfileRow, self._ROW_ID)
+            row = session.scalar(
+                select(UserProfileRow).where(UserProfileRow.user_id == user_id)
+            )
             return profile_from_dict(row.data) if row is not None else None

@@ -13,8 +13,10 @@ from app.application.use_cases import (
     MatchOffersWithAiUseCase,
     SaveUserProfileUseCase,
 )
+from app.domain.auth import User
 from app.domain.errors import AiScoringError, BudgetExceededError
 from app.domain.filters import OfferBrowseFilters
+from app.presentation.api.auth import get_current_user
 from app.domain.sorting import SortBy, SortOrder
 from app.infrastructure.llm_utils import company_from_model
 from app.presentation.api.schemas import (
@@ -70,10 +72,6 @@ def get_calculate_salary_use_case() -> CalculateNetSalaryUseCase:
     raise NotImplementedError("override with a configured use case")
 
 
-def get_current_model() -> CurrentModelSchema:
-    raise NotImplementedError("override with a configured model")
-
-
 def get_model_usage_summary_use_case() -> GetModelUsageSummaryUseCase:
     raise NotImplementedError("override with a configured use case")
 
@@ -93,18 +91,20 @@ def get_budget_service() -> BudgetService:
 @router.post("/profile", response_model=UserProfileSchema)
 def create_profile(
     payload: UserProfileSchema,
+    user: User = Depends(get_current_user),
     use_case: SaveUserProfileUseCase = Depends(get_save_profile_use_case),
 ) -> UserProfileSchema:
     profile = payload.to_domain()
-    use_case.execute(profile)
+    use_case.execute(user.id, profile)
     return UserProfileSchema.from_domain(profile)
 
 
 @router.get("/profile", response_model=UserProfileSchema)
 def get_profile(
+    user: User = Depends(get_current_user),
     use_case: GetUserProfileUseCase = Depends(get_profile_use_case),
 ) -> UserProfileSchema:
-    profile = use_case.execute()
+    profile = use_case.execute(user.id)
     if profile is None:
         raise HTTPException(status_code=404, detail="No profile has been saved yet")
     return UserProfileSchema.from_domain(profile)
@@ -204,13 +204,16 @@ def calculate_salary(
 
 @router.get("/config/model", response_model=CurrentModelSchema)
 def get_model_config(
-    current_model: CurrentModelSchema = Depends(get_current_model),
+    user: User = Depends(get_current_user),
+    context: AiScoringContext = Depends(get_ai_scoring_context),
 ) -> CurrentModelSchema:
-    return current_model
+    model = context.active_model_for(user.id)
+    return CurrentModelSchema(model=model, company=company_from_model(model))
 
 
 @router.get("/config/models", response_model=AvailableModelsSchema)
 def get_available_models(
+    user: User = Depends(get_current_user),
     use_case: ListAvailableModelsUseCase = Depends(get_list_available_models_use_case),
     context: AiScoringContext = Depends(get_ai_scoring_context),
 ) -> AvailableModelsSchema:
@@ -219,7 +222,7 @@ def get_available_models(
     for m in all_models:
         by_company.setdefault(m.company, []).append(m.model)
     companies = [CompanyModelsSchema(name=company, models=models) for company, models in sorted(by_company.items())]
-    active_model = context.active_model
+    active_model = context.active_model_for(user.id)
     return AvailableModelsSchema(
         companies=companies,
         active=CurrentModelSchema(model=active_model, company=company_from_model(active_model)),
@@ -229,13 +232,14 @@ def get_available_models(
 @router.put("/config/model", response_model=CurrentModelSchema)
 def select_model(
     payload: SelectModelRequestSchema,
+    user: User = Depends(get_current_user),
     use_case: ListAvailableModelsUseCase = Depends(get_list_available_models_use_case),
     context: AiScoringContext = Depends(get_ai_scoring_context),
 ) -> CurrentModelSchema:
     available = {m.model for m in use_case.execute()}
     if payload.model not in available:
         raise HTTPException(status_code=404, detail=f"Model '{payload.model}' is not available")
-    context.select_model(payload.model)
+    context.select_model(user.id, payload.model)
     return CurrentModelSchema(model=payload.model, company=company_from_model(payload.model))
 
 

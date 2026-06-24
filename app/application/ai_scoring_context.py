@@ -5,13 +5,13 @@ from app.application.ports import SelectedModelRepository
 
 
 class AiScoringContext:
-    """Resolves the active AI scoring use case from the persisted model selection, so
-    every worker agrees on the current model and switches survive restarts.
+    """Resolves each user's active AI scoring use case from their persisted model
+    selection, so every worker agrees on a user's model and switches survive restarts.
 
-    The active model is read from `repository` (falling back to `default_model` when
-    nothing is selected yet). The built use case is cached per process and rebuilt
-    whenever the persisted model changes — so a switch made on one worker is picked up
-    by the others on their next request. `configure_sdk` runs before each (re)build.
+    A user's active model is read from `repository` (falling back to `default_model`
+    when they haven't selected one). Built use cases are cached **per model** and shared
+    across users on the same model; a model is (re)built lazily, with `configure_sdk`
+    run once before each build.
     """
 
     def __init__(
@@ -25,25 +25,20 @@ class AiScoringContext:
         self._build_use_case = build_use_case
         self._configure_sdk = configure_sdk
         self._default_model = default_model
-        self._cached_model: str | None = None
-        self._use_case: Any = None
+        self._use_cases_by_model: dict[str, Any] = {}
 
-    @property
-    def active_model(self) -> str:
-        return self._repository.get() or self._default_model
+    def active_model_for(self, user_id: str) -> str:
+        return self._repository.get(user_id) or self._default_model
 
-    @property
-    def use_case(self) -> Any:
-        model = self.active_model
-        if self._use_case is None or self._cached_model != model:
-            self._rebuild(model)
-        return self._use_case
+    def use_case_for(self, user_id: str) -> Any:
+        return self._use_case_for_model(self.active_model_for(user_id))
 
-    def select_model(self, model: str) -> None:
-        self._repository.set(model)
-        self._rebuild(model)
+    def select_model(self, user_id: str, model: str) -> None:
+        self._repository.set(user_id, model)
+        self._use_case_for_model(model)  # warm the cache so the switch is ready to serve
 
-    def _rebuild(self, model: str) -> None:
-        self._configure_sdk(model)
-        self._use_case = self._build_use_case(model)
-        self._cached_model = model
+    def _use_case_for_model(self, model: str) -> Any:
+        if model not in self._use_cases_by_model:
+            self._configure_sdk(model)
+            self._use_cases_by_model[model] = self._build_use_case(model)
+        return self._use_cases_by_model[model]

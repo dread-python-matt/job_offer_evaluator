@@ -43,14 +43,19 @@ class InMemoryBudgetRepository(BudgetRepository):
 
 
 class InMemorySelectedModelRepository(SelectedModelRepository):
-    def __init__(self, model: str | None = None) -> None:
-        self.model = model
+    """In-memory per-user model selection. A single seed `model` is stored under
+    `seed_user_id` for convenience, matching the fake user used by the API tests."""
 
-    def get(self) -> str | None:
-        return self.model
+    def __init__(self, model: str | None = None, seed_user_id: str = "user-1") -> None:
+        self._models: dict[str, str] = {}
+        if model is not None:
+            self._models[seed_user_id] = model
 
-    def set(self, model: str) -> None:
-        self.model = model
+    def get(self, user_id: str) -> str | None:
+        return self._models.get(user_id)
+
+    def set(self, user_id: str, model: str) -> None:
+        self._models[user_id] = model
 
 
 class FixedSpendProvider(SpendProvider):
@@ -69,14 +74,19 @@ class FixedSpendProvider(SpendProvider):
 
 
 class FakeUserProfileRepository(UserProfileRepository):
-    def __init__(self, profile: UserProfile | None = None) -> None:
-        self.profile = profile
+    """In-memory per-user profiles. For convenience a single seed `profile` is stored
+    under `seed_user_id`, matching the fake user used by the API tests."""
 
-    def save(self, profile: UserProfile) -> None:
-        self.profile = profile
+    def __init__(self, profile: UserProfile | None = None, seed_user_id: str = "user-1") -> None:
+        self._profiles: dict[str, UserProfile] = {}
+        if profile is not None:
+            self._profiles[seed_user_id] = profile
 
-    def load(self) -> UserProfile | None:
-        return self.profile
+    def save(self, user_id: str, profile: UserProfile) -> None:
+        self._profiles[user_id] = profile
+
+    def load(self, user_id: str) -> UserProfile | None:
+        return self._profiles.get(user_id)
 
 
 class FakeOfferRepository(OfferRepository):

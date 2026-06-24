@@ -14,10 +14,10 @@ if TYPE_CHECKING:
 
 class UserProfileRepository(ABC):
     @abstractmethod
-    def save(self, profile: UserProfile) -> None: ...
+    def save(self, user_id: str, profile: UserProfile) -> None: ...
 
     @abstractmethod
-    def load(self) -> UserProfile | None: ...
+    def load(self, user_id: str) -> UserProfile | None: ...
 
 
 class OfferRepository(ABC):
@@ -155,14 +155,14 @@ class AiScoreCacheRepository(ABC):
 
 
 class SelectedModelRepository(ABC):
-    """Persists the user-selected scoring model so it's shared across processes/workers
-    and survives restarts. `get` returns None when nothing has been selected yet."""
+    """Persists each user's selected scoring model so it's shared across processes/workers
+    and survives restarts. `get` returns None when that user has not selected one yet."""
 
     @abstractmethod
-    def get(self) -> str | None: ...
+    def get(self, user_id: str) -> str | None: ...
 
     @abstractmethod
-    def set(self, model: str) -> None: ...
+    def set(self, user_id: str, model: str) -> None: ...
 
 
 class UserRepository(ABC):

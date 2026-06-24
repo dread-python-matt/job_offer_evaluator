@@ -42,6 +42,7 @@ from app.config import (
     SESSION_TTL_DAYS,
     WORKERS,
 )
+from app.domain.auth import User
 from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
 from app.infrastructure.caching_available_models_provider import CachingAvailableModelsProvider
@@ -54,7 +55,6 @@ from app.infrastructure.gemini_available_models_provider import GeminiAvailableM
 from app.infrastructure.llm_logging import configure_llm_logging
 from app.infrastructure.llm_provider_factory import build_llm_provider_factory
 from app.infrastructure.llm_scoring_strategy import LLMScoringStrategy
-from app.infrastructure.llm_utils import company_from_model
 from app.infrastructure.openai_available_models_provider import OpenAIAvailableModelsProvider
 from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
 from app.infrastructure.offer_filters import (
@@ -81,7 +81,6 @@ from app.presentation.api.routes import (
     get_calculate_salary_use_case,
     get_budget_service,
     get_count_offers_use_case,
-    get_current_model,
     get_list_available_models_use_case,
     get_list_offers_use_case,
     get_match_offers_ai_use_case,
@@ -104,7 +103,6 @@ from app.presentation.api.auth import (
     public_router,
     verify_csrf,
 )
-from app.presentation.api.schemas import CurrentModelSchema
 
 if not logging.getLogger().handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -229,6 +227,13 @@ _ai_scoring_context = AiScoringContext(
     configure_sdk=_disable_tracing,
     default_model=_initial_model,
 )
+
+
+def _ai_use_case_for_request(user: User = Depends(get_current_user)) -> MatchOffersWithAiUseCase:
+    """Resolve the AI match use case for the calling user's selected model (per-user)."""
+    return _ai_scoring_context.use_case_for(user.id)
+
+
 calculate_salary_use_case = CalculateNetSalaryUseCase(SalaryCalculator())
 _external_usage_provider = _llm_factory.build_external_usage_provider()
 get_model_usage_summary_use_case_instance = GetModelUsageSummaryUseCase(
@@ -259,7 +264,7 @@ app.dependency_overrides[get_cookie_settings] = lambda: _cookie_settings
 app.dependency_overrides[get_save_profile_use_case] = lambda: save_profile_use_case
 app.dependency_overrides[get_profile_use_case] = lambda: get_user_profile_use_case
 app.dependency_overrides[get_match_offers_use_case] = lambda: match_offers_use_case
-app.dependency_overrides[get_match_offers_ai_use_case] = lambda: _ai_scoring_context.use_case
+app.dependency_overrides[get_match_offers_ai_use_case] = _ai_use_case_for_request
 app.dependency_overrides[get_ai_scoring_context] = lambda: _ai_scoring_context
 app.dependency_overrides[get_list_available_models_use_case] = lambda: ListAvailableModelsUseCase(_available_models_provider)
 app.dependency_overrides[get_count_offers_use_case] = lambda: count_offers_use_case
@@ -267,10 +272,6 @@ app.dependency_overrides[get_list_offers_use_case] = lambda: list_offers_use_cas
 app.dependency_overrides[get_calculate_salary_use_case] = lambda: calculate_salary_use_case
 app.dependency_overrides[get_model_usage_summary_use_case] = lambda: get_model_usage_summary_use_case_instance
 app.dependency_overrides[get_budget_service] = lambda: _budget_service
-app.dependency_overrides[get_current_model] = lambda: CurrentModelSchema(
-    model=_ai_scoring_context.active_model,
-    company=company_from_model(_ai_scoring_context.active_model),
-)
 
 
 def main() -> None:

@@ -22,6 +22,7 @@ from app.domain.budget import BudgetSettings
 from app.domain.errors import AiScoringError
 from app.domain.entities import Offer, Salary, Skill, UserProfile
 from app.domain.filters import FilterChain
+from app.domain.auth import User
 from app.domain.scoring import AiInsight, MatchScore, OfferScorer, ScoreComponent
 from app.domain.salary_calculator import ContractType, SalaryCalculator
 from app.infrastructure.offer_filters import (
@@ -33,6 +34,7 @@ from app.infrastructure.offer_filters import (
 )
 from app.infrastructure.scoring_strategies import SkillBasedScorer
 from app.domain.errors import BudgetExceededError
+from app.presentation.api.auth import get_current_user
 from app.presentation.api.routes import (
     get_ai_scoring_context,
     get_budget_service,
@@ -96,6 +98,11 @@ def _build_client(
 
     app = FastAPI()
     app.include_router(router)
+
+    # Routes resolve the caller via get_current_user; tests run with a fixed fake user.
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id="user-1", email="dev@example.com", password_hash="x"
+    )
 
     profile_repository = FakeUserProfileRepository(profile)
     offer_repository = FakeOfferRepository(offers or [])
@@ -1128,6 +1135,10 @@ def _build_model_client(
     app = FastAPI()
     app.include_router(router)
 
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id="user-1", email="dev@example.com", password_hash="x"
+    )
+
     use_case = ListAvailableModelsUseCase(_FakeAvailableModelsProvider(available_models))
     context = AiScoringContext(
         repository=InMemorySelectedModelRepository(initial_model),
@@ -1181,7 +1192,7 @@ def test_put_model_switches_active_model():
     assert response.status_code == 200
     assert response.json()["model"] == "gpt-4o"
     assert response.json()["company"] == "OpenAI"
-    assert context.active_model == "gpt-4o"
+    assert context.active_model_for("user-1") == "gpt-4o"
 
 
 def test_put_model_returns_404_for_unknown_model():

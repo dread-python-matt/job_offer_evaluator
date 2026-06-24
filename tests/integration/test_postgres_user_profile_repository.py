@@ -4,7 +4,9 @@ from sqlalchemy.exc import OperationalError
 
 from app.config import DATABASE_URL
 from app.domain.entities import Project, Skill, UserProfile
+from app.infrastructure.orm_models import Base, UserProfileRow
 from app.infrastructure.postgres_user_profile_repository import PostgresUserProfileRepository
+from app.infrastructure.postgres_user_repository import PostgresUserRepository
 
 
 def _database_reachable() -> bool:
@@ -17,16 +19,39 @@ def _database_reachable() -> bool:
 
 pytestmark = pytest.mark.skipif(not _database_reachable(), reason="database is not reachable")
 
+_USER_ID = "11111111-1111-1111-1111-111111111111"
+_OTHER_USER_ID = "22222222-2222-2222-2222-222222222222"
+
+
+def _seed_user(conn, user_id: str) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO users (id, email, password_hash, token_version, created_at) "
+            "VALUES (:id, :email, 'x', 0, now())"
+        ),
+        {"id": user_id, "email": f"{user_id}@example.test"},
+    )
+
 
 @pytest.fixture(autouse=True)
-def clean_table():
-    PostgresUserProfileRepository(DATABASE_URL)  # ensure table exists
+def clean_schema():
     engine = create_engine(DATABASE_URL)
+    PostgresUserRepository(DATABASE_URL)  # ensure the FK target (users) table exists
+    # Recreate user_profile so its schema matches the current per-user ORM, then seed
+    # the users referenced by the tests. Deleting the users cascades to their profiles.
+    UserProfileRow.__table__.drop(engine, checkfirst=True)
+    Base.metadata.create_all(engine, tables=[UserProfileRow.__table__])
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM user_profile"))
+        conn.execute(
+            text("DELETE FROM users WHERE id IN (:a, :b)"), {"a": _USER_ID, "b": _OTHER_USER_ID}
+        )
+        _seed_user(conn, _USER_ID)
+        _seed_user(conn, _OTHER_USER_ID)
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM user_profile"))
+        conn.execute(
+            text("DELETE FROM users WHERE id IN (:a, :b)"), {"a": _USER_ID, "b": _OTHER_USER_ID}
+        )
 
 
 def _profile() -> UserProfile:
@@ -47,26 +72,34 @@ def _profile() -> UserProfile:
     )
 
 
-def test_load_returns_none_when_no_profile_saved():
+def test_load_returns_none_when_user_has_no_profile():
     repo = PostgresUserProfileRepository(DATABASE_URL)
 
-    assert repo.load() is None
+    assert repo.load(_USER_ID) is None
 
 
 def test_save_then_load_round_trips_the_profile():
     repo = PostgresUserProfileRepository(DATABASE_URL)
     profile = _profile()
 
-    repo.save(profile)
+    repo.save(_USER_ID, profile)
 
-    assert repo.load() == profile
+    assert repo.load(_USER_ID) == profile
 
 
-def test_save_overwrites_the_single_profile_row():
+def test_save_overwrites_the_users_profile():
     repo = PostgresUserProfileRepository(DATABASE_URL)
-    repo.save(_profile())
+    repo.save(_USER_ID, _profile())
 
     updated = UserProfile(summary="Updated", skills=[], projects=[], experience=[])
-    repo.save(updated)
+    repo.save(_USER_ID, updated)
 
-    assert repo.load() == updated
+    assert repo.load(_USER_ID) == updated
+
+
+def test_profiles_are_isolated_per_user():
+    repo = PostgresUserProfileRepository(DATABASE_URL)
+
+    repo.save(_USER_ID, _profile())
+
+    assert repo.load(_OTHER_USER_ID) is None
