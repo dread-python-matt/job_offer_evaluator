@@ -32,13 +32,16 @@ export interface Salary {
   contract_type: string;
   min: number | null;
   max: number | null;
+  // Standardized estimated NET monthly PLN. `net_monthly` is the midpoint.
   net_monthly: number | null;
+  net_min: number | null;
+  net_max: number | null;
   currency: string;
   period: string;
 }
 
-export type SortBy = 'salary' | 'recent';
-export type MatchSortBy = 'score' | 'salary' | 'recent' | 'score_recent';
+export type SortBy = 'recent' | 'salary_min' | 'salary_mid' | 'salary_max';
+export type MatchSortBy = 'score' | 'recent' | 'score_recent' | 'salary_min' | 'salary_mid' | 'salary_max';
 export type SortOrder = 'asc' | 'desc';
 
 export interface AiInsight {

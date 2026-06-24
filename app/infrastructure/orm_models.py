@@ -25,14 +25,39 @@ class SalaryRow(Base):
     currency: Mapped[str]
     period: Mapped[str]
 
+    normalized: Mapped["NormalizedSalaryRow | None"] = relationship(
+        "NormalizedSalaryRow", uselist=False, viewonly=True, lazy="selectin"
+    )
+
     def to_salary(self) -> Salary:
+        n = self.normalized
         return Salary(
             contract_type=self.contract_type,
             min_amount=float(self.min) if self.min is not None else None,
             max_amount=float(self.max) if self.max is not None else None,
             currency=self.currency,
             period=self.period,
+            net_min=float(n.net_of_min) if n is not None else None,
+            net_mid=float(n.midpoint) if n is not None else None,
+            net_max=float(n.net_of_max) if n is not None else None,
         )
+
+
+class NormalizedSalaryRow(Base):
+    """Maps the scraper-owned `normalized_salary` table (read-only): one row per
+    `salaries` row, holding precomputed NET monthly PLN figures. Lets the app filter
+    and sort offers by salary in SQL instead of materializing and computing in Python."""
+
+    __tablename__ = "normalized_salary"
+
+    salary_id: Mapped[int] = mapped_column(
+        ForeignKey("salaries.id", ondelete="CASCADE"), primary_key=True
+    )
+    net_of_min: Mapped[Decimal] = mapped_column(Numeric)
+    net_of_max: Mapped[Decimal] = mapped_column(Numeric)
+    midpoint: Mapped[Decimal] = mapped_column(Numeric)
+    model_version: Mapped[str]
+    computed_at: Mapped[datetime] = mapped_column(DateTime)
 
 
 class OfferRow(Base):

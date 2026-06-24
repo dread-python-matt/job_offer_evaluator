@@ -19,13 +19,25 @@ import { Offer, OfferFilters, SortBy, SortOrder } from '../../core/models/profil
 import { formatSalaries } from '../../core/utils/offer-format';
 import { LEVEL_OPTIONS } from '../../core/constants/offer-levels';
 
-export type SortOption = 'recent-desc' | 'recent-asc' | 'salary-desc' | 'salary-asc';
+export type SortOption =
+  | 'recent-desc'
+  | 'recent-asc'
+  | 'salary_min-desc'
+  | 'salary_min-asc'
+  | 'salary_mid-desc'
+  | 'salary_mid-asc'
+  | 'salary_max-desc'
+  | 'salary_max-asc';
 
 const SORT_OPTION_VALUES: Record<SortOption, { sortBy: SortBy; sortOrder: SortOrder }> = {
   'recent-desc': { sortBy: 'recent', sortOrder: 'desc' },
   'recent-asc': { sortBy: 'recent', sortOrder: 'asc' },
-  'salary-desc': { sortBy: 'salary', sortOrder: 'desc' },
-  'salary-asc': { sortBy: 'salary', sortOrder: 'asc' },
+  'salary_min-desc': { sortBy: 'salary_min', sortOrder: 'desc' },
+  'salary_min-asc': { sortBy: 'salary_min', sortOrder: 'asc' },
+  'salary_mid-desc': { sortBy: 'salary_mid', sortOrder: 'desc' },
+  'salary_mid-asc': { sortBy: 'salary_mid', sortOrder: 'asc' },
+  'salary_max-desc': { sortBy: 'salary_max', sortOrder: 'desc' },
+  'salary_max-asc': { sortBy: 'salary_max', sortOrder: 'asc' },
 };
 
 @Component({

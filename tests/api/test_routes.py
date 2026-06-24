@@ -23,7 +23,7 @@ from app.domain.errors import AiScoringError
 from app.domain.entities import Offer, Salary, Skill, UserProfile
 from app.domain.filters import FilterChain
 from app.domain.scoring import AiInsight, MatchScore, OfferScorer, ScoreComponent
-from app.domain.salary_calculator import ContractType, SalaryCalculator, net_monthly_take_home
+from app.domain.salary_calculator import ContractType, SalaryCalculator
 from app.infrastructure.offer_filters import (
     ExpiredFilter,
     LevelFilter,
@@ -71,12 +71,16 @@ def test_health_returns_ok_without_dependencies():
 def _salary(
     min_amount: float, max_amount: float, period: str = "month", contract_type: str = "permanent"
 ) -> Salary:
+    # Net figures drive filtering/sorting/display now; stand in with the gross numbers.
     return Salary(
         contract_type=contract_type,
         min_amount=min_amount,
         max_amount=max_amount,
         currency="PLN",
         period=period,
+        net_min=min_amount,
+        net_mid=(min_amount + max_amount) / 2,
+        net_max=max_amount,
     )
 
 
@@ -397,7 +401,7 @@ def test_list_offers_sorts_by_salary_descending_by_default():
     ]
     client = _build_client(offers=offers)
 
-    response = client.get("/offers", params={"sort_by": "salary"})
+    response = client.get("/offers", params={"sort_by": "salary_mid"})
 
     assert response.status_code == 200
     assert [offer["link"] for offer in response.json()["offers"]] == ["b", "a"]
@@ -410,7 +414,7 @@ def test_list_offers_sorts_by_salary_ascending_when_requested():
     ]
     client = _build_client(offers=offers)
 
-    response = client.get("/offers", params={"sort_by": "salary", "sort_order": "asc"})
+    response = client.get("/offers", params={"sort_by": "salary_mid", "sort_order": "asc"})
 
     assert response.status_code == 200
     assert [offer["link"] for offer in response.json()["offers"]] == ["a", "b"]
@@ -438,7 +442,7 @@ def test_list_offers_exposes_published_date():
     assert response.json()["offers"][0]["published"] == "2026-05-01"
 
 
-def test_list_offers_exposes_net_monthly_take_home_for_a_b2b_salary():
+def test_list_offers_exposes_estimated_net_midpoint_as_net_monthly():
     offers = [
         Offer(link="a", title="A", company="C", salaries=[_salary(10000, 12000, contract_type="b2b")]),
     ]
@@ -447,15 +451,15 @@ def test_list_offers_exposes_net_monthly_take_home_for_a_b2b_salary():
     response = client.get("/offers")
 
     assert response.status_code == 200
-    net_monthly = response.json()["offers"][0]["salaries"][0]["net_monthly"]
-    assert net_monthly == net_monthly_take_home(_salary(10000, 12000, contract_type="b2b"))
-    assert net_monthly is not None
+    salary = response.json()["offers"][0]["salaries"][0]
+    assert salary["net_monthly"] == 11000  # midpoint of the standardized net
+    assert salary["net_min"] == 10000
+    assert salary["net_max"] == 12000
 
 
-def test_list_offers_exposes_null_net_monthly_for_an_unmapped_contract_type():
-    offers = [
-        Offer(link="a", title="A", company="C", salaries=[_salary(10000, 12000, contract_type="")]),
-    ]
+def test_list_offers_exposes_null_net_when_salary_has_no_normalized_figures():
+    no_net = Salary(contract_type="permanent", min_amount=10000, max_amount=12000, currency="PLN", period="month")
+    offers = [Offer(link="a", title="A", company="C", salaries=[no_net])]
     client = _build_client(offers=offers)
 
     response = client.get("/offers")
@@ -506,7 +510,7 @@ def test_match_offers_sorts_by_salary_when_requested():
                 "experience": [],
             },
             "min_score": 0.0,
-            "sort_by": "salary",
+            "sort_by": "salary_mid",
         },
     )
 
@@ -651,7 +655,6 @@ def test_match_offers_filters_by_minimum_salary():
     assert response.status_code == 200
     body = response.json()
     assert [offer["link"] for offer in body] == ["a"]
-    expected_net_monthly = net_monthly_take_home(_salary(20000, 25000))
     assert body[0]["salaries"] == [
         {
             "contract_type": "permanent",
@@ -659,7 +662,9 @@ def test_match_offers_filters_by_minimum_salary():
             "max": 25000,
             "currency": "PLN",
             "period": "month",
-            "net_monthly": expected_net_monthly,
+            "net_monthly": 22500,  # midpoint of the standardized net
+            "net_min": 20000,
+            "net_max": 25000,
         }
     ]
 

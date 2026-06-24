@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 from app.domain.entities import Offer, UserProfile
-from app.domain.salary_calculator import representative_monthly_salary
+from app.domain.salary_calculator import representative_net
 from app.domain.sorting import SortBy, SortOrder
 
 
@@ -66,7 +66,7 @@ def expired_matches(offer: Offer, include_expired: bool) -> bool:
 def salary_meets_minimum(offer: Offer, min_salary: float | None) -> bool:
     if min_salary is None:
         return True
-    amount = representative_monthly_salary(offer)
+    amount = representative_net(offer, "min")  # the net floor (net_of_min)
     return amount is not None and amount >= min_salary
 
 

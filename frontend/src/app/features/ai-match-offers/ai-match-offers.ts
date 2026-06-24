@@ -29,8 +29,12 @@ const AI_MATCH_SORT_OPTION_VALUES: Record<
 > = {
   score: { sortBy: 'score', sortOrder: 'desc' },
   'score-recent': { sortBy: 'score_recent', sortOrder: 'desc' },
-  'salary-desc': { sortBy: 'salary', sortOrder: 'desc' },
-  'salary-asc': { sortBy: 'salary', sortOrder: 'asc' },
+  'salary_max-desc': { sortBy: 'salary_max', sortOrder: 'desc' },
+  'salary_max-asc': { sortBy: 'salary_max', sortOrder: 'asc' },
+  'salary_mid-desc': { sortBy: 'salary_mid', sortOrder: 'desc' },
+  'salary_mid-asc': { sortBy: 'salary_mid', sortOrder: 'asc' },
+  'salary_min-desc': { sortBy: 'salary_min', sortOrder: 'desc' },
+  'salary_min-asc': { sortBy: 'salary_min', sortOrder: 'asc' },
   'recent-desc': { sortBy: 'recent', sortOrder: 'desc' },
   'recent-asc': { sortBy: 'recent', sortOrder: 'asc' },
 };

@@ -49,6 +49,11 @@ class Salary:
     max_amount: float | None
     currency: str
     period: str
+    # Standardized NET monthly PLN figures from the scraper's normalized_salary table
+    # (None when not yet computed). These are the basis for cross-contract comparison.
+    net_min: float | None = None
+    net_mid: float | None = None
+    net_max: float | None = None
 
 
 @dataclass(frozen=True)

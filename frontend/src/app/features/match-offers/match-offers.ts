@@ -23,8 +23,12 @@ import { LEVEL_OPTIONS } from '../../core/constants/offer-levels';
 export type MatchSortOption =
   | 'score'
   | 'score-recent'
-  | 'salary-desc'
-  | 'salary-asc'
+  | 'salary_max-desc'
+  | 'salary_max-asc'
+  | 'salary_mid-desc'
+  | 'salary_mid-asc'
+  | 'salary_min-desc'
+  | 'salary_min-asc'
   | 'recent-desc'
   | 'recent-asc';
 
@@ -34,8 +38,12 @@ const MATCH_SORT_OPTION_VALUES: Record<
 > = {
   score: { sortBy: 'score', sortOrder: 'desc' },
   'score-recent': { sortBy: 'score_recent', sortOrder: 'desc' },
-  'salary-desc': { sortBy: 'salary', sortOrder: 'desc' },
-  'salary-asc': { sortBy: 'salary', sortOrder: 'asc' },
+  'salary_max-desc': { sortBy: 'salary_max', sortOrder: 'desc' },
+  'salary_max-asc': { sortBy: 'salary_max', sortOrder: 'asc' },
+  'salary_mid-desc': { sortBy: 'salary_mid', sortOrder: 'desc' },
+  'salary_mid-asc': { sortBy: 'salary_mid', sortOrder: 'asc' },
+  'salary_min-desc': { sortBy: 'salary_min', sortOrder: 'desc' },
+  'salary_min-asc': { sortBy: 'salary_min', sortOrder: 'asc' },
   'recent-desc': { sortBy: 'recent', sortOrder: 'desc' },
   'recent-asc': { sortBy: 'recent', sortOrder: 'asc' },
 };

@@ -130,11 +130,11 @@ def test_sort_matched_offers_sorts_by_score_ascending_when_requested():
 
 def test_sort_matched_offers_sorts_by_salary():
     matches = [
-        _matched("a", 0.5, salary=Salary("permanent", 5000, 6000, "PLN", "month")),
-        _matched("b", 0.5, salary=Salary("permanent", 20000, 25000, "PLN", "month")),
+        _matched("a", 0.5, salary=Salary("permanent", 5000, 6000, "PLN", "month", net_mid=5500)),
+        _matched("b", 0.5, salary=Salary("permanent", 20000, 25000, "PLN", "month", net_mid=22500)),
     ]
 
-    sorted_matches = sort_matched_offers(matches, "salary", "desc")
+    sorted_matches = sort_matched_offers(matches, "salary_mid", "desc")
 
     assert [m.offer.link for m in sorted_matches] == ["b", "a"]
 
@@ -142,10 +142,10 @@ def test_sort_matched_offers_sorts_by_salary():
 def test_sort_matched_offers_sorts_offers_missing_salary_last():
     matches = [
         _matched("a", 0.5),
-        _matched("b", 0.5, salary=Salary("permanent", 20000, 25000, "PLN", "month")),
+        _matched("b", 0.5, salary=Salary("permanent", 20000, 25000, "PLN", "month", net_mid=22500)),
     ]
 
-    sorted_matches = sort_matched_offers(matches, "salary", "desc")
+    sorted_matches = sort_matched_offers(matches, "salary_mid", "desc")
 
     assert [m.offer.link for m in sorted_matches] == ["b", "a"]
 
@@ -250,23 +250,23 @@ def test_sort_offers_with_no_sort_by_places_undated_offers_last():
 
 def test_sort_offers_sorts_by_salary_descending():
     offers = [
-        _simple_offer("a", salary=Salary("permanent", 5000, 6000, "PLN", "month")),
-        _simple_offer("b", salary=Salary("permanent", 20000, 25000, "PLN", "month")),
-        _simple_offer("c", salary=Salary("permanent", 10000, 12000, "PLN", "month")),
+        _simple_offer("a", salary=Salary("permanent", 5000, 6000, "PLN", "month", net_mid=5500)),
+        _simple_offer("b", salary=Salary("permanent", 20000, 25000, "PLN", "month", net_mid=22500)),
+        _simple_offer("c", salary=Salary("permanent", 10000, 12000, "PLN", "month", net_mid=11000)),
     ]
 
-    result = sort_offers(offers, sort_by="salary", sort_order="desc")
+    result = sort_offers(offers, sort_by="salary_mid", sort_order="desc")
 
     assert [o.link for o in result] == ["b", "c", "a"]
 
 
 def test_sort_offers_sorts_by_salary_ascending():
     offers = [
-        _simple_offer("a", salary=Salary("permanent", 10000, 12000, "PLN", "month")),
-        _simple_offer("b", salary=Salary("permanent", 5000, 6000, "PLN", "month")),
+        _simple_offer("a", salary=Salary("permanent", 10000, 12000, "PLN", "month", net_mid=11000)),
+        _simple_offer("b", salary=Salary("permanent", 5000, 6000, "PLN", "month", net_mid=5500)),
     ]
 
-    result = sort_offers(offers, sort_by="salary", sort_order="asc")
+    result = sort_offers(offers, sort_by="salary_mid", sort_order="asc")
 
     assert [o.link for o in result] == ["b", "a"]
 
@@ -274,10 +274,10 @@ def test_sort_offers_sorts_by_salary_ascending():
 def test_sort_offers_places_offers_without_salary_last():
     offers = [
         _simple_offer("a"),
-        _simple_offer("b", salary=Salary("permanent", 20000, 25000, "PLN", "month")),
+        _simple_offer("b", salary=Salary("permanent", 20000, 25000, "PLN", "month", net_mid=22500)),
     ]
 
-    result = sort_offers(offers, sort_by="salary", sort_order="desc")
+    result = sort_offers(offers, sort_by="salary_mid", sort_order="desc")
 
     assert [o.link for o in result] == ["b", "a"]
 

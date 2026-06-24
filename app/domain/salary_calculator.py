@@ -9,8 +9,21 @@ calculator that needs only a single month's gross amount as input.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+from typing import Literal
 
 from app.domain.entities import Offer, Salary
+
+NetBound = Literal["min", "mid", "max"]
+_NET_ATTR: dict[str, str] = {"min": "net_min", "mid": "net_mid", "max": "net_max"}
+
+
+def representative_net(offer: Offer, bound: NetBound) -> float | None:
+    """An offer's representative NET salary for the given bound: the highest such value
+    across its contract types (its best contract on that axis). None when no contract
+    has a normalized net figure."""
+    attr = _NET_ATTR[bound]
+    values = [value for salary in offer.salaries if (value := getattr(salary, attr)) is not None]
+    return max(values) if values else None
 
 _HOURS_PER_MONTH = 168
 _DAYS_PER_MONTH = 21

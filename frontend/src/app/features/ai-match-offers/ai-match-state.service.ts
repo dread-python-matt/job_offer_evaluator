@@ -6,8 +6,12 @@ import { MatchedOfferRow } from '../../core/utils/offer-row';
 export type AiMatchSortOption =
   | 'score'
   | 'score-recent'
-  | 'salary-desc'
-  | 'salary-asc'
+  | 'salary_max-desc'
+  | 'salary_max-asc'
+  | 'salary_mid-desc'
+  | 'salary_mid-asc'
+  | 'salary_min-desc'
+  | 'salary_min-asc'
   | 'recent-desc'
   | 'recent-asc';
 

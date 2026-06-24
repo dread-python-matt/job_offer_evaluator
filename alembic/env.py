@@ -11,7 +11,7 @@ config.set_main_option("sqlalchemy.url", DATABASE_URL)
 target_metadata = Base.metadata
 
 # Tables owned by the external scraper — this app reads them but never migrates them.
-_EXTERNAL_TABLES = {"offers", "salaries"}
+_EXTERNAL_TABLES = {"offers", "salaries", "normalized_salary"}
 
 
 def include_object(obj, name, type_, reflected, compare_to):  # noqa: ANN001

@@ -6,16 +6,24 @@ from app.domain.entities import Offer
 if TYPE_CHECKING:
     from app.domain.scoring import MatchedOffer
 
-SortBy = Literal["salary", "recent"]
-MatchSortBy = Literal["score", "salary", "recent", "score_recent"]
+SortBy = Literal["recent", "salary_min", "salary_mid", "salary_max"]
+MatchSortBy = Literal["score", "recent", "score_recent", "salary_min", "salary_mid", "salary_max"]
 SortOrder = Literal["asc", "desc"]
+
+# Salary sort keys -> the net bound they rank by.
+SALARY_SORT_BOUNDS: dict[str, str] = {
+    "salary_min": "min",
+    "salary_mid": "mid",
+    "salary_max": "max",
+}
 
 
 def offer_sort_key(offer: Offer, sort_by: SortBy) -> float | str | None:
-    from app.domain.salary_calculator import representative_monthly_salary
+    from app.domain.salary_calculator import representative_net
 
-    if sort_by == "salary":
-        return representative_monthly_salary(offer)
+    bound = SALARY_SORT_BOUNDS.get(sort_by)
+    if bound is not None:
+        return representative_net(offer, bound)
     return offer.published
 
 
@@ -41,7 +49,7 @@ def _build_match_sort_key(sort_by: MatchSortBy, reverse: bool) -> Callable[["Mat
 
     None-valued items are always placed last via a direction-aware sentinel so that
     a single sorted() call handles both the "has value" and "no value" cases."""
-    from app.domain.salary_calculator import representative_monthly_salary
+    from app.domain.salary_calculator import representative_net
 
     date_sentinel = "" if reverse else "z"
 
@@ -52,10 +60,11 @@ def _build_match_sort_key(sort_by: MatchSortBy, reverse: bool) -> Callable[["Mat
             return lambda m: (m.score, m.offer.published or date_sentinel)
         case "recent":
             return lambda m: m.offer.published or date_sentinel
-        case "salary":
+        case _:  # salary_min | salary_mid | salary_max
+            bound = SALARY_SORT_BOUNDS[sort_by]
             none_sentinel: float = float("-inf") if reverse else float("inf")
-            def _salary_key(m: "MatchedOffer", _s: float = none_sentinel) -> float:
-                amt = representative_monthly_salary(m.offer)
+            def _salary_key(m: "MatchedOffer", _s: float = none_sentinel, _b: str = bound) -> float:
+                amt = representative_net(m.offer, _b)
                 return amt if amt is not None else _s
             return _salary_key
 

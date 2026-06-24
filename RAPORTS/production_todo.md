@@ -20,8 +20,10 @@ deploy-target decision or external setup, so they weren't auto-implemented.
 ## Deferred features / decisions
 - [ ] **C2 — authentication** (static API key + Angular interceptor) before any public
       exposure. Intentionally deferred; cheap to add later.
-- [ ] **M3/M4 — SQL filter pushdown / salary filtering.** Depends on the scraper-owned
-      schema (salary isn't a column); owner will update the schema later.
+- [x] **M3/M4 — salary standardized on NET everywhere** (browse + match): `Salary` carries
+      normalized net; filter on net floor; sort by recent + net min/mid/max (asc/desc);
+      display estimated net with disclaimer.
+- [ ] **Profile fields to refine net accuracy** (age<26, PPK, preferred contract) — next step.
 
 ## Optional / nice-to-have
 - [ ] Coverage threshold gate in CI (CI currently runs ruff + pytest + advisory pip-audit).

@@ -81,10 +81,18 @@
       <mat-select [formControl]="filters.controls.sort" (selectionChange)="onSortChange()">
         <mat-option value="recent-desc">Most recent</mat-option>
         <mat-option value="recent-asc">Oldest first</mat-option>
-        <mat-option value="salary-desc">Salary: high to low</mat-option>
-        <mat-option value="salary-asc">Salary: low to high</mat-option>
+        <mat-option value="salary_max-desc">Net upper: high to low</mat-option>
+        <mat-option value="salary_max-asc">Net upper: low to high</mat-option>
+        <mat-option value="salary_mid-desc">Net midpoint: high to low</mat-option>
+        <mat-option value="salary_mid-asc">Net midpoint: low to high</mat-option>
+        <mat-option value="salary_min-desc">Net lower: high to low</mat-option>
+        <mat-option value="salary_min-asc">Net lower: low to high</mat-option>
       </mat-select>
     </mat-form-field>
+    <p class="sort-note">
+      <mat-icon>info</mat-icon>
+      Salary is <strong>estimated netto</strong> (net, PLN/mo), standardized across contract types.
+    </p>
   </div>
 
   @if (loading()) {

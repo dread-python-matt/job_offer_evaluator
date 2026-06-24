@@ -45,7 +45,7 @@ describe('BrowseOffers', () => {
             company: 'Acme',
             locations: ['Warsaw'],
             salaries: [
-              { contract_type: 'permanent', min: 20000, max: 25000, net_monthly: null, currency: 'PLN', period: 'month' },
+              { contract_type: 'permanent', min: 20000, max: 25000, net_monthly: null, net_min: null, net_max: null, currency: 'PLN', period: 'month' },
             ],
             tech_stack: ['Python'],
             tech_stack_nice_to_have: [],
@@ -191,11 +191,11 @@ describe('BrowseOffers', () => {
     component.onPage({ pageIndex: 1, pageSize: 20, length: 50 });
     expectOffersRequest({ limit: '20', offset: '20' }, { offers: [], total: 50, limit: 20, offset: 20 });
 
-    component.filters.controls.sort.setValue('salary-desc');
+    component.filters.controls.sort.setValue('salary_mid-desc');
     component.onSortChange();
 
     expectOffersRequest(
-      { limit: '20', offset: '0', sort_by: 'salary', sort_order: 'desc' },
+      { limit: '20', offset: '0', sort_by: 'salary_mid', sort_order: 'desc' },
       { offers: [], total: 50, limit: 20, offset: 0 },
     );
   });

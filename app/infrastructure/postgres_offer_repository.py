@@ -3,10 +3,12 @@ from sqlalchemy.orm import Session
 
 from app.application.ports import OfferRepository
 from app.domain.entities import Offer
-from app.domain.filters import OfferBrowseFilters, salary_meets_minimum
-from app.domain.sorting import sort_offers
+from app.domain.filters import OfferBrowseFilters
 from app.infrastructure.db import resolve_engine
-from app.infrastructure.orm_models import OfferRow
+from app.infrastructure.orm_models import NormalizedSalaryRow, OfferRow, SalaryRow
+
+# Salary sort keys -> the aggregated subquery column they order by.
+_SALARY_SORT_COLUMNS = {"salary_min": "net_min", "salary_mid": "net_mid", "salary_max": "net_max"}
 
 
 class PostgresOfferRepository(OfferRepository):
@@ -30,31 +32,49 @@ class PostgresOfferRepository(OfferRepository):
     def browse_offers(
         self, filters: OfferBrowseFilters, limit: int, offset: int
     ) -> tuple[list[Offer], int]:
-        with Session(self._engine) as session:
-            needs_python = filters.min_salary is not None or filters.sort_by == "salary"
-            base_q = self._apply_sql_filters(select(OfferRow), filters)
+        # Salary filtering/sorting is pushed into SQL via the scraper's
+        # `normalized_salary` table (precomputed NET monthly figures), so no full-table
+        # load + Python pass is needed. An offer's salary is its best contract type
+        # (max net_of_max across its salary rows).
+        needs_salary = filters.min_salary is not None or filters.sort_by in _SALARY_SORT_COLUMNS
+        salary_sq = self._best_salary_subquery() if needs_salary else None
 
-            if needs_python:
-                rows = session.scalars(base_q).all()
-                offers = [row.to_offer() for row in rows]
+        def apply(stmt):
+            stmt = self._apply_sql_filters(stmt, filters)
+            if salary_sq is not None:
+                stmt = stmt.outerjoin(salary_sq, salary_sq.c.offer_id == OfferRow.id)
                 if filters.min_salary is not None:
-                    offers = [o for o in offers if salary_meets_minimum(o, filters.min_salary)]
-                offers = sort_offers(offers, filters.sort_by, filters.sort_order)
-                total = len(offers)
-                return offers[offset : offset + limit], total
+                    stmt = stmt.where(salary_sq.c.net_min >= filters.min_salary)
+            return stmt
 
-            count_q = self._apply_sql_filters(
-                select(func.count()).select_from(OfferRow), filters
-            )
-            total = session.scalar(count_q) or 0
+        with Session(self._engine) as session:
+            total = session.scalar(
+                select(func.count()).select_from(apply(select(OfferRow.id)).subquery())
+            ) or 0
             data_q = (
-                base_q
-                .order_by(self._order_clause(filters))
+                apply(select(OfferRow))
+                .order_by(self._order_clause(filters, salary_sq))
                 .limit(limit)
                 .offset(offset)
             )
             rows = session.scalars(data_q).all()
             return [row.to_offer() for row in rows], total
+
+    @staticmethod
+    def _best_salary_subquery():
+        """Per offer, the highest normalized NET salary on each bound across its
+        contract types (its best contract on that axis)."""
+        return (
+            select(
+                SalaryRow.offer_id.label("offer_id"),
+                func.max(NormalizedSalaryRow.net_of_min).label("net_min"),
+                func.max(NormalizedSalaryRow.midpoint).label("net_mid"),
+                func.max(NormalizedSalaryRow.net_of_max).label("net_max"),
+            )
+            .join(NormalizedSalaryRow, NormalizedSalaryRow.salary_id == SalaryRow.id)
+            .group_by(SalaryRow.offer_id)
+            .subquery()
+        )
 
     def _apply_sql_filters(self, query, filters: OfferBrowseFilters):
         if not filters.include_expired:
@@ -90,7 +110,12 @@ class PostgresOfferRepository(OfferRepository):
                 )
         return query
 
-    def _order_clause(self, filters: OfferBrowseFilters):
+    def _order_clause(self, filters: OfferBrowseFilters, salary_sq=None):
+        column_name = _SALARY_SORT_COLUMNS.get(filters.sort_by)
+        if column_name is not None and salary_sq is not None:
+            column = salary_sq.c[column_name]
+        else:
+            column = OfferRow.published_date
         if filters.sort_order == "asc":
-            return OfferRow.published_date.asc().nullslast()
-        return OfferRow.published_date.desc().nullslast()
+            return column.asc().nullslast()
+        return column.desc().nullslast()

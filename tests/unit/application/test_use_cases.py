@@ -37,12 +37,17 @@ from tests.fakes import (
 
 
 def _salary(min_amount: float, max_amount: float, period: str = "month") -> Salary:
+    # Net figures drive filtering/sorting now; use the gross numbers as stand-in net so
+    # the relative ordering/threshold assertions still hold.
     return Salary(
         contract_type="permanent",
         min_amount=min_amount,
         max_amount=max_amount,
         currency="PLN",
         period=period,
+        net_min=min_amount,
+        net_mid=(min_amount + max_amount) / 2,
+        net_max=max_amount,
     )
 
 
@@ -520,7 +525,7 @@ def test_list_offers_use_case_sorts_by_salary_descending_by_default():
     ]
     use_case = ListOffersUseCase(FakeOfferRepository(offers))
 
-    results, _ = use_case.execute(limit=10, offset=0, filters=OfferBrowseFilters(sort_by="salary"))
+    results, _ = use_case.execute(limit=10, offset=0, filters=OfferBrowseFilters(sort_by="salary_mid"))
 
     assert [offer.link for offer in results] == ["b", "c", "a"]
 
@@ -533,7 +538,7 @@ def test_list_offers_use_case_sorts_by_salary_ascending_when_requested():
     use_case = ListOffersUseCase(FakeOfferRepository(offers))
 
     results, _ = use_case.execute(
-        limit=10, offset=0, filters=OfferBrowseFilters(sort_by="salary", sort_order="asc")
+        limit=10, offset=0, filters=OfferBrowseFilters(sort_by="salary_mid", sort_order="asc")
     )
 
     assert [offer.link for offer in results] == ["a", "b"]
@@ -546,7 +551,7 @@ def test_list_offers_use_case_sorts_offers_missing_salary_last():
     ]
     use_case = ListOffersUseCase(FakeOfferRepository(offers))
 
-    results, _ = use_case.execute(limit=10, offset=0, filters=OfferBrowseFilters(sort_by="salary"))
+    results, _ = use_case.execute(limit=10, offset=0, filters=OfferBrowseFilters(sort_by="salary_mid"))
 
     assert [offer.link for offer in results] == ["b", "a"]
 
@@ -664,7 +669,7 @@ def test_match_offers_use_case_sorts_by_salary_when_requested():
     use_case = MatchOffersUseCase(FakeOfferRepository(offers), SkillBasedScorer(), FilterChain([SkillFilter()]))
 
     results = use_case.execute(
-        criteria=MatchCriteria(candidate=candidate), offers_limit=10, sort_by="salary"
+        criteria=MatchCriteria(candidate=candidate), offers_limit=10, sort_by="salary_mid"
     )
 
     assert [r.offer.link for r in results] == ["b", "a"]

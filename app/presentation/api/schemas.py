@@ -8,7 +8,7 @@ from app.application.ports import ModelUsageWithLimits
 from app.domain.budget import BudgetStatus
 from app.domain.entities import Experience, Offer, Project, Salary, Skill, UserProfile
 from app.domain.filters import MatchCriteria
-from app.domain.salary_calculator import ContractType, NetSalaryBreakdown, net_monthly_take_home
+from app.domain.salary_calculator import ContractType, NetSalaryBreakdown
 from app.domain.scoring import AiInsight, MatchedOffer
 from app.domain.sorting import MatchSortBy, SortOrder
 
@@ -164,7 +164,11 @@ class SalarySchema(BaseModel):
     max: float | None
     currency: str
     period: str
+    # Standardized estimated NET monthly PLN (from the scraper's normalized_salary).
+    # `net_monthly` is the midpoint (the representative figure shown by default).
     net_monthly: float | None
+    net_min: float | None
+    net_max: float | None
 
     @classmethod
     def from_domain(cls, salary: Salary) -> "SalarySchema":
@@ -174,7 +178,9 @@ class SalarySchema(BaseModel):
             max=salary.max_amount,
             currency=salary.currency,
             period=salary.period,
-            net_monthly=net_monthly_take_home(salary),
+            net_monthly=salary.net_mid,
+            net_min=salary.net_min,
+            net_max=salary.net_max,
         )
 
 
