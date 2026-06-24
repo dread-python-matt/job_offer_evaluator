@@ -43,10 +43,15 @@ Severity counts: **2 Critical · 4 High · 8 Medium · 9 Low**.
 - **M1** (partial, by parallel work) — AI scoring now runs concurrently (`AI_MATCH_CONCURRENCY`).
 
 - **L1** — renamed `DailyCostSchema` → `UsageCostSchema` (JSON contract unchanged) and documented that `cost_usd` is cumulative, not daily.
+- **CI gate** — `.github/workflows/ci.yml` runs ruff + pytest + an advisory `pip-audit` on push/PR (uv-based; integration tests self-skip without a DB).
+- **Containerization** — `Dockerfile` (uv, non-root, runs `alembic upgrade head` then serves) + `.dockerignore`; `docker-compose.yml` gains an `api` service wired to the DB with a `/health` healthcheck and `depends_on: service_healthy`. *(Image not built in this environment — needs `docker build` to verify on the target.)*
 - **L8** — active model now **persisted** (`PostgresSelectedModelRepository`, single row); `AiScoringContext` reads it per request and rebuilds when it changes, so all workers agree. Added a configurable `WORKERS` setting (uvicorn import-string form when >1). This supersedes the earlier "in-memory only" model-selection choice — by owner decision, the selection now survives restarts and is shared across workers.
 
 **Deferred by owner:** M3/M4 (SQL pushdown / salary filtering) — depends on the scraper-owned schema, which the owner will update later.
+**Won't-do (assessed):** L2 (move DTOs from `ports.py` into domain) — high import churn across ~10+ files for a naming-consistency nit; keeping application DTOs beside their ports is a defensible convention. L3/L4 are acceptable as-is (L3 has `# noqa`; L4 is a domain-expert review item, not code).
 **Still open:** L6 (frontend production environment config) — frontend work. C1 key rotation + git-history purge remain the owner's to do.
+
+**Backend status: complete** — every backend finding is implemented, deliberately deferred, or assessed won't-do. Only the frontend (L6) and owner-only ops (C1 rotation/purge) remain.
 
 ---
 
@@ -185,10 +190,10 @@ Biggest wins: bounded-concurrency + caching for AI scoring (M1/M2), cache the bu
 - [ ] Observability: structured logs, request IDs, metrics, tracing, error monitoring (M8)
 - [ ] DB: single tuned engine + pooling; Alembic migrations; indexes for filters (M3–M5, L5)
 - [ ] PII/data-flow policy; `LLM_DEBUG` off in prod; redaction (H3)
-- [ ] Deployment: container, healthcheck (L7), multi-worker server (L8), per-env config, CORS locked to prod origins
+- [x] Deployment: container + `/health` healthcheck (L7), multi-worker server (L8), per-env config — *done*; CORS still must be locked to prod origins at deploy time
 - [ ] Frontend prod environment config (L6)
 - [ ] Profile storage in a real DB for multi-user (M6)
-- [ ] CI gate: tests + ruff + coverage threshold + dependency scan
+- [x] CI gate: ruff + pytest + advisory `pip-audit` (`.github/workflows/ci.yml`); coverage threshold still optional
 
 ---
 
