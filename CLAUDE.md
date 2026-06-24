@@ -15,6 +15,9 @@ uv run pytest
 # Backend — check linting
 uv run ruff check
 
+# Backend — apply DB migrations (app-owned tables; the offers table is scraper-owned)
+uv run alembic upgrade head
+
 # Backend — run the API (http://localhost:8000)
 uv run python main.py
 

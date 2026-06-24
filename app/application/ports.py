@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from app.domain.budget import BudgetSettings, BudgetStatus
 from app.domain.entities import Offer, UserProfile
+from app.domain.scoring import MatchScore
 
 if TYPE_CHECKING:
     from app.domain.filters import OfferBrowseFilters
@@ -139,3 +140,14 @@ class BudgetStatusReader(ABC):
 
     @abstractmethod
     def status(self) -> BudgetStatus: ...
+
+
+class AiScoreCacheRepository(ABC):
+    """Caches AI scores by a content key so identical (model, candidate, offer) scoring
+    isn't re-paid for. `get` returns None on a miss."""
+
+    @abstractmethod
+    def get(self, key: str) -> MatchScore | None: ...
+
+    @abstractmethod
+    def put(self, key: str, score: MatchScore) -> None: ...

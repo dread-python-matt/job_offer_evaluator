@@ -34,7 +34,6 @@ from app.config import (
     OPENAI_ADMIN_KEY,
     OPENAI_API_KEY,
     PORT,
-    USER_PROFILE_PATH,
 )
 from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
@@ -43,13 +42,13 @@ from app.infrastructure.composite_model_usage_tracker import CompositeModelUsage
 from app.infrastructure.db import build_engine
 from app.infrastructure.composite_available_models_provider import CompositeAvailableModelsProvider
 from app.infrastructure.agent_models import build_chat_model
+from app.infrastructure.caching_ai_scorer import CachingAiScorer
 from app.infrastructure.gemini_available_models_provider import GeminiAvailableModelsProvider
 from app.infrastructure.llm_logging import configure_llm_logging
 from app.infrastructure.llm_provider_factory import build_llm_provider_factory
 from app.infrastructure.llm_scoring_strategy import LLMScoringStrategy
 from app.infrastructure.llm_utils import company_from_model
 from app.infrastructure.openai_available_models_provider import OpenAIAvailableModelsProvider
-from app.infrastructure.markdown_profile_repository import MarkdownUserProfileRepository
 from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
 from app.infrastructure.offer_filters import (
     ExpiredFilter,
@@ -59,9 +58,11 @@ from app.infrastructure.offer_filters import (
     SkillFilter,
 )
 from app.infrastructure.persisting_model_usage_tracker import PersistingModelUsageTracker
+from app.infrastructure.postgres_ai_score_repository import PostgresAiScoreRepository
 from app.infrastructure.postgres_budget_repository import PostgresBudgetRepository
 from app.infrastructure.postgres_model_usage_repository import PostgresModelUsageRepository
 from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
+from app.infrastructure.postgres_user_profile_repository import PostgresUserProfileRepository
 from app.infrastructure.scoring_strategies import SkillBasedScorer
 from app.infrastructure.translation_agents import build_polish_to_english_agent
 from app.presentation.api.routes import (
@@ -95,7 +96,7 @@ _llm_factory = build_llm_provider_factory(
 )
 
 _engine = build_engine(DATABASE_URL)
-profile_repository = MarkdownUserProfileRepository(USER_PROFILE_PATH)
+profile_repository = PostgresUserProfileRepository(_engine)
 offer_repository = PostgresOfferRepository(_engine)
 filter_chain = FilterChain(
     [SkillFilter(), LocationFilter(), SalaryFilter(), ExpiredFilter(), LevelFilter()]
@@ -112,6 +113,7 @@ _persisting_tracker = PersistingModelUsageTracker(model_usage_repository)
 _composite_tracker = CompositeModelUsageTracker([_in_memory_tracker, _persisting_tracker])
 
 
+_ai_score_repository = PostgresAiScoreRepository(_engine)
 _budget_repository = PostgresBudgetRepository(_engine, default_limit_usd=DEFAULT_BUDGET_USD)
 _budget_service = BudgetService(
     _budget_repository,
@@ -138,16 +140,21 @@ def _build_ai_use_case(model: str) -> MatchOffersWithAiUseCase:
         if model
         else None
     )
-    return MatchOffersWithAiUseCase(
-        offer_repository,
-        filter_chain,
-        SkillBasedScorer(),
+    ai_scorer = CachingAiScorer(
         LLMScoringStrategy.create(
             model=model,
             chat_model=chat_model,
             translator_agent=build_polish_to_english_agent(chat_model=chat_model),
             usage_tracker=_composite_tracker,
         ),
+        _ai_score_repository,
+        model=model,
+    )
+    return MatchOffersWithAiUseCase(
+        offer_repository,
+        filter_chain,
+        SkillBasedScorer(),
+        ai_scorer,
         usage_tracker=_in_memory_tracker,
         budget=_budget_service,
         max_concurrency=AI_MATCH_CONCURRENCY,

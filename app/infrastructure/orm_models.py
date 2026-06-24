@@ -103,3 +103,25 @@ class BudgetRow(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     limit_usd: Mapped[Decimal] = mapped_column(Numeric)
     tracking_since: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class UserProfileRow(Base):
+    """Single-row table holding the user profile as a JSON document (the app currently
+    has one profile). Replaces the Markdown file: atomic writes, no parser, DB-backed."""
+
+    __tablename__ = "user_profile"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class AiScoreRow(Base):
+    """Content-addressed cache of AI scores: `key` is a hash of (model, candidate,
+    offer inputs); `data` is the serialized MatchScore (components + AI insight)."""
+
+    __tablename__ = "ai_score"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    data: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

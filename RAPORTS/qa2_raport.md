@@ -25,8 +25,11 @@ Severity counts: **2 Critical · 4 High · 8 Medium · 9 Low**.
 
 ## 1a. Remediation progress (2026-06-24)
 
-**Implemented (tested, suite green at 381):**
+**Implemented (tested, suite green at 392):**
 - **H1** — eliminated global LLM-client mutation: each agent is built with its own per-model client (`agent_models.build_chat_model` + `chat_model` on the scorer/translator); model selection no longer touches global SDK state. Concurrency-safe.
+- **L5** — Alembic adopted: `alembic/` with baseline + `user_profile` + `ai_score` migrations (validated via offline SQL), scraper tables excluded; `create_all` retained as a dev/test fallback.
+- **M6** — user profile moved to Postgres (`PostgresUserProfileRepository`, JSON document, atomic upsert) in place of the Markdown file.
+- **M2** — AI scores persisted in Postgres (`PostgresAiScoreRepository`) behind a content-hash `CachingAiScorer` (sync + async), so identical (model, candidate, offer) scoring is paid for once.
 - **C1** — `.env` + `DATA/` untracked & git-ignored; `.env.example` added. *(Key rotation + history purge still owed by the owner.)*
 - **C2** — bind host now config-driven, defaults to `127.0.0.1`. App-level auth deferred by decision.
 - **C3** — withdrawn (false positive); `httpx2` pin tightened to `>=2.4` (L9).
@@ -39,8 +42,7 @@ Severity counts: **2 Critical · 4 High · 8 Medium · 9 Low**.
 - **M8** — global exception handler (generic 500, no internal leak) + base logging config.
 - **M1** (partial, by parallel work) — AI scoring now runs concurrently (`AI_MATCH_CONCURRENCY`).
 
-**In progress (confirmed, doing next):** L5 (Alembic) → M6 (profile→DB) → M2 (persist scores in DB).
-**Still open after that:** M3/M4 (SQL pushdown, needs scraper schema), L1 (naming), L6 (frontend prod env), L8 (multi-worker).
+**Still open:** M3/M4 (SQL pushdown, needs the scraper-owned schema), L1 (cost/budget naming), L6 (frontend prod env), L8 (multi-worker server). C1 key rotation + history purge remain the owner's to do.
 
 ---
 
