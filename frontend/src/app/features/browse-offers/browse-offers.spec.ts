@@ -45,7 +45,7 @@ describe('BrowseOffers', () => {
             company: 'Acme',
             locations: ['Warsaw'],
             salaries: [
-              { contract_type: 'permanent', min: 20000, max: 25000, currency: 'PLN', period: 'month' },
+              { contract_type: 'permanent', min: 20000, max: 25000, net_monthly: null, currency: 'PLN', period: 'month' },
             ],
             tech_stack: ['Python'],
             tech_stack_nice_to_have: [],
@@ -102,12 +102,13 @@ describe('BrowseOffers', () => {
     fixture.detectChanges();
 
     const component = fixture.componentInstance;
+    component.techFilter.set(['Python']);
     component.filters.setValue({
       location: 'Warsaw',
       minSalary: 15000,
-      tech: 'Python',
       search: 'Backend',
-      level: 'Mid',
+      level: ['Mid'],
+      sort: 'recent-desc',
     });
     component.applyFilters();
 
@@ -135,9 +136,9 @@ describe('BrowseOffers', () => {
     component.filters.setValue({
       location: 'Warsaw',
       minSalary: 15000,
-      tech: null,
       search: null,
-      level: 'Mid',
+      level: ['Mid'],
+      sort: 'recent-desc',
     });
     component.applyFilters();
     httpMock.expectOne((request) => request.url.endsWith('/offers')).flush({
@@ -163,7 +164,7 @@ describe('BrowseOffers', () => {
     fixture.detectChanges();
 
     const component = fixture.componentInstance;
-    component.filters.setValue({ location: 'Warsaw', minSalary: null, tech: null, search: null, level: null });
+    component.filters.setValue({ location: 'Warsaw', minSalary: null, search: null, level: [], sort: 'recent-desc' });
     component.applyFilters();
     httpMock.expectOne((request) => request.url.endsWith('/offers')).flush({
       offers: [],
@@ -190,7 +191,8 @@ describe('BrowseOffers', () => {
     component.onPage({ pageIndex: 1, pageSize: 20, length: 50 });
     expectOffersRequest({ limit: '20', offset: '20' }, { offers: [], total: 50, limit: 20, offset: 20 });
 
-    component.onSortChange('salary-desc');
+    component.filters.controls.sort.setValue('salary-desc');
+    component.onSortChange();
 
     expectOffersRequest(
       { limit: '20', offset: '0', sort_by: 'salary', sort_order: 'desc' },
@@ -204,7 +206,8 @@ describe('BrowseOffers', () => {
     expectOffersRequest({ limit: '20', offset: '0' }, { offers: [], total: 0, limit: 20, offset: 0 });
     fixture.detectChanges();
 
-    fixture.componentInstance.onSortChange('recent-asc');
+    fixture.componentInstance.filters.controls.sort.setValue('recent-asc');
+    fixture.componentInstance.onSortChange();
 
     expectOffersRequest(
       { limit: '20', offset: '0', sort_by: 'recent', sort_order: 'asc' },
