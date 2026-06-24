@@ -4,12 +4,13 @@ from openai import AsyncOpenAI
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 
-def configure_gemini(api_key: str) -> None:
+def configure_gemini(api_key: str, timeout: float = 60.0) -> None:
     """Point the Agents SDK's default OpenAI client at Gemini's OpenAI-compatible endpoint.
 
     Gemini's compatibility layer only implements the chat completions API, not OpenAI's
-    Responses API, and has no tracing backend, so both are switched accordingly.
+    Responses API, and has no tracing backend, so both are switched accordingly. `timeout`
+    bounds every scoring/translation request so a hung connection can't wedge a worker.
     """
-    set_default_openai_client(AsyncOpenAI(api_key=api_key, base_url=GEMINI_BASE_URL))
+    set_default_openai_client(AsyncOpenAI(api_key=api_key, base_url=GEMINI_BASE_URL, timeout=timeout))
     set_default_openai_api("chat_completions")
     set_tracing_disabled(True)

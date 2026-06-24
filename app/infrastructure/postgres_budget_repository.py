@@ -1,11 +1,12 @@
 from collections.abc import Callable
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from app.application.ports import BudgetRepository
 from app.domain.budget import BudgetSettings
+from app.infrastructure.db import resolve_engine
 from app.infrastructure.orm_models import Base, BudgetRow
 
 
@@ -22,11 +23,11 @@ class PostgresBudgetRepository(BudgetRepository):
 
     def __init__(
         self,
-        database_url: str,
+        database_or_engine: str | Engine,
         default_limit_usd: float = 5.0,
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
-        self._engine = create_engine(database_url)
+        self._engine = resolve_engine(database_or_engine)
         Base.metadata.create_all(self._engine, tables=[BudgetRow.__table__])
         self._default_limit_usd = default_limit_usd
         self._clock = clock

@@ -1,15 +1,16 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
 from app.application.ports import ModelUsage, ModelUsageRepository, ModelUsageSummary
+from app.infrastructure.db import resolve_engine
 from app.infrastructure.orm_models import Base, ModelUsageRow
 
 
 class PostgresModelUsageRepository(ModelUsageRepository):
-    def __init__(self, database_url: str) -> None:
-        self._engine = create_engine(database_url)
+    def __init__(self, database_or_engine: str | Engine) -> None:
+        self._engine = resolve_engine(database_or_engine)
         Base.metadata.create_all(self._engine, tables=[ModelUsageRow.__table__])
 
     def save(self, usage: ModelUsage) -> None:

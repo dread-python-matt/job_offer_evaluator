@@ -36,13 +36,16 @@ class InMemoryBudgetRepository(BudgetRepository):
 
 
 class FixedSpendProvider(SpendProvider):
-    """Returns a fixed spend and records the start instant it was asked about."""
+    """Returns a fixed spend, records the start instant it was asked about, and counts
+    how many times it was actually queried (so caching can be asserted)."""
 
     def __init__(self, amount: float) -> None:
         self.amount = amount
         self.requested_start: datetime | None = None
+        self.calls = 0
 
     def spend_since(self, start: datetime) -> float:
+        self.calls += 1
         self.requested_start = start
         return self.amount
 

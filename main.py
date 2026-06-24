@@ -1,5 +1,6 @@
 import logging
 
+from agents import set_tracing_disabled
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -19,28 +20,35 @@ from app.application.use_cases import (
 )
 from app.config import (
     AI_MATCH_CONCURRENCY,
+    BUDGET_FAIL_CLOSED,
+    BUDGET_SPEND_CACHE_TTL_SECONDS,
     CORS_ORIGINS,
     DATABASE_URL,
     DEFAULT_BUDGET_USD,
     GEMINI_API_KEY,
+    HOST,
     LLM_DEBUG,
     LLM_PROVIDER,
+    LLM_TIMEOUT_SECONDS,
+    MODELS_CACHE_TTL_SECONDS,
     OPENAI_ADMIN_KEY,
     OPENAI_API_KEY,
+    PORT,
     USER_PROFILE_PATH,
 )
 from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
+from app.infrastructure.caching_available_models_provider import CachingAvailableModelsProvider
 from app.infrastructure.composite_model_usage_tracker import CompositeModelUsageTracker
+from app.infrastructure.db import build_engine
 from app.infrastructure.composite_available_models_provider import CompositeAvailableModelsProvider
+from app.infrastructure.agent_models import build_chat_model
 from app.infrastructure.gemini_available_models_provider import GeminiAvailableModelsProvider
-from app.infrastructure.gemini_client import configure_gemini
 from app.infrastructure.llm_logging import configure_llm_logging
 from app.infrastructure.llm_provider_factory import build_llm_provider_factory
 from app.infrastructure.llm_scoring_strategy import LLMScoringStrategy
 from app.infrastructure.llm_utils import company_from_model
 from app.infrastructure.openai_available_models_provider import OpenAIAvailableModelsProvider
-from app.infrastructure.openai_client import configure_openai
 from app.infrastructure.markdown_profile_repository import MarkdownUserProfileRepository
 from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
 from app.infrastructure.offer_filters import (
@@ -71,8 +79,11 @@ from app.presentation.api.routes import (
     get_save_profile_use_case,
     router,
 )
+from app.presentation.api.error_handlers import register_exception_handlers
 from app.presentation.api.schemas import CurrentModelSchema
 
+if not logging.getLogger().handlers:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 _logger = logging.getLogger(__name__)
 
 configure_llm_logging(LLM_DEBUG)
@@ -83,12 +94,13 @@ _llm_factory = build_llm_provider_factory(
     LLM_PROVIDER, OPENAI_API_KEY, OPENAI_ADMIN_KEY, GEMINI_API_KEY
 )
 
+_engine = build_engine(DATABASE_URL)
 profile_repository = MarkdownUserProfileRepository(USER_PROFILE_PATH)
-offer_repository = PostgresOfferRepository(DATABASE_URL)
+offer_repository = PostgresOfferRepository(_engine)
 filter_chain = FilterChain(
     [SkillFilter(), LocationFilter(), SalaryFilter(), ExpiredFilter(), LevelFilter()]
 )
-model_usage_repository = PostgresModelUsageRepository(DATABASE_URL)
+model_usage_repository = PostgresModelUsageRepository(_engine)
 
 save_profile_use_case = SaveUserProfileUseCase(profile_repository)
 get_user_profile_use_case = GetUserProfileUseCase(profile_repository)
@@ -100,42 +112,60 @@ _persisting_tracker = PersistingModelUsageTracker(model_usage_repository)
 _composite_tracker = CompositeModelUsageTracker([_in_memory_tracker, _persisting_tracker])
 
 
-_budget_repository = PostgresBudgetRepository(DATABASE_URL, default_limit_usd=DEFAULT_BUDGET_USD)
-_budget_service = BudgetService(_budget_repository, _llm_factory.build_spend_provider())
+_budget_repository = PostgresBudgetRepository(_engine, default_limit_usd=DEFAULT_BUDGET_USD)
+_budget_service = BudgetService(
+    _budget_repository,
+    _llm_factory.build_spend_provider(),
+    cache_ttl_seconds=BUDGET_SPEND_CACHE_TTL_SECONDS,
+)
 
 
-def _configure_sdk_for_model(model: str) -> None:
-    company = company_from_model(model)
-    if company == "Google":
-        configure_gemini(GEMINI_API_KEY)
-    elif company == "OpenAI":
-        configure_openai(OPENAI_API_KEY)
+def _disable_tracing(_model: str) -> None:
+    # Each use case now builds agents with their own per-model client (build_chat_model),
+    # so model selection no longer mutates the global SDK client. Only tracing needs
+    # disabling globally (idempotent) — there's no tracing backend configured.
+    set_tracing_disabled(True)
 
 
 def _build_ai_use_case(model: str) -> MatchOffersWithAiUseCase:
+    chat_model = (
+        build_chat_model(
+            model,
+            openai_api_key=OPENAI_API_KEY,
+            gemini_api_key=GEMINI_API_KEY,
+            timeout=LLM_TIMEOUT_SECONDS,
+        )
+        if model
+        else None
+    )
     return MatchOffersWithAiUseCase(
         offer_repository,
         filter_chain,
         SkillBasedScorer(),
         LLMScoringStrategy.create(
             model=model,
-            translator_agent=build_polish_to_english_agent(model=model),
+            chat_model=chat_model,
+            translator_agent=build_polish_to_english_agent(chat_model=chat_model),
             usage_tracker=_composite_tracker,
         ),
         usage_tracker=_in_memory_tracker,
         budget=_budget_service,
         max_concurrency=AI_MATCH_CONCURRENCY,
+        fail_closed=BUDGET_FAIL_CLOSED,
     )
 
 
-_available_models_provider = CompositeAvailableModelsProvider([
-    provider
-    for provider, key in [
-        (GeminiAvailableModelsProvider(GEMINI_API_KEY), GEMINI_API_KEY),
-        (OpenAIAvailableModelsProvider(OPENAI_API_KEY), OPENAI_API_KEY),
-    ]
-    if key
-])
+_available_models_provider = CachingAvailableModelsProvider(
+    CompositeAvailableModelsProvider([
+        provider
+        for provider, key in [
+            (GeminiAvailableModelsProvider(GEMINI_API_KEY, timeout=LLM_TIMEOUT_SECONDS), GEMINI_API_KEY),
+            (OpenAIAvailableModelsProvider(OPENAI_API_KEY, timeout=LLM_TIMEOUT_SECONDS), OPENAI_API_KEY),
+        ]
+        if key
+    ]),
+    ttl_seconds=MODELS_CACHE_TTL_SECONDS,
+)
 
 
 def _pick_initial_model() -> str:
@@ -151,13 +181,13 @@ def _pick_initial_model() -> str:
 
 
 _initial_model = _pick_initial_model()
-_configure_sdk_for_model(_initial_model)
+_disable_tracing(_initial_model)
 
 _ai_scoring_context = AiScoringContext(
     initial_model=_initial_model,
     initial_use_case=_build_ai_use_case(_initial_model),
     build_use_case=_build_ai_use_case,
-    configure_sdk=_configure_sdk_for_model,
+    configure_sdk=_disable_tracing,
 )
 calculate_salary_use_case = CalculateNetSalaryUseCase(SalaryCalculator())
 _external_usage_provider = _llm_factory.build_external_usage_provider()
@@ -174,6 +204,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(router)
+register_exception_handlers(app)
 app.dependency_overrides[get_save_profile_use_case] = lambda: save_profile_use_case
 app.dependency_overrides[get_profile_use_case] = lambda: get_user_profile_use_case
 app.dependency_overrides[get_match_offers_use_case] = lambda: match_offers_use_case
@@ -194,7 +225,7 @@ app.dependency_overrides[get_current_model] = lambda: CurrentModelSchema(
 def main() -> None:
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=HOST, port=PORT)
 
 
 if __name__ == "__main__":

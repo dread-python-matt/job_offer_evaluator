@@ -8,6 +8,8 @@ from agents import enable_verbose_stdout_logging
 # OpenAI-compatible client) flow through these, so this covers either provider.
 _LLM_LOGGERS = ("openai", "httpx", "httpcore")
 
+_logger = logging.getLogger(__name__)
+
 
 def configure_llm_logging(enabled: bool) -> None:
     """Surface the raw LLM HTTP traffic and Agents SDK run traces on stdout so
@@ -21,3 +23,7 @@ def configure_llm_logging(enabled: bool) -> None:
     for name in _LLM_LOGGERS:
         logging.getLogger(name).setLevel(logging.DEBUG)
     enable_verbose_stdout_logging()
+    _logger.warning(
+        "LLM_DEBUG is on: full prompts/responses (incl. candidate PII and job text) "
+        "will be logged. Do NOT enable this in production."
+    )

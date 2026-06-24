@@ -12,11 +12,12 @@ class OpenAISpendProvider(SpendProvider):
     admin key with the `api.usage.read` scope; failures surface as CostUnavailableError
     so callers can degrade gracefully."""
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, timeout: float = 60.0) -> None:
         self._api_key = api_key
+        self._timeout = timeout
 
     def spend_since(self, start: datetime) -> float:
-        client = OpenAI(api_key=self._api_key)
+        client = OpenAI(api_key=self._api_key, timeout=self._timeout)
         try:
             response = client.admin.organization.usage.costs(start_time=int(start.timestamp()))
         except openai.OpenAIError as exc:

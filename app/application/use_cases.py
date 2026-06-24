@@ -16,7 +16,7 @@ from app.application.ports import (
     OfferRepository,
     UserProfileRepository,
 )
-from app.domain.errors import BudgetExceededError
+from app.domain.errors import AiScoringError, BudgetExceededError
 from app.domain.entities import Offer, UserProfile
 from app.domain.filters import FilterChain, MatchCriteria, OfferBrowseFilters
 from app.domain.salary_calculator import ContractType, NetSalaryBreakdown, SalaryCalculator
@@ -158,7 +158,9 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
 
     When `budget` is set, raises `BudgetExceededError` before scoring if usage has
     reached or exceeded the configured limit. If the spend figure is unavailable the
-    budget reports no overage, so the match proceeds (fail-open guardrail).
+    behaviour depends on `fail_closed`: by default the match proceeds (fail-open
+    guardrail); when `fail_closed` is True it raises `AiScoringError` rather than
+    risk unbounded spend it can't measure.
 
     The top `offers_to_score` offers are scored concurrently (up to `max_concurrency`
     at once) since each AI call is a slow, I/O-bound round-trip. Scoring is best-effort:
@@ -174,6 +176,7 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         usage_tracker: ModelUsageTracker | None = None,
         budget: BudgetStatusReader | None = None,
         max_concurrency: int = 10,
+        fail_closed: bool = False,
     ) -> None:
         super().__init__(offer_repository, filter_chain)
         self._ranking_scorer = ranking_scorer
@@ -181,6 +184,7 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         self._usage_tracker = usage_tracker
         self._budget = budget
         self._max_concurrency = max_concurrency
+        self._fail_closed = fail_closed
 
     def execute(
         self,
@@ -195,6 +199,11 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
             status = self._budget.status()
             if status.exceeded:
                 raise BudgetExceededError(status.used_usd, status.limit_usd)
+            if self._fail_closed and status.used_usd is None:
+                raise AiScoringError(
+                    "AI spend is currently unavailable and the budget is fail-closed; "
+                    "refusing to score."
+                )
         candidates = self._load_candidates(criteria)
         ranked = sorted(
             candidates,

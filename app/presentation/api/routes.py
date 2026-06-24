@@ -42,6 +42,13 @@ from app.presentation.api.schemas import (
 router = APIRouter()
 
 
+@router.get("/health")
+def health() -> dict[str, str]:
+    """Liveness probe for orchestration/load balancers. Intentionally dependency-free
+    so it stays green even if downstream providers are degraded."""
+    return {"status": "ok"}
+
+
 def get_save_profile_use_case() -> SaveUserProfileUseCase:
     raise NotImplementedError("override with a configured use case")
 

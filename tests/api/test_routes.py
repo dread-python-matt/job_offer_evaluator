@@ -57,6 +57,16 @@ from tests.fakes import (
 )
 
 
+def test_health_returns_ok_without_dependencies():
+    app = FastAPI()
+    app.include_router(router)
+
+    response = TestClient(app).get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def _salary(
     min_amount: float, max_amount: float, period: str = "month", contract_type: str = "permanent"
 ) -> Salary:

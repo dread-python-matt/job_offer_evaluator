@@ -47,15 +47,19 @@ class LLMScoringStrategy(OfferScorer):
         cls,
         model: str,
         *,
+        chat_model: Any = None,
         run: Callable[[Agent, str], Any] = Runner.run_sync,
         run_async: Callable[[Agent, str], Awaitable[Any]] = Runner.run,
         skills_scorer: OfferScorer | None = None,
         translator_agent: Agent | None = None,
         usage_tracker: ModelUsageTracker | None = None,
     ) -> "LLMScoringStrategy":
+        # `chat_model` (an OpenAIChatCompletionsModel with its own client) is used when
+        # provided so model selection never mutates global SDK state; `model` (the name)
+        # is still kept for usage-tracking labels. Falls back to the name for tests.
         agent = Agent(
             name="Offer Fit Scorer",
-            model=model,
+            model=chat_model or model,
             instructions=_INSTRUCTIONS,
             output_type=AgentScore,
         )

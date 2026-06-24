@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.application.budget_service import BudgetService
 from app.application.ports import SpendProvider
@@ -68,3 +68,46 @@ def test_status_is_exceeded_when_usage_reaches_limit():
     service = BudgetService(_repo(limit=5.0), FixedSpendProvider(5.0))
 
     assert service.status().exceeded is True
+
+
+class _ManualClock:
+    def __init__(self, start: datetime) -> None:
+        self.now = start
+
+    def __call__(self) -> datetime:
+        return self.now
+
+
+def test_spend_is_cached_within_ttl():
+    spend = FixedSpendProvider(2.0)
+    clock = _ManualClock(datetime(2026, 6, 10, 12, 0, 0, tzinfo=timezone.utc))
+    service = BudgetService(_repo(), spend, clock=clock, cache_ttl_seconds=60)
+
+    service.status()
+    service.status()  # within TTL -> served from cache
+
+    assert spend.calls == 1
+
+
+def test_spend_is_refetched_after_ttl_expires():
+    spend = FixedSpendProvider(2.0)
+    clock = _ManualClock(datetime(2026, 6, 10, 12, 0, 0, tzinfo=timezone.utc))
+    service = BudgetService(_repo(), spend, clock=clock, cache_ttl_seconds=60)
+
+    service.status()
+    clock.now += timedelta(seconds=61)
+    service.status()
+
+    assert spend.calls == 2
+
+
+def test_reset_invalidates_spend_cache_via_new_anchor():
+    spend = FixedSpendProvider(2.0)
+    clock = _ManualClock(datetime(2026, 6, 10, 12, 0, 0, tzinfo=timezone.utc))
+    service = BudgetService(_repo(), spend, clock=clock, cache_ttl_seconds=60)
+
+    service.status()
+    service.reset_usage()  # moves the anchor -> cache key changes
+
+    assert spend.calls == 2
+    assert spend.requested_start == clock.now

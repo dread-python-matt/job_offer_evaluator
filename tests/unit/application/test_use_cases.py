@@ -1003,6 +1003,39 @@ def test_match_offers_with_ai_proceeds_when_usage_is_unknown():
     assert len(result.matches) == 1
 
 
+def test_match_offers_with_ai_fail_closed_blocks_when_usage_is_unknown():
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9}),
+        ScoreByLinkScorer({"a": 0.8}),
+        budget=FakeBudget(limit_usd=5.0, used_usd=None),
+        fail_closed=True,
+    )
+
+    with pytest.raises(AiScoringError):
+        use_case.execute(criteria=MatchCriteria(candidate=candidate), offers_to_score=10, offers_limit=10)
+
+
+def test_match_offers_with_ai_fail_closed_proceeds_when_usage_is_known():
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9}),
+        ScoreByLinkScorer({"a": 0.8}),
+        budget=FakeBudget(limit_usd=5.0, used_usd=1.0),
+        fail_closed=True,
+    )
+
+    result = use_case.execute(criteria=MatchCriteria(candidate=candidate), offers_to_score=10, offers_limit=10)
+
+    assert len(result.matches) == 1
+
+
 class InsightScorer(OfferScorer):
     """Scores every offer the same and attaches a fixed AI insight via metadata."""
 

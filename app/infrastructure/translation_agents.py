@@ -1,3 +1,5 @@
+from typing import Any
+
 from agents import Agent
 
 _POLISH_TO_ENGLISH_INSTRUCTIONS = (
@@ -15,17 +17,17 @@ _ENGLISH_TO_POLISH_INSTRUCTIONS = (
 )
 
 
-def build_polish_to_english_agent(model: str | None = None) -> Agent:
+def build_polish_to_english_agent(model: str | None = None, chat_model: Any = None) -> Agent:
     return Agent(
         name="Polish-to-English Job Offer Translator",
         instructions=_POLISH_TO_ENGLISH_INSTRUCTIONS,
-        model=model,
+        model=chat_model or model,
     )
 
 
-def build_english_to_polish_agent(model: str | None = None) -> Agent:
+def build_english_to_polish_agent(model: str | None = None, chat_model: Any = None) -> Agent:
     return Agent(
         name="English-to-Polish Job Offer Translator",
         instructions=_ENGLISH_TO_POLISH_INSTRUCTIONS,
-        model=model,
+        model=chat_model or model,
     )

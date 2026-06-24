@@ -19,3 +19,17 @@ CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:4200").split(","
 # Max offers scored by the AI in parallel per match request. Each scoring is a slow
 # LLM round-trip, so this bounds latency without overrunning provider rate limits.
 AI_MATCH_CONCURRENCY = int(os.environ.get("AI_MATCH_CONCURRENCY", "10"))
+# Network bind. Defaults to localhost so the API isn't reachable off-box; set
+# HOST=0.0.0.0 explicitly (behind auth / a gateway) for container/remote deploys.
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "8000"))
+# Timeout (seconds) for outbound LLM/provider HTTP calls, so a hung provider can't
+# tie up a worker indefinitely.
+LLM_TIMEOUT_SECONDS = float(os.environ.get("LLM_TIMEOUT_SECONDS", "60.0"))
+# Seconds to cache the provider spend figure used by the budget gate, so a burst of
+# matches doesn't query the cost API every request.
+BUDGET_SPEND_CACHE_TTL_SECONDS = float(os.environ.get("BUDGET_SPEND_CACHE_TTL_SECONDS", "60.0"))
+# When true, block AI matches if spend can't be read (fail-closed); default fail-open.
+BUDGET_FAIL_CLOSED = os.environ.get("BUDGET_FAIL_CLOSED", "false").strip().lower() in {"1", "true", "yes", "on"}
+# Seconds to cache the provider's available-models list (UI loads / model switches).
+MODELS_CACHE_TTL_SECONDS = float(os.environ.get("MODELS_CACHE_TTL_SECONDS", "300.0"))

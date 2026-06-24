@@ -12,13 +12,35 @@ The codebase is **architecturally strong** (clean hexagonal layering, ports/adap
 
 - **Live secrets are committed to git** (real OpenAI + Gemini keys, DB password).
 - **No authentication, authorization, or rate limiting** on any endpoint, while the app spends real money per request and binds to `0.0.0.0`.
-- A **typosquat-style dependency** (`httpx2`) is declared.
 - **Concurrency hazards** around the process-global LLM client and a shared mutable model-selection singleton.
 - **Performance**: per-request full-table loads and sequential LLM calls; the budget check makes a live OpenAI API call on every match.
 
 **Verdict:** Safe for local/single-trusted-user development. **Do not expose publicly** until at least the CRITICAL and HIGH items are resolved.
 
-Severity counts: **3 Critical · 4 High · 8 Medium · 8 Low**.
+Severity counts: **2 Critical · 4 High · 8 Medium · 9 Low**.
+
+> **Correction (2026-06-24):** an earlier draft flagged `httpx2` as a possible typosquat (C3). That was **wrong** — verified false. `httpx2` is a legitimate maintained fork of httpx that **Starlette 1.3.x prefers** for its `TestClient` (bundled in `starlette[full]`); all dependencies resolve from official PyPI with no custom index. The item has been removed from Critical and downgraded to a minor note (L9, loose version pin).
+
+---
+
+## 1a. Remediation progress (2026-06-24)
+
+**Implemented (tested, suite green at 381):**
+- **H1** — eliminated global LLM-client mutation: each agent is built with its own per-model client (`agent_models.build_chat_model` + `chat_model` on the scorer/translator); model selection no longer touches global SDK state. Concurrency-safe.
+- **C1** — `.env` + `DATA/` untracked & git-ignored; `.env.example` added. *(Key rotation + history purge still owed by the owner.)*
+- **C2** — bind host now config-driven, defaults to `127.0.0.1`. App-level auth deferred by decision.
+- **C3** — withdrawn (false positive); `httpx2` pin tightened to `>=2.4` (L9).
+- **H4** — outbound timeouts (`LLM_TIMEOUT_SECONDS`) on scoring/translation clients, spend provider, and model-list providers.
+- **H2** — budget spend cached with a TTL (`BUDGET_SPEND_CACHE_TTL_SECONDS`, anchor-keyed); configurable fail-closed (`BUDGET_FAIL_CLOSED`).
+- **H3** — `configure_llm_logging` now logs a loud warning that `LLM_DEBUG` exposes PII; off by default.
+- **M5** — single shared `pool_pre_ping` engine (`infrastructure/db.py`) across all repos.
+- **M7** — available-models list cached with a TTL (`MODELS_CACHE_TTL_SECONDS`).
+- **L7** — dependency-free `GET /health`.
+- **M8** — global exception handler (generic 500, no internal leak) + base logging config.
+- **M1** (partial, by parallel work) — AI scoring now runs concurrently (`AI_MATCH_CONCURRENCY`).
+
+**In progress (confirmed, doing next):** L5 (Alembic) → M6 (profile→DB) → M2 (persist scores in DB).
+**Still open after that:** M3/M4 (SQL pushdown, needs scraper schema), L1 (naming), L6 (frontend prod env), L8 (multi-worker).
 
 ---
 
@@ -43,11 +65,9 @@ Severity counts: **3 Critical · 4 High · 8 Medium · 8 Low**.
   - `PUT /config/model` → switch models (cost/behaviour impact).
   - `GET`/`POST /profile` → read and overwrite the user profile (data integrity).
 - **Action:** Add authentication (API key/JWT/session) and per-principal authorization before exposure; protect mutating + paid endpoints especially. Add rate limiting (see H2/M1). Bind to localhost or put behind an authenticated gateway until then.
+- **Status (2026-06-24):** Partial mitigation applied — the bind host is now config-driven and **defaults to `127.0.0.1`** (`config.HOST`/`PORT`, used by `main.main()`), so the API is no longer reachable off-box by default. App-level **auth is deferred** by decision: a static API-key dependency on the router (+ an Angular HTTP interceptor) can be added later with no business-logic/data changes. Must be in place before setting `HOST=0.0.0.0` / any public exposure.
 
-### C3 — Suspicious dependency `httpx2` (possible typosquat / supply-chain risk)
-- **Evidence:** `pyproject.toml` dev deps include `"httpx2>=0.1.0"`; installed metadata: `httpx2` **2.4.0**, Summary = *"The next generation HTTP client."* (this is **httpx's** own tagline). The legitimate `httpx` **0.28.1** is already installed transitively and is what Starlette's `TestClient` uses.
-- **Impact:** `httpx2` is an unnecessary package impersonating httpx's identity — a classic supply-chain red flag. Almost certainly a typo for `httpx`.
-- **Action:** Remove `httpx2`; add `httpx` explicitly to dev deps if needed for `TestClient`. Audit whether `httpx2` was ever imported/executed. Add `pip-audit`/dependency scanning to CI.
+> *(Former C3 "`httpx2` typosquat" was investigated and found to be a **false positive** — see the correction note in §1 and L9. Dependency provenance is clean: all packages resolve from official PyPI, no custom index.)*
 
 ---
 
@@ -131,7 +151,8 @@ Severity counts: **3 Critical · 4 High · 8 Medium · 8 Low**.
 - **L5 — No migrations despite `alembic` dependency.** `alembic` is declared but there are no migration files; `budget` and `model_usage` tables are created via `Base.metadata.create_all` at startup. Adopt Alembic (or remove the dep) so schema changes are versioned/reviewable.
 - **L6 — Frontend has a single hardcoded environment.** `frontend/src/environments/environment.ts` hardcodes `apiUrl: http://localhost:8000`; no production environment / file-replacement configured → not deployable to non-local without edits.
 - **L7 — No health/readiness/version endpoint.** Nothing for orchestration probes or release verification.
-- **L8 — Dev-style server entrypoint.** `uvicorn.run(app, host=0.0.0.0, port=8000)` single-process, no workers, no graceful-shutdown/timeout config; no container/process manager.
+- **L8 — Dev-style server entrypoint.** `main.main()` runs a single-process uvicorn with no workers and no graceful-shutdown/timeout config; no container/process manager. *(Host/port are now env-configurable and default to localhost — see C2 status.)*
+- **L9 — Loose dependency pin.** `httpx2>=0.1.0` (dev) is legitimate (Starlette's preferred TestClient client) but the `>=0.1.0` floor is far below the installed `2.4.0`; a clean resolve could in theory pick an ancient release. Tighten to the real fork line (e.g. `>=2.4`). Add `pip-audit`/dependency scanning to CI generally.
 
 ---
 
@@ -152,7 +173,7 @@ Biggest wins: bounded-concurrency + caching for AI scoring (M1/M2), cache the bu
 
 - [ ] Secrets out of git + rotated + secrets manager (C1)
 - [ ] AuthN/AuthZ + rate limiting + per-user budget (C2, H2)
-- [ ] Dependency audit; remove `httpx2`; `pip-audit` in CI (C3)
+- [ ] Dependency scanning (`pip-audit`) in CI + tighten loose pins (L9)
 - [ ] Concurrency-safe LLM client / model switching (H1)
 - [ ] Timeouts + concurrency caps + circuit breaking on outbound calls (H4, M1)
 - [ ] Observability: structured logs, request IDs, metrics, tracing, error monitoring (M8)
@@ -177,7 +198,7 @@ Biggest wins: bounded-concurrency + caching for AI scoring (M1/M2), cache the bu
 
 ## 9. Suggested remediation order
 
-1. **C1 + C3** — rotate/remove secrets, ignore `.env`, drop `httpx2`. (hours)
+1. **C1** — rotate/remove secrets, ignore `.env`, add `.env.example`. (hours)
 2. **C2** — add auth + rate limiting; keep bound to localhost until done. (days)
 3. **H1, H4** — concurrency safety + timeouts. (days)
 4. **H2, M1, M2** — budget caching, bounded-concurrency scoring, score caching (also fixes the 429s). (days)

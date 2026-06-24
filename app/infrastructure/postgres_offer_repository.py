@@ -1,18 +1,19 @@
-from sqlalchemy import Text, cast, create_engine, func, or_, select
+from sqlalchemy import Engine, Text, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.application.ports import OfferRepository
 from app.domain.entities import Offer
 from app.domain.filters import OfferBrowseFilters, salary_meets_minimum
 from app.domain.sorting import sort_offers
+from app.infrastructure.db import resolve_engine
 from app.infrastructure.orm_models import OfferRow
 
 
 class PostgresOfferRepository(OfferRepository):
     """Read-only adapter over the existing `offers` table owned by the scraper."""
 
-    def __init__(self, database_url: str) -> None:
-        self._engine = create_engine(database_url)
+    def __init__(self, database_or_engine: str | Engine) -> None:
+        self._engine = resolve_engine(database_or_engine)
 
     def list_offers(self) -> list[Offer]:
         with Session(self._engine) as session:

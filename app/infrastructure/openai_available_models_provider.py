@@ -26,11 +26,12 @@ def _supports_structured_outputs(model_id: str) -> bool:
 
 
 class OpenAIAvailableModelsProvider(AvailableModelsProvider):
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, timeout: float = 60.0) -> None:
         self._api_key = api_key
+        self._timeout = timeout
 
     def list_models(self) -> list[AvailableModel]:
-        client = OpenAI(api_key=self._api_key)
+        client = OpenAI(api_key=self._api_key, timeout=self._timeout)
         models = [
             AvailableModel(model=m.id, company="OpenAI")
             for m in client.models.list()
