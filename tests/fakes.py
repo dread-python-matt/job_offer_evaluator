@@ -125,7 +125,8 @@ class FakeModelUsageRepository(ModelUsageRepository):
     def save(self, usage: ModelUsage) -> None:
         self.saved.append(usage)
 
-    def get_summary(self) -> list[ModelUsageSummary]:
+    def get_summary(self, user_id: str) -> list[ModelUsageSummary]:
+        # Tests seed a fixed summary list; the user filter is exercised in integration.
         return self._summaries
 
 

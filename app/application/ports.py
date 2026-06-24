@@ -40,6 +40,7 @@ class ModelUsage:
     output_tokens: int
     model: str = ""
     company: str = ""
+    user_id: str = ""
 
 
 class ModelUsageTracker(ABC):
@@ -92,7 +93,7 @@ class ModelUsageRepository(ABC):
     def save(self, usage: ModelUsage) -> None: ...
 
     @abstractmethod
-    def get_summary(self) -> list[ModelUsageSummary]: ...
+    def get_summary(self, user_id: str) -> list[ModelUsageSummary]: ...
 
 
 class ModelLimitsRegistry(ABC):

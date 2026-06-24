@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.application.ports import BudgetStatusReader, ExternalUsageProvider, InMemoryModelUsageTracker, ModelUsage, ModelUsageSummary
+from app.application.ports import BudgetStatusReader, InMemoryModelUsageTracker, ModelUsage, ModelUsageSummary
 from app.domain.budget import BudgetStatus
 from app.domain.errors import AiScoringError, BudgetExceededError
 from app.application.use_cases import (
@@ -867,14 +867,13 @@ def test_match_offers_use_case_includes_expired_offers_when_requested():
 
 def test_get_model_usage_summary_returns_summaries_with_known_limits():
     from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
-    from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
 
     repo = FakeModelUsageRepository([
         ModelUsageSummary(company="Google", model="gemini-2.0-flash", input_tokens=1000, output_tokens=200),
     ])
-    use_case = GetModelUsageSummaryUseCase(repo, HardcodedModelLimitsRegistry(), NoExternalUsageProvider())
+    use_case = GetModelUsageSummaryUseCase(repo, HardcodedModelLimitsRegistry())
 
-    result = use_case.execute()
+    result = use_case.execute("user-1")
 
     assert len(result) == 1
     item = result[0]
@@ -890,67 +889,23 @@ def test_get_model_usage_summary_returns_summaries_with_known_limits():
 
 def test_get_model_usage_summary_limits_are_none_for_unknown_model():
     from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
-    from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
 
     repo = FakeModelUsageRepository([
         ModelUsageSummary(company="OpenAI", model="gpt-99-turbo", input_tokens=500, output_tokens=100),
     ])
-    use_case = GetModelUsageSummaryUseCase(repo, HardcodedModelLimitsRegistry(), NoExternalUsageProvider())
+    use_case = GetModelUsageSummaryUseCase(repo, HardcodedModelLimitsRegistry())
 
-    result = use_case.execute()
+    result = use_case.execute("user-1")
 
     assert result[0].limits is None
 
 
 def test_get_model_usage_summary_returns_empty_when_no_usage():
     from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
-    from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
 
-    use_case = GetModelUsageSummaryUseCase(FakeModelUsageRepository(), HardcodedModelLimitsRegistry(), NoExternalUsageProvider())
+    use_case = GetModelUsageSummaryUseCase(FakeModelUsageRepository(), HardcodedModelLimitsRegistry())
 
-    assert use_case.execute() == []
-
-
-class FakeExternalUsageProvider(ExternalUsageProvider):
-    def __init__(self, summaries: list[ModelUsageSummary]) -> None:
-        self._summaries = summaries
-
-    def get_today_usage(self) -> list[ModelUsageSummary]:
-        return self._summaries
-
-
-def test_use_case_prefers_external_provider_over_db_when_it_returns_data():
-    from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
-
-    db_summaries = [ModelUsageSummary(company="OpenAI", model="gpt-4o", input_tokens=100, output_tokens=50)]
-    external_summaries = [ModelUsageSummary(company="OpenAI", model="gpt-4o", input_tokens=9000, output_tokens=3000)]
-
-    use_case = GetModelUsageSummaryUseCase(
-        FakeModelUsageRepository(db_summaries),
-        HardcodedModelLimitsRegistry(),
-        FakeExternalUsageProvider(external_summaries),
-    )
-
-    result = use_case.execute()
-
-    assert result[0].input_tokens == 9000
-    assert result[0].output_tokens == 3000
-
-
-def test_use_case_falls_back_to_db_when_external_provider_returns_empty():
-    from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
-
-    db_summaries = [ModelUsageSummary(company="Google", model="gemini-2.0-flash", input_tokens=500, output_tokens=100)]
-
-    use_case = GetModelUsageSummaryUseCase(
-        FakeModelUsageRepository(db_summaries),
-        HardcodedModelLimitsRegistry(),
-        FakeExternalUsageProvider([]),
-    )
-
-    result = use_case.execute()
-
-    assert result[0].input_tokens == 500
+    assert use_case.execute("user-1") == []
 
 
 # --- Budget guard in MatchOffersWithAiUseCase ---
@@ -1106,18 +1061,55 @@ def test_match_offers_with_ai_proceeds_without_budget_check_when_no_cost_provide
     assert len(result.matches) == 1
 
 
-def test_use_case_uses_db_when_no_useful_external_data():
-    from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
-    from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
+def test_match_offers_with_ai_persists_usage_stamped_with_the_user():
+    class UsageRecordingScorer(OfferScorer):
+        def __init__(self, tracker: InMemoryModelUsageTracker) -> None:
+            self._tracker = tracker
 
-    db_summaries = [ModelUsageSummary(company="Google", model="gemini-2.0-flash", input_tokens=200, output_tokens=80)]
+        def score(self, candidate, offer) -> MatchScore:
+            self._tracker.record(ModelUsage(label="scoring", input_tokens=100, output_tokens=50))
+            return MatchScore().with_component(ScoreComponent(name="fixed", value=0.8, weight=1.0))
 
-    use_case = GetModelUsageSummaryUseCase(
-        FakeModelUsageRepository(db_summaries),
-        HardcodedModelLimitsRegistry(),
-        NoExternalUsageProvider(),
+    tracker = InMemoryModelUsageTracker()
+    repo = FakeModelUsageRepository()
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9}),
+        UsageRecordingScorer(tracker),
+        usage_tracker=tracker,
+        usage_repository=repo,
     )
 
-    result = use_case.execute()
+    result = use_case.execute(
+        criteria=MatchCriteria(candidate=candidate),
+        offers_to_score=10,
+        offers_limit=10,
+        user_id="alice",
+    )
 
-    assert result[0].input_tokens == 200
+    assert [u.user_id for u in repo.saved] == ["alice"]
+    assert repo.saved[0].input_tokens == 100
+    assert result.usage[0].user_id == "alice"
+
+
+def test_match_offers_with_ai_does_not_persist_usage_without_a_repository():
+    tracker = InMemoryModelUsageTracker()
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9}),
+        ScoreByLinkScorer({"a": 0.8}),
+        usage_tracker=tracker,
+    )
+
+    # No usage_repository wired — must not raise.
+    result = use_case.execute(
+        criteria=MatchCriteria(candidate=candidate), offers_to_score=10, offers_limit=10, user_id="alice"
+    )
+
+    assert len(result.matches) == 1

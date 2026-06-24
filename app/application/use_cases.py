@@ -1,13 +1,12 @@
 import asyncio
 import logging
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from app.application.ports import (
     AvailableModel,
     AvailableModelsProvider,
     BudgetStatusReader,
-    ExternalUsageProvider,
     ModelLimitsRegistry,
     ModelUsage,
     ModelUsageRepository,
@@ -174,6 +173,7 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         ranking_scorer: OfferScorer,
         ai_scorer: OfferScorer,
         usage_tracker: ModelUsageTracker | None = None,
+        usage_repository: ModelUsageRepository | None = None,
         budget: BudgetStatusReader | None = None,
         max_concurrency: int = 10,
         fail_closed: bool = False,
@@ -182,6 +182,7 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         self._ranking_scorer = ranking_scorer
         self._ai_scorer = ai_scorer
         self._usage_tracker = usage_tracker
+        self._usage_repository = usage_repository
         self._budget = budget
         self._max_concurrency = max_concurrency
         self._fail_closed = fail_closed
@@ -194,6 +195,7 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         sort_by: MatchSortBy = "score",
         sort_order: SortOrder = "desc",
         ai_min_score: float = 0.0,
+        user_id: str = "",
     ) -> AiMatchResult:
         if self._budget:
             status = self._budget.status()
@@ -217,8 +219,20 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
             )
             for offer, score in scored
         ]
-        usage = self._usage_tracker.flush() if self._usage_tracker else []
+        usage = self._persist_usage(user_id)
         return AiMatchResult(matches=self._finalize(matched, ai_min_score, sort_by, sort_order, offers_limit), usage=usage)
+
+    def _persist_usage(self, user_id: str) -> list[ModelUsage]:
+        """Drain this request's recorded token usage, stamp it with the calling user,
+        and persist it (so per-user usage and budgets are attributed correctly)."""
+        usage = [
+            replace(u, user_id=user_id)
+            for u in (self._usage_tracker.flush() if self._usage_tracker else [])
+        ]
+        if self._usage_repository is not None:
+            for record in usage:
+                self._usage_repository.save(record)
+        return usage
 
     async def _score_concurrently(
         self, candidate: UserProfile, offers: list[Offer]
@@ -250,21 +264,20 @@ class ListAvailableModelsUseCase:
 
 
 class GetModelUsageSummaryUseCase:
+    """Per-user token usage, summed from this app's own accounting (the model_usage
+    table). The provider's org-level usage API can't be attributed per user, so it is
+    not used here."""
+
     def __init__(
         self,
         repository: ModelUsageRepository,
         limits_registry: ModelLimitsRegistry,
-        external_provider: ExternalUsageProvider,
     ) -> None:
         self._repository = repository
         self._limits_registry = limits_registry
-        self._external_provider = external_provider
 
-    def execute(self) -> list[ModelUsageWithLimits]:
-        summaries = self._external_provider.get_today_usage()
-        if summaries:
-            return self._enrich(summaries)
-        return self._enrich(self._repository.get_summary())
+    def execute(self, user_id: str) -> list[ModelUsageWithLimits]:
+        return self._enrich(self._repository.get_summary(user_id))
 
     def _enrich(self, summaries: list) -> list[ModelUsageWithLimits]:
         return [

@@ -111,6 +111,11 @@ class ModelUsageRow(Base):
     __tablename__ = "model_usage"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Nullable: rows written before multi-tenancy are unattributed and excluded from
+    # any user's per-user summary.
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
     company: Mapped[str]
     model: Mapped[str]
     label: Mapped[str]

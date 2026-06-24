@@ -128,10 +128,9 @@ def _build_client(
     app.dependency_overrides[get_list_offers_use_case] = lambda: ListOffersUseCase(
         offer_repository
     )
-    from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
     app.dependency_overrides[get_calculate_salary_use_case] = lambda: CalculateNetSalaryUseCase(SalaryCalculator())
     app.dependency_overrides[get_model_usage_summary_use_case] = lambda: GetModelUsageSummaryUseCase(
-        FakeModelUsageRepository(usage_summaries or []), HardcodedModelLimitsRegistry(), NoExternalUsageProvider()
+        FakeModelUsageRepository(usage_summaries or []), HardcodedModelLimitsRegistry()
     )
     return TestClient(app)
 

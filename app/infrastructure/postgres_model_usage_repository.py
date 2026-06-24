@@ -16,6 +16,7 @@ class PostgresModelUsageRepository(ModelUsageRepository):
     def save(self, usage: ModelUsage) -> None:
         with Session(self._engine) as session:
             session.add(ModelUsageRow(
+                user_id=usage.user_id or None,
                 company=usage.company,
                 model=usage.model,
                 label=usage.label,
@@ -25,7 +26,7 @@ class PostgresModelUsageRepository(ModelUsageRepository):
             ))
             session.commit()
 
-    def get_summary(self) -> list[ModelUsageSummary]:
+    def get_summary(self, user_id: str) -> list[ModelUsageSummary]:
         with Session(self._engine) as session:
             rows = session.execute(
                 select(
@@ -33,7 +34,9 @@ class PostgresModelUsageRepository(ModelUsageRepository):
                     ModelUsageRow.model,
                     func.sum(ModelUsageRow.input_tokens).label("input_tokens"),
                     func.sum(ModelUsageRow.output_tokens).label("output_tokens"),
-                ).group_by(ModelUsageRow.company, ModelUsageRow.model)
+                )
+                .where(ModelUsageRow.user_id == user_id)
+                .group_by(ModelUsageRow.company, ModelUsageRow.model)
             ).all()
 
         return [

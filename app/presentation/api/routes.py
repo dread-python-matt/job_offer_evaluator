@@ -163,6 +163,7 @@ def match_offers(
 @router.post("/offers/match/ai", response_model=AiMatchResponseSchema)
 def match_offers_ai(
     match_request: MatchAiRequestSchema,
+    user: User = Depends(get_current_user),
     use_case: MatchOffersWithAiUseCase = Depends(get_match_offers_ai_use_case),
 ) -> AiMatchResponseSchema:
     try:
@@ -173,6 +174,7 @@ def match_offers_ai(
             sort_by=match_request.sort_by,
             sort_order=match_request.sort_order,
             ai_min_score=match_request.ai_min_score,
+            user_id=user.id,
         )
     except BudgetExceededError as exc:
         raise HTTPException(status_code=402, detail=str(exc)) from exc
@@ -270,6 +272,7 @@ def reset_usage(
 
 @router.get("/usage/summary", response_model=list[ModelUsageSummaryItemSchema])
 def get_usage_summary(
+    user: User = Depends(get_current_user),
     use_case: GetModelUsageSummaryUseCase = Depends(get_model_usage_summary_use_case),
 ) -> list[ModelUsageSummaryItemSchema]:
-    return [ModelUsageSummaryItemSchema.from_domain(item) for item in use_case.execute()]
+    return [ModelUsageSummaryItemSchema.from_domain(item) for item in use_case.execute(user.id)]

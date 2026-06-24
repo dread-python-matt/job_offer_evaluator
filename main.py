@@ -46,7 +46,6 @@ from app.domain.auth import User
 from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
 from app.infrastructure.caching_available_models_provider import CachingAvailableModelsProvider
-from app.infrastructure.composite_model_usage_tracker import CompositeModelUsageTracker
 from app.infrastructure.db import build_engine
 from app.infrastructure.composite_available_models_provider import CompositeAvailableModelsProvider
 from app.infrastructure.agent_models import build_chat_model
@@ -64,7 +63,6 @@ from app.infrastructure.offer_filters import (
     SalaryFilter,
     SkillFilter,
 )
-from app.infrastructure.persisting_model_usage_tracker import PersistingModelUsageTracker
 from app.infrastructure.postgres_ai_score_repository import PostgresAiScoreRepository
 from app.infrastructure.postgres_budget_repository import PostgresBudgetRepository
 from app.infrastructure.postgres_model_usage_repository import PostgresModelUsageRepository
@@ -129,9 +127,9 @@ get_user_profile_use_case = GetUserProfileUseCase(profile_repository)
 count_offers_use_case = CountOffersUseCase(offer_repository)
 list_offers_use_case = ListOffersUseCase(offer_repository)
 match_offers_use_case = MatchOffersUseCase(offer_repository, SkillBasedScorer(), filter_chain)
+# Scorers record token usage into this in-process tracker; the AI match use case drains
+# it per request, stamps the calling user, and persists it (per-user attribution).
 _in_memory_tracker = InMemoryModelUsageTracker()
-_persisting_tracker = PersistingModelUsageTracker(model_usage_repository)
-_composite_tracker = CompositeModelUsageTracker([_in_memory_tracker, _persisting_tracker])
 
 
 _ai_score_repository = PostgresAiScoreRepository(_engine)
@@ -176,7 +174,7 @@ def _build_ai_use_case(model: str) -> MatchOffersWithAiUseCase:
             model=model,
             chat_model=chat_model,
             translator_agent=build_polish_to_english_agent(chat_model=chat_model),
-            usage_tracker=_composite_tracker,
+            usage_tracker=_in_memory_tracker,
         ),
         _ai_score_repository,
         model=model,
@@ -187,6 +185,7 @@ def _build_ai_use_case(model: str) -> MatchOffersWithAiUseCase:
         SkillBasedScorer(),
         ai_scorer,
         usage_tracker=_in_memory_tracker,
+        usage_repository=model_usage_repository,
         budget=_budget_service,
         max_concurrency=AI_MATCH_CONCURRENCY,
         fail_closed=BUDGET_FAIL_CLOSED,
@@ -235,9 +234,8 @@ def _ai_use_case_for_request(user: User = Depends(get_current_user)) -> MatchOff
 
 
 calculate_salary_use_case = CalculateNetSalaryUseCase(SalaryCalculator())
-_external_usage_provider = _llm_factory.build_external_usage_provider()
 get_model_usage_summary_use_case_instance = GetModelUsageSummaryUseCase(
-    model_usage_repository, HardcodedModelLimitsRegistry(), _external_usage_provider
+    model_usage_repository, HardcodedModelLimitsRegistry()
 )
 
 app = FastAPI(title="Job Offer Matcher")
