@@ -6,12 +6,18 @@ from app.application.ports import (
     ModelUsageRepository,
     ModelUsageSummary,
     OfferRepository,
+    PasswordHasher,
     SelectedModelRepository,
     SpendProvider,
+    TokenClaims,
+    TokenService,
     UserProfileRepository,
+    UserRepository,
 )
+from app.domain.auth import User
 from app.domain.budget import BudgetSettings
 from app.domain.entities import Offer, UserProfile
+from app.domain.errors import AuthenticationError
 from app.domain.filters import (
     OfferBrowseFilters,
     expired_matches,
@@ -111,6 +117,52 @@ class FakeModelUsageRepository(ModelUsageRepository):
 
     def get_summary(self) -> list[ModelUsageSummary]:
         return self._summaries
+
+
+class FakeUserRepository(UserRepository):
+    def __init__(self, users: list[User] | None = None) -> None:
+        self._by_id: dict[str, User] = {}
+        self._by_email: dict[str, User] = {}
+        for user in users or []:
+            self.add(user)
+
+    def add(self, user: User) -> None:
+        self._by_id[user.id] = user
+        self._by_email[user.email] = user
+
+    def get_by_email(self, email: str) -> User | None:
+        return self._by_email.get(email)
+
+    def get_by_id(self, user_id: str) -> User | None:
+        return self._by_id.get(user_id)
+
+
+class FakePasswordHasher(PasswordHasher):
+    """Deterministic, reversible stand-in for a real hasher: the 'hash' is just the
+    plaintext with a marker prefix, so tests stay fast and assertions are obvious."""
+
+    _PREFIX = "hashed:"
+
+    def hash(self, plain: str) -> str:
+        return f"{self._PREFIX}{plain}"
+
+    def verify(self, plain: str, hashed: str) -> bool:
+        return hashed == f"{self._PREFIX}{plain}"
+
+
+class FakeTokenService(TokenService):
+    """Encodes claims as a plain `user_id:version` string so tests can issue and verify
+    without real crypto. Unparseable tokens raise AuthenticationError, like the real one."""
+
+    def issue(self, user_id: str, token_version: int) -> str:
+        return f"{user_id}:{token_version}"
+
+    def verify(self, token: str) -> TokenClaims:
+        try:
+            user_id, version = token.rsplit(":", 1)
+            return TokenClaims(user_id=user_id, token_version=int(version))
+        except ValueError as exc:
+            raise AuthenticationError("malformed token") from exc
 
 
 class ScoreByLinkScorer(OfferScorer):

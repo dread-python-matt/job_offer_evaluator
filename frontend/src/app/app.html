@@ -1,8 +1,17 @@
 <mat-toolbar color="primary" class="app-toolbar">
   <span class="brand-icon"><mat-icon>work_outline</mat-icon></span>
   <span class="brand-title">Job Offer Matcher</span>
+  @if (isAuthenticated()) {
+    <span class="toolbar-spacer"></span>
+    <span class="user-email">{{ currentUser()?.email }}</span>
+    <button mat-button type="button" (click)="logout()">
+      <mat-icon>logout</mat-icon>
+      Sign out
+    </button>
+  }
 </mat-toolbar>
 
+@if (isAuthenticated()) {
 <nav mat-tab-nav-bar [tabPanel]="tabPanel" class="app-nav">
   <a
     mat-tab-link
@@ -60,6 +69,7 @@
     Model Usage
   </a>
 </nav>
+}
 
 <mat-tab-nav-panel #tabPanel>
   <router-outlet />

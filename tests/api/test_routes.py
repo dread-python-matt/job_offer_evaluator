@@ -59,8 +59,10 @@ from tests.fakes import (
 
 
 def test_health_returns_ok_without_dependencies():
+    from app.presentation.api.auth import public_router
+
     app = FastAPI()
-    app.include_router(router)
+    app.include_router(public_router)
 
     response = TestClient(app).get("/health")
 

@@ -19,6 +19,16 @@ CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:4200").split(","
 # Max offers scored by the AI in parallel per match request. Each scoring is a slow
 # LLM round-trip, so this bounds latency without overrunning provider rate limits.
 AI_MATCH_CONCURRENCY = int(os.environ.get("AI_MATCH_CONCURRENCY", "10"))
+
+# --- Authentication ---
+# Secret for signing session JWTs. MUST be overridden in production (a leaked or default
+# secret lets anyone forge sessions). The dev default keeps local setup zero-config.
+JWT_SECRET = os.environ.get("JWT_SECRET", "dev-insecure-change-me-0123456789abcdef")
+SESSION_TTL_DAYS = int(os.environ.get("SESSION_TTL_DAYS", "7"))
+# Cookie flags. Dev over http on same-site localhost uses lax + non-secure; cross-site
+# prod over https needs COOKIE_SAMESITE=none and COOKIE_SECURE=true.
+COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes", "on"}
+COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax").strip().lower()
 # Network bind. Defaults to localhost so the API isn't reachable off-box; set
 # HOST=0.0.0.0 explicitly (behind auth / a gateway) for container/remote deploys.
 HOST = os.environ.get("HOST", "127.0.0.1")

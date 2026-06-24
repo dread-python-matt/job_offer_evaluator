@@ -35,6 +35,16 @@
   color: white;
 }
 
+.toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.user-email {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.9rem;
+  margin-right: 4px;
+}
+
 .app-nav {
   position: sticky;
   top: 64px;

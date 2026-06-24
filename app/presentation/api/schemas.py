@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from app.application.ports import ModelUsageWithLimits
+from app.domain.auth import User
 from app.domain.budget import BudgetStatus
 from app.domain.entities import Experience, Offer, Project, Salary, Skill, UserProfile
 from app.domain.filters import MatchCriteria
@@ -348,3 +349,26 @@ class ModelUsageSummaryItemSchema(BaseModel):
             limits=ModelLimitsSchema(rpm=item.limits.rpm, tpm=item.limits.tpm, rpd=item.limits.rpd)
             if item.limits else None,
         )
+
+
+# Minimum is enforced server-side regardless of any client-side validation.
+_MIN_PASSWORD_LENGTH = 10
+
+
+class RegisterRequestSchema(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=_MIN_PASSWORD_LENGTH, max_length=128)
+
+
+class LoginRequestSchema(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserResponseSchema(BaseModel):
+    id: str
+    email: str
+
+    @classmethod
+    def from_domain(cls, user: User) -> "UserResponseSchema":
+        return cls(id=user.id, email=user.email)

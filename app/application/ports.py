@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from app.domain.auth import User
 from app.domain.budget import BudgetSettings, BudgetStatus
 from app.domain.entities import Offer, UserProfile
 from app.domain.scoring import MatchScore
@@ -162,3 +163,38 @@ class SelectedModelRepository(ABC):
 
     @abstractmethod
     def set(self, model: str) -> None: ...
+
+
+class UserRepository(ABC):
+    @abstractmethod
+    def add(self, user: User) -> None: ...
+
+    @abstractmethod
+    def get_by_email(self, email: str) -> User | None: ...
+
+    @abstractmethod
+    def get_by_id(self, user_id: str) -> User | None: ...
+
+
+class PasswordHasher(ABC):
+    @abstractmethod
+    def hash(self, plain: str) -> str: ...
+
+    @abstractmethod
+    def verify(self, plain: str, hashed: str) -> bool: ...
+
+
+@dataclass(frozen=True)
+class TokenClaims:
+    user_id: str
+    token_version: int
+
+
+class TokenService(ABC):
+    @abstractmethod
+    def issue(self, user_id: str, token_version: int) -> str: ...
+
+    @abstractmethod
+    def verify(self, token: str) -> TokenClaims:
+        """Decode and validate a session token. Raises `AuthenticationError` when the
+        token is missing required claims, malformed, expired, or has a bad signature."""

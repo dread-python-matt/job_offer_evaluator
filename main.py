@@ -1,10 +1,12 @@
 import logging
+from datetime import timedelta
 
 from agents import set_tracing_disabled
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.application.ai_scoring_context import AiScoringContext
+from app.application.auth_use_cases import AuthenticateUserUseCase, RegisterUserUseCase
 from app.application.budget_service import BudgetService
 from app.application.ports import InMemoryModelUsageTracker
 from app.application.use_cases import (
@@ -22,11 +24,14 @@ from app.config import (
     AI_MATCH_CONCURRENCY,
     BUDGET_FAIL_CLOSED,
     BUDGET_SPEND_CACHE_TTL_SECONDS,
+    COOKIE_SAMESITE,
+    COOKIE_SECURE,
     CORS_ORIGINS,
     DATABASE_URL,
     DEFAULT_BUDGET_USD,
     GEMINI_API_KEY,
     HOST,
+    JWT_SECRET,
     LLM_DEBUG,
     LLM_PROVIDER,
     LLM_TIMEOUT_SECONDS,
@@ -34,6 +39,7 @@ from app.config import (
     OPENAI_ADMIN_KEY,
     OPENAI_API_KEY,
     PORT,
+    SESSION_TTL_DAYS,
     WORKERS,
 )
 from app.domain.filters import FilterChain
@@ -65,6 +71,9 @@ from app.infrastructure.postgres_model_usage_repository import PostgresModelUsag
 from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
 from app.infrastructure.postgres_selected_model_repository import PostgresSelectedModelRepository
 from app.infrastructure.postgres_user_profile_repository import PostgresUserProfileRepository
+from app.infrastructure.postgres_user_repository import PostgresUserRepository
+from app.infrastructure.argon2_password_hasher import Argon2PasswordHasher
+from app.infrastructure.jwt_token_service import JwtTokenService
 from app.infrastructure.scoring_strategies import SkillBasedScorer
 from app.infrastructure.translation_agents import build_polish_to_english_agent
 from app.presentation.api.routes import (
@@ -83,6 +92,18 @@ from app.presentation.api.routes import (
     router,
 )
 from app.presentation.api.error_handlers import register_exception_handlers
+from app.presentation.api.auth import (
+    CookieSettings,
+    get_authenticate_use_case,
+    get_cookie_settings,
+    get_current_user,
+    get_register_use_case,
+    get_token_service,
+    get_user_repository,
+    private_router,
+    public_router,
+    verify_csrf,
+)
 from app.presentation.api.schemas import CurrentModelSchema
 
 if not logging.getLogger().handlers:
@@ -122,6 +143,15 @@ _budget_service = BudgetService(
     _budget_repository,
     _llm_factory.build_spend_provider(),
     cache_ttl_seconds=BUDGET_SPEND_CACHE_TTL_SECONDS,
+)
+
+_user_repository = PostgresUserRepository(_engine)
+_password_hasher = Argon2PasswordHasher()
+_token_service = JwtTokenService(JWT_SECRET, ttl=timedelta(days=SESSION_TTL_DAYS))
+_register_use_case = RegisterUserUseCase(_user_repository, _password_hasher)
+_authenticate_use_case = AuthenticateUserUseCase(_user_repository, _password_hasher, _token_service)
+_cookie_settings = CookieSettings(
+    secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=SESSION_TTL_DAYS * 24 * 3600
 )
 
 
@@ -213,8 +243,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(router)
+# Public endpoints (health, register, login) carry no auth guard. Everything else —
+# the app's API plus the authenticated auth endpoints (logout, me) — is gated by a
+# valid session cookie and (for unsafe methods) a matching CSRF token.
+_auth_guard = [Depends(get_current_user), Depends(verify_csrf)]
+app.include_router(public_router)
+app.include_router(private_router, dependencies=_auth_guard)
+app.include_router(router, dependencies=_auth_guard)
 register_exception_handlers(app)
+app.dependency_overrides[get_register_use_case] = lambda: _register_use_case
+app.dependency_overrides[get_authenticate_use_case] = lambda: _authenticate_use_case
+app.dependency_overrides[get_user_repository] = lambda: _user_repository
+app.dependency_overrides[get_token_service] = lambda: _token_service
+app.dependency_overrides[get_cookie_settings] = lambda: _cookie_settings
 app.dependency_overrides[get_save_profile_use_case] = lambda: save_profile_use_case
 app.dependency_overrides[get_profile_use_case] = lambda: get_user_profile_use_case
 app.dependency_overrides[get_match_offers_use_case] = lambda: match_offers_use_case

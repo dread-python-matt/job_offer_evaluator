@@ -15,3 +15,19 @@ class BudgetExceededError(Exception):
         )
         self.cost_usd = cost_usd
         self.limit_usd = limit_usd
+
+
+class EmailAlreadyRegisteredError(Exception):
+    def __init__(self, email: str) -> None:
+        super().__init__(f"Email already registered: {email}")
+        self.email = email
+
+
+class InvalidCredentialsError(Exception):
+    """Wrong email or password. Deliberately does not say which, to avoid confirming
+    whether an email is registered."""
+
+
+class AuthenticationError(Exception):
+    """A session token is missing, malformed, expired, or no longer matches the user
+    (e.g. its token_version is stale)."""

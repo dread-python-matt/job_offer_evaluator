@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Numeric, Text, Integer
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Numeric, String, Text, Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.domain.entities import Offer, Salary
@@ -158,4 +158,17 @@ class AiScoreRow(Base):
 
     key: Mapped[str] = mapped_column(Text, primary_key=True)
     data: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class UserRow(Base):
+    """An authenticated account. `id` is a UUID string; `email` is unique (stored
+    lowercased). `token_version` is bumped to invalidate all of a user's sessions."""
+
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(Text)
+    token_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
