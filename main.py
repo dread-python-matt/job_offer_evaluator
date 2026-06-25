@@ -15,7 +15,6 @@ from app.application.auth_use_cases import (
     VerifyEmailUseCase,
 )
 from app.application.budget_service import BudgetService
-from app.application.ports import InMemoryModelUsageTracker
 from app.application.refresh_tokens import RefreshTokenService
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
@@ -63,6 +62,7 @@ from app.config import (
     SMTP_USERNAME,
     WORKERS,
 )
+from app.config_validation import validate_runtime_config
 from app.domain.auth import User
 from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
@@ -81,6 +81,7 @@ from app.infrastructure.openai_available_models_provider import OpenAIAvailableM
 from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
 from app.infrastructure.model_pricing_registry import HardcodedModelPricingRegistry
 from app.infrastructure.org_spend_backstop import OrgSpendBackstop
+from app.infrastructure.request_scoped_usage_tracker import RequestScopedModelUsageTracker
 from app.infrastructure.token_accounting_spend_provider import TokenAccountingSpendProvider
 from app.infrastructure.offer_filters import (
     ExpiredFilter,
@@ -121,6 +122,7 @@ from app.presentation.api.routes import (
     router,
 )
 from app.presentation.api.error_handlers import register_exception_handlers
+from app.presentation.api.security_headers import SecurityHeadersMiddleware
 from app.presentation.api.auth import (
     CookieSettings,
     get_authenticate_use_case,
@@ -146,6 +148,10 @@ _logger = logging.getLogger(__name__)
 
 configure_llm_logging(LLM_DEBUG)
 
+# Fail fast before touching the DB or accepting traffic if production config is insecure
+# (default JWT secret, non-secure cookies, wildcard CORS); warns on multi-worker setups.
+validate_runtime_config()
+
 # LLM_PROVIDER still selects org-level usage/cost wiring; the scoring model itself
 # is chosen by the user via the API (and the SDK is reconfigured per model below).
 _llm_factory = build_llm_provider_factory(
@@ -165,9 +171,11 @@ get_user_profile_use_case = GetUserProfileUseCase(profile_repository)
 count_offers_use_case = CountOffersUseCase(offer_repository)
 list_offers_use_case = ListOffersUseCase(offer_repository)
 match_offers_use_case = MatchOffersUseCase(offer_repository, SkillBasedScorer(), filter_chain)
-# Scorers record token usage into this in-process tracker; the AI match use case drains
-# it per request, stamps the calling user, and persists it (per-user attribution).
-_in_memory_tracker = InMemoryModelUsageTracker()
+# Scorers record token usage into this request-scoped tracker; the AI match use case opens
+# a fresh scope per request (begin()), then drains it, stamps the calling user, and persists
+# it. Request scoping (contextvars) keeps concurrent matches from mis-attributing tokens
+# across users/requests.
+_in_memory_tracker = RequestScopedModelUsageTracker()
 
 
 _ai_score_repository = PostgresAiScoreRepository(_engine)
@@ -357,6 +365,8 @@ get_model_usage_summary_use_case_instance = GetModelUsageSummaryUseCase(
 )
 
 app = FastAPI(title="Job Offer Matcher")
+# Defense-in-depth response headers (HSTS only when cookies are Secure, i.e. served over HTTPS).
+app.add_middleware(SecurityHeadersMiddleware, enable_hsts=COOKIE_SECURE)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,

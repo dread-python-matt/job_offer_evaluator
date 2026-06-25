@@ -1,7 +1,18 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Numeric, String, Text, Integer, false
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    false,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.domain.entities import Offer, Salary
@@ -137,6 +148,29 @@ class BudgetRow(Base):
     )
     limit_usd: Mapped[Decimal] = mapped_column(Numeric)
     tracking_since: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class UserApiKeyRow(Base):
+    """A user's own provider API key, with its own spend budget. One row per
+    (user, api_provider) — `UNIQUE(user_id, api_provider)` enforces a single key per
+    provider per user. The key is stored only as ciphertext (encrypted by a server-held
+    secret, never one-way hashed — it must be replayed to the provider); `key_hint` is a
+    non-secret masked display string. Usage is not stored: it is derived from recorded
+    model usage for this provider since `tracking_since`."""
+
+    __tablename__ = "user_api_key"
+    __table_args__ = (UniqueConstraint("user_id", "api_provider", name="uq_user_api_key_provider"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    api_provider: Mapped[str] = mapped_column(String(32))
+    key_ciphertext: Mapped[str] = mapped_column(Text)
+    key_hint: Mapped[str] = mapped_column(String(64))
+    limit_usd: Mapped[Decimal] = mapped_column(Numeric)
+    tracking_since: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class UserProfileRow(Base):

@@ -33,6 +33,12 @@ class SmtpEmailSender(EmailSender):
         self._smtp_factory = smtp_factory
 
     def send(self, to: str, subject: str, body: str) -> None:
+        # Defense in depth against header injection: refuse CR/LF in header values. Inputs are
+        # already constrained upstream (EmailStr addresses, app-controlled subjects), but a
+        # newline here could otherwise smuggle extra headers into the message.
+        for field, value in (("to", to), ("subject", subject)):
+            if "\r" in value or "\n" in value:
+                raise ValueError(f"Illegal newline in email {field}")
         message = EmailMessage()
         message["From"] = self._from_addr
         message["To"] = to

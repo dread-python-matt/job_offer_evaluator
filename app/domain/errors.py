@@ -11,7 +11,7 @@ class CostUnavailableError(Exception):
 class BudgetExceededError(Exception):
     def __init__(self, cost_usd: float, limit_usd: float) -> None:
         super().__init__(
-            f"Daily OpenAI budget exceeded: ${cost_usd:.2f} spent of ${limit_usd:.2f} limit"
+            f"Budget exceeded: ${cost_usd:.2f} spent of ${limit_usd:.2f} limit"
         )
         self.cost_usd = cost_usd
         self.limit_usd = limit_usd
@@ -32,6 +32,12 @@ class EmailNotVerifiedError(Exception):
     """Login was attempted against an account whose email has not been confirmed yet.
     The account exists and the password is correct, but the confirmation link emailed
     at registration has not been followed."""
+
+
+class EmailAlreadyVerifiedError(Exception):
+    """A confirmation link was followed for an account whose email is already verified.
+    Confirmation links are single-use: once the account is verified the link no longer
+    logs the user in, so a replayed/stale link is rejected rather than re-authenticating."""
 
 
 class EmailNotDeliverableError(Exception):
@@ -57,6 +63,42 @@ class InvalidPasswordResetTokenError(Exception):
 class AuthenticationError(Exception):
     """A session token is missing, malformed, expired, or no longer matches the user
     (e.g. its token_version is stale)."""
+
+
+class InvalidApiKeyError(Exception):
+    """A provider API key the user supplied was rejected by the provider (e.g. a 401/403
+    when listing models). Surfaced when adding a key so a wrong or revoked key fails fast
+    before it is stored."""
+
+    def __init__(self, provider: str) -> None:
+        super().__init__(f"The {provider} API key was rejected by the provider")
+        self.provider = provider
+
+
+class UnsupportedApiProviderError(Exception):
+    """An API key was submitted for a provider the app does not support."""
+
+    def __init__(self, provider: str) -> None:
+        super().__init__(f"Unsupported API provider: {provider}")
+        self.provider = provider
+
+
+class ApiKeyAlreadyExistsError(Exception):
+    """The user already has a key for this provider. Keys are one-per-provider; rotating
+    means deleting the existing key first (changing only the budget is a separate action)."""
+
+    def __init__(self, provider: str) -> None:
+        super().__init__(f"An API key for {provider} already exists")
+        self.provider = provider
+
+
+class ApiKeyNotFoundError(Exception):
+    """No stored key for this user and provider (e.g. deleting or re-budgeting a key that
+    isn't there)."""
+
+    def __init__(self, provider: str) -> None:
+        super().__init__(f"No API key for {provider}")
+        self.provider = provider
 
 
 class RateLimitExceededError(Exception):

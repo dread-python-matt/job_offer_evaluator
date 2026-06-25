@@ -44,6 +44,11 @@ class ModelUsage:
 
 
 class ModelUsageTracker(ABC):
+    def begin(self) -> None:
+        """Start a fresh accounting scope, discarding anything not yet flushed. Called at
+        the top of a request so usage can never leak across requests. The default is a
+        no-op (process-wide trackers); request-scoped trackers override it."""
+
     @abstractmethod
     def record(self, usage: ModelUsage) -> None: ...
 
@@ -54,6 +59,9 @@ class ModelUsageTracker(ABC):
 class InMemoryModelUsageTracker(ModelUsageTracker):
     def __init__(self) -> None:
         self._records: list[ModelUsage] = []
+
+    def begin(self) -> None:
+        self._records.clear()
 
     def record(self, usage: ModelUsage) -> None:
         self._records.append(usage)
@@ -149,6 +157,54 @@ class UserSpendProvider(ABC):
 
     @abstractmethod
     def spend_since(self, user_id: str, start: datetime) -> float: ...
+
+
+@dataclass(frozen=True)
+class ApiKeyRecord:
+    """A persisted provider API key with its own budget. `key_ciphertext` is the
+    encrypted key (the only stored form); `key_hint` is a non-secret masked display
+    string. Usage is not stored — it is derived from recorded model usage for this
+    provider since `tracking_since`."""
+
+    user_id: str
+    api_provider: str
+    key_ciphertext: str
+    key_hint: str
+    limit_usd: float
+    tracking_since: datetime
+    created_at: datetime
+
+
+class ApiKeyRepository(ABC):
+    """Persists each user's provider API keys (one per provider, enforced by a unique
+    (user_id, api_provider) constraint). Stores only ciphertext — never plaintext."""
+
+    @abstractmethod
+    def add(self, record: ApiKeyRecord) -> None:
+        """Insert a new key. Raises if the user already has one for that provider."""
+
+    @abstractmethod
+    def list_for_user(self, user_id: str) -> list[ApiKeyRecord]: ...
+
+    @abstractmethod
+    def get(self, user_id: str, api_provider: str) -> ApiKeyRecord | None: ...
+
+    @abstractmethod
+    def delete(self, user_id: str, api_provider: str) -> bool:
+        """Remove the user's key for a provider. Returns True if a row was deleted."""
+
+    @abstractmethod
+    def update_budget(self, user_id: str, api_provider: str, limit_usd: float) -> bool:
+        """Change only the spend limit for an existing key (leaving the usage anchor and
+        the key itself untouched). Returns True if a row was updated."""
+
+
+class UserProviderSpendProvider(ABC):
+    """How much a single user has spent on one provider (company) since an instant. Used
+    to derive each API key's own usage against its own budget."""
+
+    @abstractmethod
+    def spend_since(self, user_id: str, company: str, start: datetime) -> float: ...
 
 
 class BudgetRepository(ABC):
@@ -264,16 +320,28 @@ class VerificationTokenService(ABC):
         wrong purpose, or has a bad signature."""
 
 
+@dataclass(frozen=True)
+class ResetTokenClaims:
+    """Claims carried by a password-reset token: the account and the `token_version` it was
+    minted against. Binding the version makes the token single-use — the first successful
+    reset bumps the user's `token_version`, so the same token no longer matches."""
+
+    user_id: str
+    token_version: int
+
+
 class PasswordResetTokenService(ABC):
     """Issues and validates single-purpose password-reset tokens, kept separate from session
-    and email-confirmation tokens so none can be substituted for another."""
+    and email-confirmation tokens so none can be substituted for another. Tokens are bound to
+    the user's `token_version` at issue time so a token is usable only once (a completed reset
+    bumps the version, invalidating the link even within its TTL)."""
 
     @abstractmethod
-    def issue(self, user_id: str) -> str: ...
+    def issue(self, user_id: str, token_version: int) -> str: ...
 
     @abstractmethod
-    def verify(self, token: str) -> str:
-        """Return the user id encoded in a reset token. Raises
+    def verify(self, token: str) -> ResetTokenClaims:
+        """Return the claims encoded in a reset token. Raises
         `InvalidPasswordResetTokenError` when the token is malformed, expired, has the
         wrong purpose, or has a bad signature."""
 
@@ -284,6 +352,31 @@ class PasswordHasher(ABC):
 
     @abstractmethod
     def verify(self, plain: str, hashed: str) -> bool: ...
+
+
+class KeyCipher(ABC):
+    """Reversibly encrypts secrets the server must replay (e.g. a user's provider API
+    key). Unlike a password hash, the plaintext has to be recoverable to use the key,
+    so this is symmetric encryption — never a one-way hash. The encryption secret lives
+    outside the database (env/KMS), so a DB leak alone does not expose the keys."""
+
+    @abstractmethod
+    def encrypt(self, plain: str) -> str: ...
+
+    @abstractmethod
+    def decrypt(self, token: str) -> str:
+        """Recover the plaintext from a token produced by `encrypt`. Raises when the
+        token is malformed, tampered with, or was produced under a different secret."""
+
+
+class ApiKeyValidator(ABC):
+    """Confirms a user-supplied provider API key actually works before it is stored, by
+    performing a free authenticated call (listing models — no tokens spent)."""
+
+    @abstractmethod
+    def validate(self, provider: str, key: str) -> None:
+        """Raise `InvalidApiKeyError` if the provider rejects the key. Transient or
+        unexpected failures propagate so an outage is never misreported as a bad key."""
 
 
 @dataclass(frozen=True)

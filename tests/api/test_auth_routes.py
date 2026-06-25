@@ -234,6 +234,20 @@ def test_register_rejects_missing_confirm_password():
     assert response.status_code == 422
 
 
+def test_register_is_throttled_after_repeated_attempts():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+
+    # The harness allows 3 attempts (see _RATE_LIMIT_ATTEMPTS); the 4th is throttled. (The
+    # 2nd/3rd are 409 duplicates, but every attempt counts toward the throttle.)
+    for _ in range(_RATE_LIMIT_ATTEMPTS):
+        _register(client, email="spam@example.com")
+
+    blocked = _register(client, email="spam@example.com")
+    assert blocked.status_code == 429
+    assert blocked.headers.get("Retry-After")
+
+
 # --- email confirmation ---
 
 
@@ -266,6 +280,17 @@ def test_verify_email_rejects_an_invalid_token():
     response = client.post("/auth/verify-email", json={"token": "not-a-real-token"})
 
     assert response.status_code == 400
+
+
+def test_verify_email_link_is_single_use():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+    _register(client)
+    token = _token_from_email(ctx.sender.sent[-1]["body"])
+
+    assert client.post("/auth/verify-email", json={"token": token}).status_code == 200
+    # The same confirmation link cannot be replayed to log in again.
+    assert client.post("/auth/verify-email", json={"token": token}).status_code == 409
 
 
 # --- login ---
@@ -591,6 +616,18 @@ def test_reset_password_rejects_an_invalid_token():
     response = _reset(client, token="not-a-real-token")
 
     assert response.status_code == 400
+
+
+def test_reset_password_link_cannot_be_reused():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+    _register_and_verify(client, ctx.sender)
+    _forgot(client)
+    token = _token_from_email(ctx.sender.sent[-1]["body"])
+
+    assert _reset(client, token).status_code == 200
+    # The first reset bumped token_version, so the same link is now rejected (single-use).
+    assert _reset(client, token, new_password="a third passphrase entirely").status_code == 400
 
 
 def test_reset_password_rejects_mismatched_passwords():

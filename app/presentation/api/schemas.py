@@ -25,8 +25,10 @@ from app.domain.sorting import MatchSortBy, SortOrder
 
 
 class SkillSchema(BaseModel):
-    name: str
-    rating: int
+    name: str = Field(max_length=200)
+    # Mirrors the domain rule (Skill enforces 1..5) so an out-of-range value is a clean 422
+    # at the edge rather than a 500 from the domain constructor.
+    rating: int = Field(ge=1, le=5)
 
     def to_domain(self) -> Skill:
         return Skill(name=self.name, rating=self.rating)
@@ -113,10 +115,12 @@ class TaxSituationSchema(BaseModel):
 
 
 class UserProfileSchema(BaseModel):
-    summary: str
-    skills: list[SkillSchema]
-    projects: list[ProjectSchema]
-    experience: list[ExperienceSchema]
+    # Caps bound the work a single match request can trigger (scoring loops + LLM prompt
+    # size), so an oversized profile can't be used as a DoS amplifier.
+    summary: str = Field(max_length=20_000)
+    skills: list[SkillSchema] = Field(max_length=200)
+    projects: list[ProjectSchema] = Field(max_length=100)
+    experience: list[ExperienceSchema] = Field(max_length=100)
     tax_situation: TaxSituationSchema = Field(default_factory=TaxSituationSchema)
 
     def to_domain(self) -> UserProfile:
@@ -144,7 +148,8 @@ class UserProfileSchema(BaseModel):
 class MatchRequestSchema(BaseModel):
     candidate: UserProfileSchema
     min_score: float = 0.0
-    offers_limit: int | None = None
+    # Bounded so a single request can't ask the server to materialize an unbounded result set.
+    offers_limit: int | None = Field(default=None, ge=1, le=200)
     location: str | None = None
     min_salary: float | None = None
     include_expired: bool = False

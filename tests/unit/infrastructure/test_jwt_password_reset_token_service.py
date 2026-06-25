@@ -18,10 +18,13 @@ def _at(moment: datetime):
     return lambda: moment
 
 
-def test_issue_then_verify_returns_the_user_id():
+def test_issue_then_verify_returns_the_user_id_and_token_version():
     service = JwtPasswordResetTokenService(secret=_SECRET, ttl=timedelta(hours=1), clock=_at(_NOW))
 
-    assert service.verify(service.issue("user-1")) == "user-1"
+    claims = service.verify(service.issue("user-1", 7))
+
+    assert claims.user_id == "user-1"
+    assert claims.token_version == 7
 
 
 def test_verify_rejects_a_token_signed_with_a_different_secret():
@@ -29,7 +32,7 @@ def test_verify_rejects_a_token_signed_with_a_different_secret():
     attacker = JwtPasswordResetTokenService(secret="other-secret-key-at-least-32-bytes!!", clock=_at(_NOW))
 
     with pytest.raises(InvalidPasswordResetTokenError):
-        attacker.verify(issuer.issue("user-1"))
+        attacker.verify(issuer.issue("user-1", 0))
 
 
 def test_verify_rejects_an_expired_token():
@@ -40,7 +43,7 @@ def test_verify_rejects_an_expired_token():
     service = JwtPasswordResetTokenService(secret=_SECRET, clock=_at(_NOW))
 
     with pytest.raises(InvalidPasswordResetTokenError):
-        service.verify(issued.issue("user-1"))
+        service.verify(issued.issue("user-1", 0))
 
 
 def test_verify_rejects_garbage():
@@ -65,3 +68,13 @@ def test_verify_rejects_a_token_with_no_purpose():
 
     with pytest.raises(InvalidPasswordResetTokenError):
         resets.verify(bare)
+
+
+def test_verify_rejects_a_token_missing_the_token_version():
+    resets = JwtPasswordResetTokenService(secret=_SECRET, clock=_at(_NOW))
+    no_ver = jwt.encode(
+        {"sub": "user-1", "purpose": "password_reset"}, _SECRET, algorithm="HS256"
+    )
+
+    with pytest.raises(InvalidPasswordResetTokenError):
+        resets.verify(no_ver)

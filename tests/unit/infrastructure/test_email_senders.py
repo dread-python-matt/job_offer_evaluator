@@ -1,5 +1,7 @@
 import logging
 
+import pytest
+
 from app.infrastructure.console_email_sender import ConsoleEmailSender
 from app.infrastructure.smtp_email_sender import SmtpEmailSender
 
@@ -100,3 +102,24 @@ def test_smtp_sender_skips_tls_when_disabled():
     sender.send(to="dev@example.com", subject="s", body="b")
 
     assert smtp.started_tls is False
+
+
+def test_smtp_sender_rejects_newline_in_recipient():
+    smtp = _FakeSmtp()
+    sender, _ = _sender(smtp)
+
+    # CR/LF in a header would let an attacker smuggle extra headers — reject it.
+    with pytest.raises(ValueError):
+        sender.send(to="dev@example.com\r\nBcc: victim@example.com", subject="s", body="b")
+
+    assert smtp.sent == []
+
+
+def test_smtp_sender_rejects_newline_in_subject():
+    smtp = _FakeSmtp()
+    sender, _ = _sender(smtp)
+
+    with pytest.raises(ValueError):
+        sender.send(to="dev@example.com", subject="hello\nX-Injected: 1", body="b")
+
+    assert smtp.sent == []

@@ -1113,6 +1113,35 @@ def test_match_offers_with_ai_persists_usage_stamped_with_the_user():
     assert result.usage[0].user_id == "alice"
 
 
+def test_match_offers_with_ai_begins_a_fresh_usage_scope_per_request():
+    class UsageRecordingScorer(OfferScorer):
+        def __init__(self, tracker: InMemoryModelUsageTracker) -> None:
+            self._tracker = tracker
+
+        def score(self, candidate, offer) -> MatchScore:
+            self._tracker.record(ModelUsage(label="scoring", input_tokens=10, output_tokens=5))
+            return MatchScore().with_component(ScoreComponent(name="fixed", value=0.8, weight=1.0))
+
+    tracker = InMemoryModelUsageTracker()
+    # Usage left over from an earlier (aborted) request must not be attributed to this one.
+    tracker.record(ModelUsage(label="stale", input_tokens=999, output_tokens=999))
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9}),
+        UsageRecordingScorer(tracker),
+        usage_tracker=tracker,
+    )
+
+    result = use_case.execute(
+        criteria=MatchCriteria(candidate=candidate), offers_to_score=10, offers_limit=10
+    )
+
+    assert [u.label for u in result.usage] == ["scoring"]
+
+
 def test_match_offers_with_ai_does_not_persist_usage_without_a_repository():
     tracker = InMemoryModelUsageTracker()
     candidate = _profile("Python")

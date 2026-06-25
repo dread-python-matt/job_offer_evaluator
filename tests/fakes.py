@@ -2,6 +2,8 @@ from dataclasses import replace
 from datetime import datetime
 
 from app.application.ports import (
+    ApiKeyRecord,
+    ApiKeyRepository,
     BudgetRepository,
     EmailSender,
     EmailValidator,
@@ -11,6 +13,7 @@ from app.application.ports import (
     OfferRepository,
     PasswordHasher,
     PasswordResetTokenService,
+    ResetTokenClaims,
     SelectedModelRepository,
     SpendProvider,
     TokenClaims,
@@ -54,6 +57,36 @@ class InMemoryBudgetRepository(BudgetRepository):
 
     def save(self, user_id: str, settings: BudgetSettings) -> None:
         self._by_user[user_id] = settings
+
+
+class InMemoryApiKeyRepository(ApiKeyRepository):
+    """In-memory provider API keys keyed by (user_id, provider), mirroring the unique
+    constraint: a second `add` for the same pair raises like the real adapter."""
+
+    def __init__(self) -> None:
+        self._by_key: dict[tuple[str, str], ApiKeyRecord] = {}
+
+    def add(self, record: ApiKeyRecord) -> None:
+        key = (record.user_id, record.api_provider)
+        if key in self._by_key:
+            raise ValueError(f"key already exists for {key}")
+        self._by_key[key] = record
+
+    def list_for_user(self, user_id: str) -> list[ApiKeyRecord]:
+        return [r for (uid, _), r in sorted(self._by_key.items()) if uid == user_id]
+
+    def get(self, user_id: str, api_provider: str) -> ApiKeyRecord | None:
+        return self._by_key.get((user_id, api_provider))
+
+    def delete(self, user_id: str, api_provider: str) -> bool:
+        return self._by_key.pop((user_id, api_provider), None) is not None
+
+    def update_budget(self, user_id: str, api_provider: str, limit_usd: float) -> bool:
+        existing = self._by_key.get((user_id, api_provider))
+        if existing is None:
+            return False
+        self._by_key[(user_id, api_provider)] = replace(existing, limit_usd=limit_usd)
+        return True
 
 
 class FixedUserSpendProvider(UserSpendProvider):
@@ -254,18 +287,25 @@ class FakeVerificationTokenService(VerificationTokenService):
 
 
 class FakePasswordResetTokenService(PasswordResetTokenService):
-    """Encodes the user id as a `reset:<user_id>` string so tests can issue and verify
-    reset tokens without crypto. Anything else raises, like the real adapter."""
+    """Encodes the user id and token_version as a `reset:<user_id>:<ver>` string so tests can
+    issue and verify reset tokens without crypto. Anything else raises, like the real
+    adapter. The embedded version makes the token single-use (the use case rejects a token
+    whose version no longer matches the user's)."""
 
     _PREFIX = "reset:"
 
-    def issue(self, user_id: str) -> str:
-        return f"{self._PREFIX}{user_id}"
+    def issue(self, user_id: str, token_version: int) -> str:
+        return f"{self._PREFIX}{user_id}:{token_version}"
 
-    def verify(self, token: str) -> str:
+    def verify(self, token: str) -> ResetTokenClaims:
         if not token.startswith(self._PREFIX):
             raise InvalidPasswordResetTokenError("malformed reset token")
-        return token[len(self._PREFIX) :]
+        rest = token[len(self._PREFIX) :]
+        try:
+            user_id, version = rest.rsplit(":", 1)
+            return ResetTokenClaims(user_id=user_id, token_version=int(version))
+        except ValueError as exc:
+            raise InvalidPasswordResetTokenError("malformed reset token") from exc
 
 
 class FakePasswordHasher(PasswordHasher):

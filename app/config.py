@@ -6,7 +6,9 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-USER_PROFILE_PATH = Path(__file__).resolve().parent.parent / "DATA" / "user_profile.md"
+# Deployment environment. "production" turns on fail-fast config validation (see
+# app/config_validation.py): the app refuses to boot with insecure defaults.
+APP_ENV = os.environ.get("APP_ENV", "development").strip().lower()
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "gemini")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -36,16 +38,25 @@ PASSWORD_RESET_TTL_HOURS = int(os.environ.get("PASSWORD_RESET_TTL_HOURS", "1"))
 # default so tests and offline runs don't depend on DNS; enable in production.
 EMAIL_CHECK_DELIVERABILITY = os.environ.get("EMAIL_CHECK_DELIVERABILITY", "false").strip().lower() in {"1", "true", "yes", "on"}
 LLM_DEBUG = os.environ.get("LLM_DEBUG", "false").strip().lower() in {"1", "true", "yes", "on"}
-CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:4200").split(",")
+# Comma-separated allowed origins. Whitespace around entries is stripped and blanks dropped,
+# so "https://a.com, https://b.com" works (an un-stripped " https://b.com" would never match).
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CORS_ORIGINS", "http://localhost:4200").split(",")
+    if origin.strip()
+]
 # Max offers scored by the AI in parallel per match request. Each scoring is a slow
 # LLM round-trip, so this bounds latency without overrunning provider rate limits.
 AI_MATCH_CONCURRENCY = int(os.environ.get("AI_MATCH_CONCURRENCY", "10"))
 
 # --- Authentication ---
 # Secret for signing session JWTs. MUST be overridden in production (a leaked or default
-# secret lets anyone forge sessions). The dev default keeps local setup zero-config.
-JWT_SECRET = os.environ.get("JWT_SECRET", "dev-insecure-change-me-0123456789abcdef")
-SESSION_TTL_DAYS = int(os.environ.get("SESSION_TTL_DAYS", "7"))
+# secret lets anyone forge sessions). The dev default keeps local setup zero-config, and
+# config_validation.py refuses to boot with it (or a too-short secret) when APP_ENV=production.
+DEV_JWT_SECRET = "dev-insecure-change-me-0123456789abcdef"
+# Minimum acceptable secret length (bytes) enforced in production.
+MIN_JWT_SECRET_LENGTH = 32
+JWT_SECRET = os.environ.get("JWT_SECRET", DEV_JWT_SECRET)
 # Access tokens are short-lived; a long-lived refresh token (rotated + reuse-detected) is
 # exchanged at /auth/refresh for a fresh access token, limiting how long a stolen access
 # token stays usable. The refresh TTL also bounds the cookie lifetime.

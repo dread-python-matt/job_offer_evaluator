@@ -208,6 +208,11 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
                     "AI spend is currently unavailable and the budget is fail-closed; "
                     "refusing to score."
                 )
+        # Open a fresh usage scope for this request, in this context, before any concurrent
+        # scoring tasks are spawned — so usage is attributed to this user only (no cross-
+        # tenant bleed) and nothing from a prior aborted request leaks in.
+        if self._usage_tracker is not None:
+            self._usage_tracker.begin()
         candidates = self._load_candidates(criteria)
         ranked = sorted(
             candidates,

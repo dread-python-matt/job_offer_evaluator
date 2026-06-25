@@ -8,7 +8,11 @@ from app.infrastructure.jwt_token_service import JwtTokenService
 from app.infrastructure.jwt_verification_token_service import JwtVerificationTokenService
 
 _SECRET = "test-secret-key-at-least-32-bytes-long!"
-_NOW = datetime(2026, 6, 24, 12, 0, tzinfo=timezone.utc)
+# Anchored to the real clock: PyJWT validates exp/iat against wall-clock time, so issuing
+# with a fixed fake time would make the round-trip flaky (a stale fixed date eventually makes
+# every freshly issued token look expired). Deriving the base from "now" keeps the valid case
+# valid and the expired case (issued in the past below) reliably expired.
+_NOW = datetime.now(timezone.utc)
 
 
 def _at(moment: datetime):
@@ -32,13 +36,17 @@ def test_verify_rejects_a_token_signed_with_a_different_secret():
 
 
 def test_verify_rejects_an_expired_token():
-    issued = JwtVerificationTokenService(secret=_SECRET, ttl=timedelta(hours=1), clock=_at(_NOW))
+    # Issued two hours ago with a one-hour lifetime, so it is already expired right now
+    # (verify uses PyJWT's real wall-clock, not the injected clock).
+    issued = JwtVerificationTokenService(
+        secret=_SECRET, ttl=timedelta(hours=1), clock=_at(_NOW - timedelta(hours=2))
+    )
     token = issued.issue("user-1")
 
-    later = JwtVerificationTokenService(secret=_SECRET, clock=_at(_NOW + timedelta(hours=2)))
+    service = JwtVerificationTokenService(secret=_SECRET, clock=_at(_NOW))
 
     with pytest.raises(InvalidVerificationTokenError):
-        later.verify(token)
+        service.verify(token)
 
 
 def test_verify_rejects_garbage():

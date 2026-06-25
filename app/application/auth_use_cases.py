@@ -15,6 +15,7 @@ from app.application.ports import (
 from app.domain.auth import User
 from app.domain.errors import (
     EmailAlreadyRegisteredError,
+    EmailAlreadyVerifiedError,
     EmailNotDeliverableError,
     EmailNotVerifiedError,
     InvalidCredentialsError,
@@ -118,8 +119,10 @@ class AuthenticateUserUseCase:
 
 class VerifyEmailUseCase:
     """Completes registration: validates a confirmation token, marks the account verified,
-    and issues a session token so following the link logs the user straight in. Idempotent
-    for an already-verified account."""
+    and issues a session token so following the link logs the user straight in. Confirmation
+    links are single-use — a link followed against an already-verified account is rejected
+    (EmailAlreadyVerifiedError) rather than re-issuing a session, so a stale or replayed link
+    can't be used to log in again."""
 
     def __init__(
         self,
@@ -136,9 +139,10 @@ class VerifyEmailUseCase:
         user = self._users.get_by_id(user_id)
         if user is None:
             raise InvalidVerificationTokenError("No account for this confirmation token")
-        if not user.email_verified:
-            self._users.mark_email_verified(user.id)
-            user = replace(user, email_verified=True)
+        if user.email_verified:
+            raise EmailAlreadyVerifiedError(user.email)
+        self._users.mark_email_verified(user.id)
+        user = replace(user, email_verified=True)
         session = self._tokens.issue(user.id, user.token_version)
         return user, session
 
@@ -203,7 +207,7 @@ class RequestPasswordResetUseCase:
         user = self._users.get_by_email(_normalize_email(email))
         if user is None:
             return
-        token = self._reset_tokens.issue(user.id)
+        token = self._reset_tokens.issue(user.id, user.token_version)
         link = self._link_builder(token)
         self._email_sender.send(
             to=user.email,
@@ -231,10 +235,14 @@ class ResetPasswordUseCase:
         self._tokens = tokens
 
     def execute(self, token: str, new_password: str) -> tuple[User, str]:
-        user_id = self._reset_tokens.verify(token)
-        user = self._users.get_by_id(user_id)
+        claims = self._reset_tokens.verify(token)
+        user = self._users.get_by_id(claims.user_id)
         if user is None:
             raise InvalidPasswordResetTokenError("No account for this reset token")
+        if claims.token_version != user.token_version:
+            # The token was minted against an older version (already used, or superseded by
+            # another credential change) — reject it so reset links are single-use.
+            raise InvalidPasswordResetTokenError("This reset link has already been used")
         new_version = user.token_version + 1
         new_hash = self._hasher.hash(new_password)
         self._users.update_password(user.id, new_hash, new_version)

@@ -13,6 +13,7 @@ from app.application.auth_use_cases import (
 from app.domain.auth import User
 from app.domain.errors import (
     EmailAlreadyRegisteredError,
+    EmailAlreadyVerifiedError,
     EmailNotDeliverableError,
     EmailNotVerifiedError,
     InvalidCredentialsError,
@@ -249,15 +250,15 @@ def test_verify_email_rejects_a_token_for_an_unknown_user():
         use_case.execute(verification_tokens.issue("ghost"))
 
 
-def test_verify_email_is_idempotent_for_an_already_verified_user():
+def test_verify_email_rejects_an_already_verified_user():
+    # Confirmation links are single-use: re-following one for a verified account is rejected
+    # rather than re-issuing a session (no replay/relogin window).
     repo = FakeUserRepository([_existing_user(email_verified=True)])
     verification_tokens = FakeVerificationTokenService()
     use_case = _verify_email_use_case(repo, verification_tokens)
 
-    user, session = use_case.execute(verification_tokens.issue("user-1"))
-
-    assert user.email_verified is True
-    assert session == "user-1:3"
+    with pytest.raises(EmailAlreadyVerifiedError):
+        use_case.execute(verification_tokens.issue("user-1"))
 
 
 # --- ChangePasswordUseCase ---
@@ -344,7 +345,7 @@ def test_request_password_reset_emails_a_link_for_a_known_user():
     assert len(sender.sent) == 1
     message = sender.sent[0]
     assert message["to"] == "dev@example.com"
-    assert f"{_RESET_LINK}{reset_tokens.issue('user-1')}" in message["body"]
+    assert f"{_RESET_LINK}{reset_tokens.issue('user-1', 3)}" in message["body"]
 
 
 def test_request_password_reset_normalizes_the_email_before_lookup():
@@ -385,7 +386,7 @@ def test_reset_password_sets_the_new_hash_and_returns_a_session():
     reset_tokens = FakePasswordResetTokenService()
     use_case = _reset_password_use_case(repo, reset_tokens)
 
-    user, session = use_case.execute(reset_tokens.issue("user-1"), new_password=_NEW_PASSWORD)
+    user, session = use_case.execute(reset_tokens.issue("user-1", 3), new_password=_NEW_PASSWORD)
 
     assert repo.get_by_id("user-1").password_hash == f"hashed:{_NEW_PASSWORD}"
     assert user.token_version == 4
@@ -397,7 +398,7 @@ def test_reset_password_bumps_token_version_to_invalidate_existing_sessions():
     reset_tokens = FakePasswordResetTokenService()
     use_case = _reset_password_use_case(repo, reset_tokens)
 
-    use_case.execute(reset_tokens.issue("user-1"), new_password=_NEW_PASSWORD)
+    use_case.execute(reset_tokens.issue("user-1", 3), new_password=_NEW_PASSWORD)
 
     assert repo.get_by_id("user-1").token_version == 4
 
@@ -408,7 +409,7 @@ def test_reset_password_marks_an_unverified_account_verified():
     reset_tokens = FakePasswordResetTokenService()
     use_case = _reset_password_use_case(repo, reset_tokens)
 
-    user, _ = use_case.execute(reset_tokens.issue("user-1"), new_password=_NEW_PASSWORD)
+    user, _ = use_case.execute(reset_tokens.issue("user-1", 3), new_password=_NEW_PASSWORD)
 
     assert user.email_verified is True
     assert repo.get_by_id("user-1").email_verified is True
@@ -430,4 +431,18 @@ def test_reset_password_rejects_a_token_for_an_unknown_user():
     use_case = _reset_password_use_case(repo, reset_tokens)
 
     with pytest.raises(InvalidPasswordResetTokenError):
-        use_case.execute(reset_tokens.issue("ghost"), new_password=_NEW_PASSWORD)
+        use_case.execute(reset_tokens.issue("ghost", 0), new_password=_NEW_PASSWORD)
+
+
+def test_reset_password_token_is_single_use():
+    # The first reset bumps token_version (3 -> 4), so replaying the same token (minted
+    # against version 3) is rejected — a captured link can't reset the password twice.
+    repo = FakeUserRepository([_existing_user()])  # token_version starts at 3
+    reset_tokens = FakePasswordResetTokenService()
+    use_case = _reset_password_use_case(repo, reset_tokens)
+    token = reset_tokens.issue("user-1", 3)
+
+    use_case.execute(token, new_password=_NEW_PASSWORD)
+
+    with pytest.raises(InvalidPasswordResetTokenError):
+        use_case.execute(token, new_password="yet another passphrase")

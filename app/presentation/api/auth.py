@@ -17,6 +17,7 @@ from app.domain.auth import User
 from app.domain.errors import (
     AuthenticationError,
     EmailAlreadyRegisteredError,
+    EmailAlreadyVerifiedError,
     EmailNotDeliverableError,
     EmailNotVerifiedError,
     InvalidCredentialsError,
@@ -191,6 +192,13 @@ def _password_reset_rate_limit_key(request: Request, email: str) -> str:
     return f"forgot:{client_ip}:{email.strip().lower()}"
 
 
+def _register_rate_limit_key(request: Request, email: str) -> str:
+    """Throttle registration per (client IP, email), namespaced so it shares no bucket with
+    login/forgot. Curbs confirmation-email bombing and the CPU cost of repeated hashing."""
+    client_ip = request.client.host if request.client else "unknown"
+    return f"register:{client_ip}:{email.strip().lower()}"
+
+
 # --- routers ---
 
 public_router = APIRouter()
@@ -209,10 +217,23 @@ def health() -> dict[str, str]:
 )
 def register(
     payload: RegisterRequestSchema,
+    request: Request,
     use_case: RegisterUserUseCase = Depends(get_register_use_case),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> RegistrationPendingSchema:
     """Create an unverified account and email a confirmation link. No session is issued;
-    the workflow is finished by following the link (see /auth/verify-email)."""
+    the workflow is finished by following the link (see /auth/verify-email). Throttled per
+    (IP, email) so the confirmation email and password hashing can't be abused for spam/DoS."""
+    key = _register_rate_limit_key(request, payload.email)
+    try:
+        limiter.check(key)
+    except RateLimitExceededError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many registration attempts. Please try again later.",
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+    limiter.record_failure(key)  # every attempt counts toward the throttle
     try:
         user = use_case.execute(email=payload.email, password=payload.password)
     except EmailAlreadyRegisteredError as exc:
@@ -237,6 +258,10 @@ def verify_email(
     except InvalidVerificationTokenError as exc:
         raise HTTPException(
             status_code=400, detail="Invalid or expired confirmation link"
+        ) from exc
+    except EmailAlreadyVerifiedError as exc:
+        raise HTTPException(
+            status_code=409, detail="Email already confirmed. Please log in."
         ) from exc
     _issue_session(response, token, settings)
     _set_refresh_cookie(response, refresh_service.issue(user.id), settings)

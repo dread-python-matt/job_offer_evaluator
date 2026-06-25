@@ -29,6 +29,32 @@ However, it is **not yet production-ready**. There are **2 Critical** and **2 Hi
 
 ---
 
+## 0a. Remediation status (updated 2026-06-25)
+
+Fixes were applied for everything except **C1** (the owner has decided not to publish `.git`, accepting the history-leak risk — rotation/purge remains advisable if that ever changes). All 600 backend tests pass; new tests were added per item.
+
+**Fixed**
+- **C2 / M5 / M3** — `APP_ENV` + `app/config_validation.py::validate_runtime_config()` (called at the top of `main.py`): in production it **refuses to boot** on the dev/short `JWT_SECRET`, non-secure cookies, or a wildcard CORS origin, and warns when `WORKERS>1` uses the in-memory limiter. Tests: `tests/unit/test_config_validation.py`.
+- **H1** — `app/infrastructure/request_scoped_usage_tracker.py` (contextvars) replaces the shared in-process tracker; `MatchOffersWithAiUseCase.execute` opens a fresh scope (`begin()`) before scoring. Concurrent matches no longer cross-attribute tokens. Tests: `tests/unit/infrastructure/test_request_scoped_usage_tracker.py`, plus a use-case scope test.
+- **H2** — reset tokens are now bound to `token_version` (single-use; a completed reset invalidates the link even within TTL); verification links are single-use (already-verified → `409`). Tests in `test_auth_use_cases.py`, `test_auth_routes.py`, `test_jwt_password_reset_token_service.py`.
+- **M1** — `/auth/register` is rate-limited per `(IP, email)`. Test: `test_register_is_throttled_after_repeated_attempts`.
+- **M4** — `SecurityHeadersMiddleware` adds `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, a strict `Content-Security-Policy`, and HSTS (when cookies are Secure). Tests: `tests/api/test_security_headers.py`.
+- **M6 / L7** — request schema bounds: `offers_limit` (1–200), candidate `summary`/`skills`/`projects`/`experience` caps, and `Skill.rating` (1–5) so bad input is a clean `422` not a `500`.
+- **L3** — `CORS_ORIGINS` entries are now stripped/blank-dropped.
+- **L6** — scoring prompt hardened to treat candidate/offer text as untrusted data, not instructions.
+- **L8** — `SmtpEmailSender` rejects CR/LF in `to`/`subject` (header-injection defense-in-depth).
+- **Cleanup** — removed dead config (`USER_PROFILE_PATH`, `SESSION_TTL_DAYS`); corrected the inaccurate `BudgetExceededError` message; fixed a pre-existing time-bomb test in `test_jwt_verification_token_service.py` (hardcoded date + real-clock verify) that fails once wall-clock passes the token's expiry.
+
+**Deferred (by design / needs infrastructure)**
+- **C1** — accepted by owner (no `.git` publication). Rotation + history purge still recommended if that changes.
+- **M2** — the budget check-then-act race is only fully closable with a shared reservation/pre-charge store (same class of problem as M3's limiter). Per-user token accounting + the org-spend backstop remain as guards; flagged for a shared-store follow-up.
+- **L1** — register `409` (email-taken) enumeration is an accepted registration UX trade-off.
+- **L2** — login/refresh CSRF (low impact) left as-is.
+- **L4** — refresh-token row GC needs a scheduled job; not wired here.
+- **Dead code** — `MarkdownUserProfileRepository` left in place (it still has integration tests); noted for later removal.
+
+---
+
 ## 1. CRITICAL
 
 ### C1 — Live secrets and PII committed to git history
