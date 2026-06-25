@@ -44,7 +44,7 @@ both for the `/salary/calculate` endpoint and to sort/filter offers by estimated
 | Web framework | FastAPI + Uvicorn, Pydantic v2 schemas |
 | Persistence | PostgreSQL via SQLAlchemy 2.x + psycopg 3; **Alembic** migrations |
 | LLM | OpenAI **Agents SDK** (`openai-agents`); supports OpenAI **and** Google Gemini models |
-| Auth | PyJWT (HS256), argon2-cffi (password hashing), email-validator |
+| Auth | PyJWT (HS256 access + rotating refresh tokens), argon2-cffi (hashing), email-validator, SMTP (stdlib) for confirm/reset email |
 | Lint / test | ruff, pytest (+ pytest-cov) |
 | Frontend | Angular 22 (standalone components, signals), Angular Material 22 |
 | Frontend test | Vitest 4 (`ng test`), Prettier, TypeScript 6, npm |
@@ -84,7 +84,7 @@ app/
 │
 ├── domain/                   # Pure: entities, value objects, ports, algorithms (no frameworks)
 │   ├── entities.py           #   Skill, Project, Experience, UserProfile, Offer, Salary
-│   ├── auth.py               #   User (id, email, password_hash, token_version)
+│   ├── auth.py               #   User (id, email, password_hash, token_version, email_verified)
 │   ├── budget.py             #   BudgetSettings, BudgetStatus(.exceeded)
 │   ├── scoring.py            #   MatchScore, ScoreComponent, MatchedOffer, AiInsight, OfferScorer (port)
 │   ├── filters.py            #   MatchCriteria, OfferBrowseFilters, OfferFilter (port), FilterChain, predicates
@@ -96,7 +96,8 @@ app/
 ├── application/              # Use cases + ports (orchestration; depends only on domain)
 │   ├── ports.py              #   ALL repository/service ports + their DTOs (read this first)
 │   ├── use_cases.py          #   Profile, offers, deterministic match, AI match, usage summary, salary
-│   ├── auth_use_cases.py     #   RegisterUserUseCase, AuthenticateUserUseCase
+│   ├── auth_use_cases.py     #   Register, Authenticate, VerifyEmail, ChangePassword, Request/ResetPassword
+│   ├── refresh_tokens.py     #   RefreshTokenService + RefreshTokenRepository port (rotation, reuse detection)
 │   ├── budget_service.py     #   BudgetService (per-user limit + token-accounted spend, cached)
 │   └── ai_scoring_context.py #   AiScoringContext: resolves a user's model → AI use case (cached per model)
 │
@@ -115,7 +116,10 @@ app/
 │   ├── org_spend_backstop.py, openai_spend_provider.py        # Global org $ guard (OpenAI admin key only)
 │   ├── composite_budget_status_reader.py   # Compose user budget + org backstop into one gate
 │   ├── model_limits_registry.py, offer_filters.py            # Rate-limit metadata; concrete filters
-│   ├── argon2_password_hasher.py, jwt_token_service.py        # Auth adapters
+│   ├── argon2_password_hasher.py, jwt_token_service.py        # Password hashing + access-token JWTs
+│   ├── jwt_verification_token_service.py, jwt_password_reset_token_service.py  # Purpose-scoped email/reset JWTs
+│   ├── smtp_email_sender.py, console_email_sender.py, email_validators.py      # EmailSender (SMTP/console) + deliverability
+│   ├── in_memory_rate_limiter.py, postgres_refresh_token_repository.py         # Login/forgot throttle; hashed refresh-token store
 │   └── llm_logging.py, llm_utils.py                           # Debug logging; company_from_model, etc.
 │
 └── presentation/api/         # FastAPI entry points
@@ -142,17 +146,39 @@ app/
 
 ## Authentication & multi-tenancy
 
-Session auth via an **httpOnly JWT cookie** + **double-submit CSRF**; **open** self-serve
-registration (auto-logs-in); **argon2** password hashing; `token_version` for
-revocation / logout-everywhere.
+Session auth via a short-lived **httpOnly JWT access cookie** + a rotating **refresh token**,
+with **double-submit CSRF**, **argon2** password hashing, and **email-confirmed** self-serve
+registration. `token_version` (in the JWT) gives instant revocation / logout-everywhere.
 
-- **Cookies:** `access_token` (httpOnly JWT, `sub`+`ver`+`exp`) and `csrf_token` (readable by
-  the SPA). State-changing requests must echo the CSRF value in an `X-CSRF-Token` header.
-- **Guards:** `get_current_user` resolves the user from the cookie (401 if missing/invalid/
-  expired/revoked); `verify_csrf` enforces the header match on unsafe methods. Both are applied
-  app-wide in `main.py` via `include_router(..., dependencies=[...])`.
-- **Public routes** (no guard): `GET /health`, `POST /auth/register`, `POST /auth/login`.
-  Everything else is gated.
+- **Cookies:** `access_token` (httpOnly JWT `sub`+`ver`+`exp`, short-lived —
+  `ACCESS_TOKEN_TTL_MINUTES`), `refresh_token` (httpOnly, `path=/auth`, long-lived —
+  `REFRESH_TOKEN_TTL_DAYS`), and `csrf_token` (readable by the SPA). State-changing requests
+  must echo the CSRF value in an `X-CSRF-Token` header.
+- **Guards:** `get_current_user` resolves the user from the access cookie (401 if missing/
+  invalid/expired/revoked); `verify_csrf` enforces the header match on unsafe methods. Both are
+  applied app-wide in `main.py` via `include_router(..., dependencies=[...])`.
+- **Public routes** (no guard): `GET /health` and the `/auth` entry points `register`,
+  `verify-email`, `login`, `forgot-password`, `reset-password`, `refresh`. Everything else is gated.
+- **Registration is email-confirmed.** `register` creates an *unverified* account, emails a
+  confirmation link, and issues **no** session (202). `login` returns **403** until the account
+  is verified; following the emailed link (`verify-email`) marks it verified and logs the user
+  in. Pre-existing accounts were grandfathered as verified (migration `0010`).
+- **Password reset & change.** `forgot-password` emails a single-purpose reset link and always
+  returns the same **202** (enumeration-resistant); `reset-password` sets the new password,
+  revokes the user's other sessions, and logs them in. `POST /auth/password` (authenticated)
+  verifies the current password and bumps `token_version` to sign out other devices.
+- **Token refresh (rotation + reuse detection, RFC 9700).** Access tokens are short-lived;
+  `POST /auth/refresh` swaps the refresh cookie for a fresh access token and **rotates** the
+  refresh token. Replaying a consumed token is treated as theft → the whole token *family* is
+  revoked → 401. `logout` revokes the current family; password change/reset revoke all of the
+  user's families. Refresh tokens are stored **hashed** (SHA-256), never in plaintext
+  (`refresh_tokens`, migration `0011`).
+- **Brute-force throttle.** `login` is rate-limited per `(client IP, email)` — only wrong
+  attempts count and a success clears the counter; over the limit → **429** + `Retry-After`.
+  `forgot-password` is throttled the same way.
+- **Email delivery.** Confirmation/reset emails go through an `EmailSender` port. With no
+  `SMTP_HOST` configured the app uses a **console fallback that only logs the link** — see
+  [Email delivery](#email-delivery) for setup and the `app/scripts/verify_link.py` helper.
 - **Multi-tenant data.** App-owned tables carry a `user_id` FK (`ondelete="CASCADE"`); routes
   resolve `user: User = Depends(get_current_user)` and pass `user.id` into the use case, which
   threads it to the repository. Pattern to add a new per-user resource: port method takes
@@ -160,7 +186,8 @@ revocation / logout-everywhere.
   repo filters on it → add a migration. (See `docs/auth-multitenancy.md`.)
 
 Required env in production: **`JWT_SECRET`** (override the dev default). Cross-site HTTPS
-deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`.
+deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send real email
+(not just log it), set the `SMTP_*` / `EMAIL_FROM` / `APP_BASE_URL` vars.
 
 ---
 
@@ -189,14 +216,17 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`.
 
 ## Data model
 
-**App-owned** (created/migrated by this project, all keyed by `user_id` except `ai_score`):
-`users`, `user_profile`, `selected_model`, `model_usage`, `budget`, `ai_score`.
+**App-owned** (created/migrated by this project; per-user tables carry a `user_id` FK):
+`users`, `user_profile`, `selected_model`, `model_usage`, `budget`, `ai_score`,
+`refresh_tokens`. (`ai_score` is a global content-addressed cache; `refresh_tokens` holds
+SHA-256 hashes only — never raw tokens.)
 
 **Scraper-owned, read-only** (do **not** migrate here): `offers`, `salaries`,
 `normalized_salary`.
 
-Migrations live in `alembic/versions/` (`0001`–`0009`): baseline → app tables (`user_profile`,
-`ai_score`, `selected_model`, `users`) → per-user `user_id` FKs (`0006`–`0009`).
+Migrations live in `alembic/versions/` (`0001`–`0011`): baseline → app tables (`user_profile`,
+`ai_score`, `selected_model`, `users`) → per-user `user_id` FKs (`0006`–`0009`) →
+`users.email_verified` (`0010`) → `refresh_tokens` (`0011`).
 
 > ⚠️ **Schema caveat.** Each Postgres repo calls `create_all` for *its* table but does **not**
 > add columns to a table that already exists. On a pre-existing dev DB, apply migrations
@@ -213,10 +243,15 @@ the `X-CSRF-Token` header.
 | Method | Path | Auth | Description |
 |---|---|:--:|---|
 | GET  | `/health` | – | Liveness probe (`{"status":"ok"}`) |
-| POST | `/auth/register` | – | Create account, auto-login (201; 409 if email taken) |
-| POST | `/auth/login` | – | Log in, set session cookies (401 on bad credentials) |
-| POST | `/auth/logout` | ✓ | Clear session cookies (204) |
+| POST | `/auth/register` | – | Create an **unverified** account + email a confirmation link; no session (202; 409 if email taken; 422 if undeliverable) |
+| POST | `/auth/verify-email` | – | Confirm the email from the emailed token → verify + log in (200; 400 if invalid/expired) |
+| POST | `/auth/login` | – | Log in, set session + refresh cookies (401 bad creds; 403 unverified; 429 throttled) |
+| POST | `/auth/forgot-password` | – | Email a reset link if the address exists; always 202 (enumeration-resistant; 429 throttled) |
+| POST | `/auth/reset-password` | – | Set a new password from the emailed token → revoke other sessions + log in (200; 400 if invalid/expired) |
+| POST | `/auth/refresh` | – | Rotate the refresh cookie → fresh access token (200; 401 if missing/invalid/reused) |
+| POST | `/auth/logout` | ✓ | Revoke this device's refresh family + clear cookies (204) |
 | GET  | `/auth/me` | ✓ | Current user (`id`, `email`) |
+| POST | `/auth/password` | ✓ | Change password (verifies current, signs out other devices) (204; 401 if wrong) |
 | POST | `/profile` | ✓ | Save the caller's profile |
 | GET  | `/profile` | ✓ | Get the caller's profile (404 if none) |
 | GET  | `/offers/count` | ✓ | Total offers in the DB |
@@ -249,7 +284,19 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 | `OPENAI_API_KEY` | `""` | Required when `LLM_PROVIDER=openai`; also enables OpenAI model listing |
 | `OPENAI_ADMIN_KEY` | `""` | Enables the org-spend backstop + external usage (OpenAI only) |
 | `JWT_SECRET` | dev default | **Override in prod.** Signs session JWTs |
-| `SESSION_TTL_DAYS` | `7` | Session cookie / token lifetime |
+| `ACCESS_TOKEN_TTL_MINUTES` | `15` | Access-token (JWT cookie) lifetime; refresh keeps the session alive |
+| `REFRESH_TOKEN_TTL_DAYS` | `14` | Refresh-token lifetime + auth-cookie `max_age`; rotated on each `/auth/refresh` |
+| `LOGIN_RATE_LIMIT_ATTEMPTS` | `5` | Wrong-credential attempts per (IP, email) before **429** |
+| `LOGIN_RATE_LIMIT_WINDOW_MINUTES` | `15` | Window for the login / forgot-password throttle |
+| `APP_BASE_URL` | `http://localhost:4200` | Frontend base used to build emailed confirm/reset links |
+| `SMTP_HOST` | `""` | SMTP server. **Empty → console fallback that only logs links** (dev) |
+| `SMTP_PORT` | `587` | SMTP port |
+| `SMTP_USERNAME` / `SMTP_PASSWORD` | `""` | SMTP credentials (leave empty for an open local relay) |
+| `SMTP_USE_TLS` | `true` | Issue STARTTLS before sending |
+| `EMAIL_FROM` | `no-reply@localhost` | From address on confirmation / reset emails |
+| `EMAIL_VERIFICATION_TTL_HOURS` | `24` | Confirmation-link lifetime |
+| `PASSWORD_RESET_TTL_HOURS` | `1` | Reset-link lifetime |
+| `EMAIL_CHECK_DELIVERABILITY` | `false` | If `true`, MX-check the email domain at registration (needs DNS) |
 | `COOKIE_SECURE` | `false` | Set `true` for HTTPS (required cross-site) |
 | `COOKIE_SAMESITE` | `lax` | Set `none` for cross-site prod over HTTPS |
 | `CORS_ORIGINS` | `http://localhost:4200` | Comma-separated allowed origins |
@@ -265,6 +312,28 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 
 Postgres credentials (`POSTGRES_USER/PASSWORD/DB/HOST/PORT`) are also read by
 `docker-compose.yml` and typically composed into `DATABASE_URL`.
+
+---
+
+## Email delivery
+
+Registration-confirmation and password-reset links are sent through an `EmailSender` port:
+
+- **No `SMTP_HOST` (default):** a **console fallback** logs the email (including the link) to the
+  API's stdout instead of sending it — handy for local dev. Watch the `uv run python main.py`
+  console for `[email] not sending over SMTP …` and open the printed link.
+- **`SMTP_HOST` set:** mail is sent over SMTP (`SMTP_*`, `EMAIL_FROM`). For local testing,
+  [Mailpit](https://github.com/axllent/mailpit) is easiest (`SMTP_HOST=localhost`,
+  `SMTP_PORT=1025`, `SMTP_USE_TLS=false`, web UI at `:8025`); for real inboxes use a provider
+  (Gmail with a free App Password, Brevo, Mailgun, …).
+
+Stuck without SMTP? Print a working confirmation link for an already-registered account:
+
+```bash
+uv run python -m app.scripts.verify_link you@example.com
+```
+
+(The link is a live, single-purpose login credential until it expires — treat it like a password.)
 
 ---
 
@@ -339,13 +408,13 @@ frontend/src/app/
 ├── app.ts / app.html    # shell: toolbar + tab nav (hidden when logged out), email + sign-out
 ├── core/
 │   ├── guards/auth.guard.ts            # redirect to /login when unauthenticated
-│   ├── interceptors/auth.interceptor.ts# withCredentials + X-CSRF-Token; 401 → /login
+│   ├── interceptors/auth.interceptor.ts# withCredentials + X-CSRF-Token; on 401 → shared /auth/refresh + retry once, else /login
 │   ├── services/api.service.ts         # typed HttpClient wrapper over every endpoint
-│   ├── services/auth.service.ts        # signals; loadCurrentUser hydrates from the cookie
+│   ├── services/auth.service.ts        # signals; loadCurrentUser hydrates (falls back to /auth/refresh); shared refreshSession()
 │   ├── models/                         # TS interfaces mirroring app/presentation/api/schemas.py
 │   ├── constants/ , utils/             # offer levels; offer formatting/row helpers
 └── features/
-    ├── auth/login , auth/register      # Material auth forms
+    ├── auth/{login,register,change-password,forgot-password,reset-password}  # Material auth forms
     ├── profile/                        # profile editor/viewer (summary, skills, projects, experience)
     ├── match-offers/                   # deterministic match
     ├── ai-match-offers/                # AI match (+ ai-match-state.service.ts)
@@ -353,8 +422,9 @@ frontend/src/app/
     └── model-usage/                    # model selection, usage summary, budget controls
 ```
 
-Routes: `/` → `/profile` (default), `/login`, `/register`, `/profile`, `/match-offers`,
-`/ai-match-offers`, `/browse-offers`, `/model-usage`.
+Routes: `/` → `/profile` (default), `/login`, `/register`, `/forgot-password`,
+`/reset-password`, `/profile`, `/change-password`, `/match-offers`, `/ai-match-offers`,
+`/browse-offers`, `/model-usage`.
 
 ---
 

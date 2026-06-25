@@ -918,8 +918,10 @@ class FakeBudget(BudgetStatusReader):
             used_usd=used_usd,
             tracking_since=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
+        self.seen_user_ids: list[str] = []
 
-    def status(self) -> BudgetStatus:
+    def status(self, user_id: str) -> BudgetStatus:
+        self.seen_user_ids.append(user_id)
         return self._status
 
 
@@ -931,6 +933,22 @@ def _ai_use_case_with_budget(offers, budget):
         ScoreByLinkScorer({"a": 0.8}),
         budget=budget,
     )
+
+
+def test_match_offers_with_ai_checks_budget_for_the_calling_user():
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    budget = FakeBudget(limit_usd=5.0, used_usd=1.0)
+    use_case = _ai_use_case_with_budget(offers, budget)
+
+    use_case.execute(
+        criteria=MatchCriteria(candidate=candidate),
+        offers_to_score=10,
+        offers_limit=10,
+        user_id="user-42",
+    )
+
+    assert budget.seen_user_ids == ["user-42"]
 
 
 def test_match_offers_with_ai_raises_budget_exceeded_when_usage_at_limit():

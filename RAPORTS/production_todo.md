@@ -1,7 +1,8 @@
 # Production Readiness — Remaining TODO
 
-Items left after the backend hardening pass (see `qa2_raport.md`). These need a
-deploy-target decision or external setup, so they weren't auto-implemented.
+What's still outstanding for a production deployment. The application hardening (auth,
+multi-tenancy, login throttling, password change/reset, token refresh, salary/net handling)
+is done in-repo; these items need a deploy-target decision, external setup, or owner action.
 
 ## Deploy-environment dependent
 - [ ] **Observability** — wire metrics / tracing / error monitoring (e.g. Sentry DSN,
@@ -14,19 +15,18 @@ deploy-target decision or external setup, so they weren't auto-implemented.
       (image wasn't built in the hardening environment).
 
 ## Owner-only
-- [ ] **C1 — rotate leaked credentials + purge git history.** Full runbook in
-      `RAPORTS/secret_rotation_checklist.md`. Do rotation FIRST.
+- [ ] **Rotate leaked credentials + purge git history** — full runbook in
+      `RAPORTS/secret_rotation_checklist.md`. Rotate FIRST. (The OpenAI key is already
+      rotated; the **Gemini key** and **Postgres password** are still the leaked values,
+      and `.env` / `DATA/user_profile.md` remain in git history.)
 
-## Deferred features / decisions
-- [ ] **C2 — authentication** (static API key + Angular interceptor) before any public
-      exposure. Intentionally deferred; cheap to add later.
-- [x] **M3/M4 — salary standardized on NET everywhere** (browse + match): `Salary` carries
-      normalized net; filter on net floor; sort by recent + net min/mid/max (asc/desc);
-      display estimated net with disclaimer.
-- [ ] **Profile fields to refine net accuracy** (age<26, PPK, preferred contract) — next step.
+## Backend tech debt
+- [ ] **Request-scoped usage accounting** — the in-process token-usage tracker is shared
+      across requests, so two concurrent same-process AI matches can mis-attribute tokens
+      (and thus per-user budget). Fix: a `contextvars` request-scoped tracker, or carry usage
+      on the returned `MatchScore` (the `CachingAiScorer` must not cache usage). Makes
+      per-user budgets exact.
 
 ## Optional / nice-to-have
 - [ ] Coverage threshold gate in CI (CI currently runs ruff + pytest + advisory pip-audit).
-- [x] Frontend production environment config (L6) — `environment.prod.ts` + `angular.json`
-      fileReplacements (set `apiUrl` to the API origin before a prod build).
 - [ ] Minor: `model-usage.scss` is ~115 bytes over the 6 kB component-style budget (warning only).

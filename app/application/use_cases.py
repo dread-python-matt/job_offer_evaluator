@@ -200,7 +200,7 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         user_id: str = "",
     ) -> AiMatchResult:
         if self._budget:
-            status = self._budget.status()
+            status = self._budget.status(user_id)
             if status.exceeded:
                 raise BudgetExceededError(status.used_usd, status.limit_usd)
             if self._fail_closed and status.used_usd is None:
