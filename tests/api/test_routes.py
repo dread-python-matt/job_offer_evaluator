@@ -1173,6 +1173,35 @@ def test_match_offers_ai_returns_503_when_scoring_service_unavailable():
     assert response.status_code == 503
 
 
+def test_match_offers_ai_returns_400_when_user_has_no_key_for_the_model():
+    # Require own key: building the per-user scoring use case (a dependency) raises
+    # MissingProviderApiKeyError, which the registered handler turns into a 400.
+    from app.domain.errors import MissingProviderApiKeyError
+    from app.presentation.api.error_handlers import register_exception_handlers
+
+    app = FastAPI()
+    app.include_router(router)
+    register_exception_handlers(app)
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id="user-1", email="dev@example.com", password_hash="x"
+    )
+
+    def _no_key():
+        raise MissingProviderApiKeyError("openai")
+
+    app.dependency_overrides[get_match_offers_ai_use_case] = _no_key
+
+    response = TestClient(app).post(
+        "/offers/match/ai",
+        json={
+            "candidate": {"summary": "", "skills": [], "projects": [], "experience": []},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "openai" in response.json()["detail"]
+
+
 # --- GET /usage/summary ---
 
 
@@ -1223,7 +1252,7 @@ class _FakeAvailableModelsProvider:
     def __init__(self, models: list[AvailableModel]) -> None:
         self._models = models
 
-    def list_models(self) -> list[AvailableModel]:
+    def list_models(self, user_id: str) -> list[AvailableModel]:
         return self._models
 
 
@@ -1241,7 +1270,7 @@ def _build_model_client(
     use_case = ListAvailableModelsUseCase(_FakeAvailableModelsProvider(available_models))
     context = AiScoringContext(
         repository=InMemorySelectedModelRepository(initial_model),
-        build_use_case=lambda model: object(),
+        build_use_case=lambda user_id, model: object(),
         configure_sdk=lambda model: None,
         default_model=initial_model,
     )

@@ -101,6 +101,16 @@ class ApiKeyNotFoundError(Exception):
         self.provider = provider
 
 
+class MissingProviderApiKeyError(Exception):
+    """An AI action needs the user's own API key for a provider, but they haven't added
+    one. Surfaced (require-own-key) when a user tries to score/select a model for a
+    provider they have no key for."""
+
+    def __init__(self, provider: str) -> None:
+        super().__init__(f"No API key configured for {provider}; add one to use its models")
+        self.provider = provider
+
+
 class RateLimitExceededError(Exception):
     """Too many attempts within the limiter's window. Carries how many seconds the caller
     should wait before retrying, surfaced to clients as a Retry-After header."""

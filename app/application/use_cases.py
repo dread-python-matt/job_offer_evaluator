@@ -5,7 +5,6 @@ from dataclasses import dataclass, replace
 
 from app.application.ports import (
     AvailableModel,
-    AvailableModelsProvider,
     BudgetStatusReader,
     ModelLimitsRegistry,
     ModelUsage,
@@ -13,6 +12,7 @@ from app.application.ports import (
     ModelUsageTracker,
     ModelUsageWithLimits,
     OfferRepository,
+    UserAvailableModelsProvider,
     UserProfileRepository,
 )
 from app.domain.errors import AiScoringError, BudgetExceededError
@@ -263,11 +263,14 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
 
 
 class ListAvailableModelsUseCase:
-    def __init__(self, provider: AvailableModelsProvider) -> None:
+    """The models the calling user can run, discovered from their own provider keys
+    (require own key). A user with no keys gets an empty list."""
+
+    def __init__(self, provider: UserAvailableModelsProvider) -> None:
         self._provider = provider
 
-    def execute(self) -> list[AvailableModel]:
-        return self._provider.list_models()
+    def execute(self, user_id: str) -> list[AvailableModel]:
+        return self._provider.list_models(user_id)
 
 
 class GetModelUsageSummaryUseCase:

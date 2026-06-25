@@ -26,3 +26,12 @@ def company_for_provider(provider: str) -> str:
         return _PROVIDER_COMPANY[provider]
     except KeyError as exc:
         raise UnsupportedApiProviderError(provider) from exc
+
+
+_COMPANY_PROVIDER: dict[str, str] = {company: provider for provider, company in _PROVIDER_COMPANY.items()}
+
+
+def provider_for_company(company: str) -> str | None:
+    """The provider id for a `company` label (reverse of `company_for_provider`), or None
+    if no supported provider matches — e.g. a model from a company the user can't key."""
+    return _COMPANY_PROVIDER.get(company)

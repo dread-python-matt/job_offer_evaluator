@@ -20,6 +20,7 @@ from app.application.api_key_use_cases import (
     ListApiKeysUseCase,
     SetApiKeyBudgetUseCase,
 )
+from app.application.api_key_resolver import UserApiKeyResolver
 from app.application.budget_service import BudgetService
 from app.application.refresh_tokens import RefreshTokenService
 from app.application.use_cases import (
@@ -70,16 +71,21 @@ from app.config import (
     WORKERS,
 )
 from app.config_validation import validate_runtime_config
+from app.domain.api_providers import provider_for_company
 from app.domain.auth import User
+from app.domain.errors import MissingProviderApiKeyError
 from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
-from app.infrastructure.caching_available_models_provider import CachingAvailableModelsProvider
+from app.infrastructure.llm_utils import company_from_model
 from app.infrastructure.composite_budget_status_reader import CompositeBudgetStatusReader
 from app.infrastructure.db import build_engine
 from app.infrastructure.in_memory_rate_limiter import InMemoryRateLimiter
-from app.infrastructure.composite_available_models_provider import CompositeAvailableModelsProvider
-from app.infrastructure.agent_models import build_chat_model
+from app.infrastructure.agent_models import build_chat_model_with_key
 from app.infrastructure.caching_ai_scorer import CachingAiScorer
+from app.infrastructure.keyed_user_available_models_provider import (
+    CachingUserAvailableModelsProvider,
+    KeyedUserAvailableModelsProvider,
+)
 from app.infrastructure.gemini_available_models_provider import GeminiAvailableModelsProvider
 from app.infrastructure.llm_logging import configure_llm_logging
 from app.infrastructure.llm_provider_factory import build_llm_provider_factory
@@ -230,6 +236,13 @@ _add_api_key_use_case = AddApiKeyUseCase(_api_key_repository, _key_cipher, _api_
 _list_api_keys_use_case = ListApiKeysUseCase(_api_key_repository, _provider_spend_provider)
 _set_api_key_budget_use_case = SetApiKeyBudgetUseCase(_api_key_repository, _provider_spend_provider)
 _delete_api_key_use_case = DeleteApiKeyUseCase(_api_key_repository)
+# Scoring resolves the calling user's own key on demand (require own key — no env fallback).
+_api_key_resolver = UserApiKeyResolver(_api_key_repository, _key_cipher)
+# The model picker is per-user: discovered from the user's own keys, cached per user.
+_user_available_models_provider = CachingUserAvailableModelsProvider(
+    KeyedUserAvailableModelsProvider(_api_key_repository, _key_cipher, _models_provider_for_key),
+    ttl_seconds=MODELS_CACHE_TTL_SECONDS,
+)
 # AI matches are gated by the user's token budget plus a global org-spend backstop that
 # protects the owner's actual provider bill (active only when an admin key is configured).
 _budget_gate = CompositeBudgetStatusReader([
@@ -324,17 +337,19 @@ def _disable_tracing(_model: str) -> None:
     set_tracing_disabled(True)
 
 
-def _build_ai_use_case(model: str) -> MatchOffersWithAiUseCase:
-    chat_model = (
-        build_chat_model(
-            model,
-            openai_api_key=OPENAI_API_KEY,
-            gemini_api_key=GEMINI_API_KEY,
-            timeout=LLM_TIMEOUT_SECONDS,
-        )
-        if model
-        else None
-    )
+def _build_user_chat_model(user_id: str, model: str):
+    """Build the scoring client bound to the calling user's own key for the model's
+    provider. Raises MissingProviderApiKeyError if they have no key for it (require own
+    key) — handled as a 400 so the user is told to add one."""
+    provider = provider_for_company(company_from_model(model))
+    if provider is None:
+        raise MissingProviderApiKeyError(company_from_model(model))
+    key = _api_key_resolver.key_for_provider(user_id, provider)
+    return build_chat_model_with_key(model, api_key=key, timeout=LLM_TIMEOUT_SECONDS)
+
+
+def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
+    chat_model = _build_user_chat_model(user_id, model) if model else None
     ai_scorer = CachingAiScorer(
         LLMScoringStrategy.create(
             model=model,
@@ -358,39 +373,14 @@ def _build_ai_use_case(model: str) -> MatchOffersWithAiUseCase:
     )
 
 
-_available_models_provider = CachingAvailableModelsProvider(
-    CompositeAvailableModelsProvider([
-        provider
-        for provider, key in [
-            (GeminiAvailableModelsProvider(GEMINI_API_KEY, timeout=LLM_TIMEOUT_SECONDS), GEMINI_API_KEY),
-            (OpenAIAvailableModelsProvider(OPENAI_API_KEY, timeout=LLM_TIMEOUT_SECONDS), OPENAI_API_KEY),
-        ]
-        if key
-    ]),
-    ttl_seconds=MODELS_CACHE_TTL_SECONDS,
-)
-
-
-def _pick_initial_model() -> str:
-    """The scoring model is user-chosen via the API; on a fresh start we default to
-    the first model the provider(s) advertise. Returns '' if none can be listed, in
-    which case AI match stays disabled until the user selects a model."""
-    try:
-        models = _available_models_provider.list_models()
-    except Exception:  # noqa: BLE001 - never let model discovery block startup
-        _logger.warning("Could not list available models at startup; no model selected", exc_info=True)
-        return ""
-    return models[0].model if models else ""
-
-
-_initial_model = _pick_initial_model()
-_disable_tracing(_initial_model)
+# Each user must select a model from their own keys; there is no global default model.
+set_tracing_disabled(True)
 
 _ai_scoring_context = AiScoringContext(
     repository=_selected_model_repository,
     build_use_case=_build_ai_use_case,
     configure_sdk=_disable_tracing,
-    default_model=_initial_model,
+    default_model="",
 )
 
 
@@ -438,7 +428,7 @@ app.dependency_overrides[get_profile_use_case] = lambda: get_user_profile_use_ca
 app.dependency_overrides[get_match_offers_use_case] = lambda: match_offers_use_case
 app.dependency_overrides[get_match_offers_ai_use_case] = _ai_use_case_for_request
 app.dependency_overrides[get_ai_scoring_context] = lambda: _ai_scoring_context
-app.dependency_overrides[get_list_available_models_use_case] = lambda: ListAvailableModelsUseCase(_available_models_provider)
+app.dependency_overrides[get_list_available_models_use_case] = lambda: ListAvailableModelsUseCase(_user_available_models_provider)
 app.dependency_overrides[get_count_offers_use_case] = lambda: count_offers_use_case
 app.dependency_overrides[get_list_offers_use_case] = lambda: list_offers_use_case
 app.dependency_overrides[get_calculate_salary_use_case] = lambda: calculate_salary_use_case

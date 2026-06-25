@@ -142,6 +142,14 @@ class AvailableModelsProvider(ABC):
     def list_models(self) -> list[AvailableModel]: ...
 
 
+class UserAvailableModelsProvider(ABC):
+    """The models a specific user can run, discovered from that user's own provider keys
+    (require own key: no env/shared discovery). A user with no keys gets an empty list."""
+
+    @abstractmethod
+    def list_models(self, user_id: str) -> list[AvailableModel]: ...
+
+
 class SpendProvider(ABC):
     """Reads actual money spent (org-wide) since a given instant. Raises
     CostUnavailableError when the figure can't be retrieved. Used for the global

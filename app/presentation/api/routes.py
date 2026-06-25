@@ -254,7 +254,7 @@ def get_available_models(
     use_case: ListAvailableModelsUseCase = Depends(get_list_available_models_use_case),
     context: AiScoringContext = Depends(get_ai_scoring_context),
 ) -> AvailableModelsSchema:
-    all_models = use_case.execute()
+    all_models = use_case.execute(user.id)
     by_company: dict[str, list[str]] = {}
     for m in all_models:
         by_company.setdefault(m.company, []).append(m.model)
@@ -273,7 +273,7 @@ def select_model(
     use_case: ListAvailableModelsUseCase = Depends(get_list_available_models_use_case),
     context: AiScoringContext = Depends(get_ai_scoring_context),
 ) -> CurrentModelSchema:
-    available = {m.model for m in use_case.execute()}
+    available = {m.model for m in use_case.execute(user.id)}
     if payload.model not in available:
         raise HTTPException(status_code=404, detail=f"Model '{payload.model}' is not available")
     context.select_model(user.id, payload.model)
