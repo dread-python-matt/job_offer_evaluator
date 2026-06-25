@@ -6,7 +6,7 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.application.ports import UserProfileRepository
-from app.domain.entities import Experience, Project, Skill, UserProfile
+from app.domain.entities import Experience, Project, Skill, TaxSituation, UserProfile
 from app.infrastructure.db import resolve_engine
 from app.infrastructure.orm_models import Base, UserProfileRow
 
@@ -37,6 +37,11 @@ def profile_to_dict(profile: UserProfile) -> dict[str, Any]:
             }
             for e in profile.experience
         ],
+        "tax_situation": {
+            "under_26": profile.tax_situation.under_26,
+            "is_student": profile.tax_situation.is_student,
+            "applies_tax_credit": profile.tax_situation.applies_tax_credit,
+        },
     }
 
 
@@ -46,6 +51,17 @@ def profile_from_dict(data: dict[str, Any]) -> UserProfile:
         skills=[Skill(name=s["name"], rating=s["rating"]) for s in data["skills"]],
         projects=[Project(**p) for p in data["projects"]],
         experience=[Experience(**e) for e in data["experience"]],
+        tax_situation=_tax_situation_from_dict(data.get("tax_situation") or {}),
+    )
+
+
+def _tax_situation_from_dict(data: dict[str, Any]) -> TaxSituation:
+    # Tolerant of legacy rows: missing keys fall back to the baseline defaults.
+    defaults = TaxSituation()
+    return TaxSituation(
+        under_26=data.get("under_26", defaults.under_26),
+        is_student=data.get("is_student", defaults.is_student),
+        applies_tax_credit=data.get("applies_tax_credit", defaults.applies_tax_credit),
     )
 
 

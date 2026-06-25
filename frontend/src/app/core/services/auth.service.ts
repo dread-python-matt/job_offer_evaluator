@@ -3,7 +3,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, catchError, of, tap } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { AuthUser, Credentials } from '../models/auth.model';
+import { AuthUser, Credentials, RegisterRequest } from '../models/auth.model';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -14,9 +14,9 @@ export class AuthService {
   readonly currentUser = this._currentUser.asReadonly();
   readonly isAuthenticated = computed(() => this._currentUser() !== null);
 
-  register(credentials: Credentials): Observable<AuthUser> {
+  register(payload: RegisterRequest): Observable<AuthUser> {
     return this.http
-      .post<AuthUser>(`${this.baseUrl}/auth/register`, credentials)
+      .post<AuthUser>(`${this.baseUrl}/auth/register`, payload)
       .pipe(tap((user) => this._currentUser.set(user)));
   }
 

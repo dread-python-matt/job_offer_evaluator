@@ -202,6 +202,67 @@ class UserRepository(ABC):
     @abstractmethod
     def get_by_id(self, user_id: str) -> User | None: ...
 
+    @abstractmethod
+    def mark_email_verified(self, user_id: str) -> None:
+        """Flag the user's email as confirmed. Idempotent: marking an already-verified
+        user again is a no-op."""
+
+    @abstractmethod
+    def update_password(self, user_id: str, password_hash: str, token_version: int) -> None:
+        """Persist a new password hash and token_version for the user in a single write.
+        Bumping token_version invalidates every previously issued session token."""
+
+
+class EmailValidator(ABC):
+    """Checks whether an address is actually usable beyond mere syntax (e.g. its domain
+    can receive mail). Syntax is validated upstream by the request schema; this is the
+    optional deliverability layer, isolated behind a port so it can be faked in tests."""
+
+    @abstractmethod
+    def is_deliverable(self, email: str) -> bool: ...
+
+
+class EmailSender(ABC):
+    """Sends a plain-text email. The transport (SMTP, console, a provider) is an
+    infrastructure concern; use cases depend only on this port."""
+
+    @abstractmethod
+    def send(self, to: str, subject: str, body: str) -> None: ...
+
+
+class RateLimiter(ABC):
+    """Throttles repeated attempts identified by an opaque key (e.g. client-IP + email).
+    The limiter only counts attempts within a window and reports when a key is over its
+    allowance; deciding what counts as an attempt (and resetting on success) is the
+    caller's responsibility."""
+
+    @abstractmethod
+    def check(self, key: str) -> None:
+        """Raise `RateLimitExceededError` if `key` has reached its allowance in the current
+        window. Read-only: a check does not itself count as an attempt."""
+
+    @abstractmethod
+    def record_failure(self, key: str) -> None:
+        """Count one failed attempt against `key`."""
+
+    @abstractmethod
+    def reset(self, key: str) -> None:
+        """Discard all recorded attempts for `key` (e.g. after a success)."""
+
+
+class VerificationTokenService(ABC):
+    """Issues and validates single-purpose email-confirmation tokens, kept separate from
+    session tokens so the two can never be substituted for one another."""
+
+    @abstractmethod
+    def issue(self, user_id: str) -> str: ...
+
+    @abstractmethod
+    def verify(self, token: str) -> str:
+        """Return the user id encoded in a confirmation token. Raises
+        `InvalidVerificationTokenError` when the token is malformed, expired, has the
+        wrong purpose, or has a bad signature."""
+
 
 class PasswordHasher(ABC):
     @abstractmethod

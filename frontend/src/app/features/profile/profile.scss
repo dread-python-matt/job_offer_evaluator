@@ -267,6 +267,21 @@ textarea[matInput] {
   }
 }
 
+.tax-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tax-summary {
+  margin: 0;
+  padding-left: 20px;
+
+  li {
+    margin: 2px 0;
+  }
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }

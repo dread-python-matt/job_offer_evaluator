@@ -16,7 +16,13 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { catchError, of } from 'rxjs';
 
 import { ApiService } from '../../core/services/api.service';
-import { Experience, Project, Skill, UserProfile } from '../../core/models/profile.model';
+import { Experience, Project, Skill, TaxSituation, UserProfile } from '../../core/models/profile.model';
+
+const DEFAULT_TAX_SITUATION: TaxSituation = {
+  under_26: false,
+  is_student: false,
+  applies_tax_credit: true,
+};
 
 const MONTH_YEAR_FORMATS: MatDateFormats = {
   parse: {
@@ -100,6 +106,11 @@ export class Profile implements OnInit {
     skills: this.fb.array<SkillGroup>([]),
     projects: this.fb.array<ProjectGroup>([]),
     experience: this.fb.array<ExperienceGroup>([]),
+    tax: this.fb.group({
+      under_26: this.fb.control(false, { nonNullable: true }),
+      is_student: this.fb.control(false, { nonNullable: true }),
+      applies_tax_credit: this.fb.control(true, { nonNullable: true }),
+    }),
   });
 
   get skills(): FormArray<SkillGroup> {
@@ -302,6 +313,7 @@ export class Profile implements OnInit {
       skills: value.skills.map((skill) => ({ name: skill.name, rating: Number(skill.rating) })),
       projects: value.projects.map((p) => this.toProject(p)),
       experience: value.experience.map((e) => this.toExperience(e)),
+      tax_situation: { ...value.tax },
     };
 
     this.saving.set(true);
@@ -320,7 +332,10 @@ export class Profile implements OnInit {
   }
 
   private populateForm(profile: UserProfile | null): void {
-    this.form.patchValue({ summary: profile?.summary ?? '' });
+    this.form.patchValue({
+      summary: profile?.summary ?? '',
+      tax: profile?.tax_situation ?? DEFAULT_TAX_SITUATION,
+    });
 
     this.skills.clear();
     (profile?.skills ?? []).forEach((skill) => this.skills.push(this.buildSkillGroup(skill)));

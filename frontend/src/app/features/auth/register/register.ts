@@ -1,5 +1,11 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
-import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import {
+  AbstractControl,
+  FormBuilder,
+  ReactiveFormsModule,
+  ValidationErrors,
+  Validators,
+} from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -13,6 +19,14 @@ import { AuthService } from '../../../core/services/auth.service';
 // Mirrors the backend's minimum so the user gets immediate feedback; the server
 // enforces it regardless.
 const MIN_PASSWORD_LENGTH = 10;
+
+// Group-level validator: the retyped password must match. Mirrors the server's check
+// (RegisterRequestSchema) so mismatches are caught before a request is made.
+function passwordsMatch(group: AbstractControl): ValidationErrors | null {
+  const password = group.get('password')?.value;
+  const confirmPassword = group.get('confirmPassword')?.value;
+  return password === confirmPassword ? null : { passwordMismatch: true };
+}
 
 @Component({
   selector: 'app-register',
@@ -39,16 +53,23 @@ export class Register {
   readonly submitting = signal(false);
   readonly error = signal<string | null>(null);
 
-  readonly form = this.fb.group({
-    email: this.fb.control('', {
-      nonNullable: true,
-      validators: [Validators.required, Validators.email],
-    }),
-    password: this.fb.control('', {
-      nonNullable: true,
-      validators: [Validators.required, Validators.minLength(MIN_PASSWORD_LENGTH)],
-    }),
-  });
+  readonly form = this.fb.group(
+    {
+      email: this.fb.control('', {
+        nonNullable: true,
+        validators: [Validators.required, Validators.email],
+      }),
+      password: this.fb.control('', {
+        nonNullable: true,
+        validators: [Validators.required, Validators.minLength(MIN_PASSWORD_LENGTH)],
+      }),
+      confirmPassword: this.fb.control('', {
+        nonNullable: true,
+        validators: [Validators.required],
+      }),
+    },
+    { validators: passwordsMatch },
+  );
 
   submit(): void {
     if (this.form.invalid) {
@@ -57,7 +78,8 @@ export class Register {
     }
     this.submitting.set(true);
     this.error.set(null);
-    this.auth.register(this.form.getRawValue()).subscribe({
+    const { email, password, confirmPassword } = this.form.getRawValue();
+    this.auth.register({ email, password, confirm_password: confirmPassword }).subscribe({
       next: () => this.router.navigateByUrl('/profile'),
       error: (err) => {
         this.submitting.set(false);

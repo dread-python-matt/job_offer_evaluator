@@ -1,7 +1,10 @@
+from dataclasses import replace
 from datetime import datetime
 
 from app.application.ports import (
     BudgetRepository,
+    EmailSender,
+    EmailValidator,
     ModelUsage,
     ModelUsageRepository,
     ModelUsageSummary,
@@ -14,11 +17,12 @@ from app.application.ports import (
     UserProfileRepository,
     UserRepository,
     UserSpendProvider,
+    VerificationTokenService,
 )
 from app.domain.auth import User
 from app.domain.budget import BudgetSettings
 from app.domain.entities import Offer, UserProfile
-from app.domain.errors import AuthenticationError
+from app.domain.errors import AuthenticationError, InvalidVerificationTokenError
 from app.domain.filters import (
     OfferBrowseFilters,
     expired_matches,
@@ -170,6 +174,55 @@ class FakeUserRepository(UserRepository):
 
     def get_by_id(self, user_id: str) -> User | None:
         return self._by_id.get(user_id)
+
+    def mark_email_verified(self, user_id: str) -> None:
+        user = self._by_id.get(user_id)
+        if user is not None:
+            self.add(replace(user, email_verified=True))
+
+    def update_password(self, user_id: str, password_hash: str, token_version: int) -> None:
+        user = self._by_id.get(user_id)
+        if user is not None:
+            self.add(replace(user, password_hash=password_hash, token_version=token_version))
+
+
+class FakeEmailValidator(EmailValidator):
+    """Reports a fixed deliverability verdict so the registration use case can be tested
+    without DNS. Defaults to deliverable; flip `deliverable` to exercise rejection."""
+
+    def __init__(self, deliverable: bool = True) -> None:
+        self.deliverable = deliverable
+        self.checked: list[str] = []
+
+    def is_deliverable(self, email: str) -> bool:
+        self.checked.append(email)
+        return self.deliverable
+
+
+class FakeEmailSender(EmailSender):
+    """Captures sent emails in memory so tests can assert what was sent (and read the
+    confirmation link out of the body)."""
+
+    def __init__(self) -> None:
+        self.sent: list[dict[str, str]] = []
+
+    def send(self, to: str, subject: str, body: str) -> None:
+        self.sent.append({"to": to, "subject": subject, "body": body})
+
+
+class FakeVerificationTokenService(VerificationTokenService):
+    """Encodes the user id as a `verify:<user_id>` string so tests can issue and verify
+    confirmation tokens without crypto. Anything else raises, like the real adapter."""
+
+    _PREFIX = "verify:"
+
+    def issue(self, user_id: str) -> str:
+        return f"{self._PREFIX}{user_id}"
+
+    def verify(self, token: str) -> str:
+        if not token.startswith(self._PREFIX):
+            raise InvalidVerificationTokenError("malformed verification token")
+        return token[len(self._PREFIX) :]
 
 
 class FakePasswordHasher(PasswordHasher):

@@ -6,7 +6,12 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.application.ai_scoring_context import AiScoringContext
-from app.application.auth_use_cases import AuthenticateUserUseCase, RegisterUserUseCase
+from app.application.auth_use_cases import (
+    AuthenticateUserUseCase,
+    ChangePasswordUseCase,
+    RegisterUserUseCase,
+    VerifyEmailUseCase,
+)
 from app.application.budget_service import BudgetService
 from app.application.ports import InMemoryModelUsageTracker
 from app.application.use_cases import (
@@ -22,6 +27,7 @@ from app.application.use_cases import (
 )
 from app.config import (
     AI_MATCH_CONCURRENCY,
+    APP_BASE_URL,
     BUDGET_FAIL_CLOSED,
     BUDGET_SPEND_CACHE_TTL_SECONDS,
     COOKIE_SAMESITE,
@@ -29,17 +35,27 @@ from app.config import (
     CORS_ORIGINS,
     DATABASE_URL,
     DEFAULT_BUDGET_USD,
+    EMAIL_CHECK_DELIVERABILITY,
+    EMAIL_FROM,
+    EMAIL_VERIFICATION_TTL_HOURS,
     GEMINI_API_KEY,
     HOST,
     JWT_SECRET,
     LLM_DEBUG,
     LLM_PROVIDER,
     LLM_TIMEOUT_SECONDS,
+    LOGIN_RATE_LIMIT_ATTEMPTS,
+    LOGIN_RATE_LIMIT_WINDOW_MINUTES,
     MODELS_CACHE_TTL_SECONDS,
     OPENAI_ADMIN_KEY,
     OPENAI_API_KEY,
     PORT,
     SESSION_TTL_DAYS,
+    SMTP_HOST,
+    SMTP_PASSWORD,
+    SMTP_PORT,
+    SMTP_USE_TLS,
+    SMTP_USERNAME,
     WORKERS,
 )
 from app.domain.auth import User
@@ -48,6 +64,7 @@ from app.domain.salary_calculator import SalaryCalculator
 from app.infrastructure.caching_available_models_provider import CachingAvailableModelsProvider
 from app.infrastructure.composite_budget_status_reader import CompositeBudgetStatusReader
 from app.infrastructure.db import build_engine
+from app.infrastructure.in_memory_rate_limiter import InMemoryRateLimiter
 from app.infrastructure.composite_available_models_provider import CompositeAvailableModelsProvider
 from app.infrastructure.agent_models import build_chat_model
 from app.infrastructure.caching_ai_scorer import CachingAiScorer
@@ -75,7 +92,11 @@ from app.infrastructure.postgres_selected_model_repository import PostgresSelect
 from app.infrastructure.postgres_user_profile_repository import PostgresUserProfileRepository
 from app.infrastructure.postgres_user_repository import PostgresUserRepository
 from app.infrastructure.argon2_password_hasher import Argon2PasswordHasher
+from app.infrastructure.console_email_sender import ConsoleEmailSender
+from app.infrastructure.email_validators import AllowAllEmailValidator, DnsEmailValidator
 from app.infrastructure.jwt_token_service import JwtTokenService
+from app.infrastructure.jwt_verification_token_service import JwtVerificationTokenService
+from app.infrastructure.smtp_email_sender import SmtpEmailSender
 from app.infrastructure.scoring_strategies import SkillBasedScorer
 from app.infrastructure.translation_agents import build_polish_to_english_agent
 from app.presentation.api.routes import (
@@ -96,11 +117,14 @@ from app.presentation.api.error_handlers import register_exception_handlers
 from app.presentation.api.auth import (
     CookieSettings,
     get_authenticate_use_case,
+    get_change_password_use_case,
     get_cookie_settings,
     get_current_user,
+    get_rate_limiter,
     get_register_use_case,
     get_token_service,
     get_user_repository,
+    get_verify_email_use_case,
     private_router,
     public_router,
     verify_csrf,
@@ -158,10 +182,53 @@ _budget_gate = CompositeBudgetStatusReader([
 _user_repository = PostgresUserRepository(_engine)
 _password_hasher = Argon2PasswordHasher()
 _token_service = JwtTokenService(JWT_SECRET, ttl=timedelta(days=SESSION_TTL_DAYS))
-_register_use_case = RegisterUserUseCase(_user_repository, _password_hasher)
+# Email confirmation: unverified accounts receive a single-purpose token by email; following
+# the link verifies the account and logs the user in (see /auth/verify-email).
+_verification_token_service = JwtVerificationTokenService(
+    JWT_SECRET, ttl=timedelta(hours=EMAIL_VERIFICATION_TTL_HOURS)
+)
+_email_sender = (
+    SmtpEmailSender(
+        host=SMTP_HOST,
+        port=SMTP_PORT,
+        username=SMTP_USERNAME,
+        password=SMTP_PASSWORD,
+        from_addr=EMAIL_FROM,
+        use_tls=SMTP_USE_TLS,
+    )
+    if SMTP_HOST
+    else ConsoleEmailSender()
+)
+_email_validator = DnsEmailValidator() if EMAIL_CHECK_DELIVERABILITY else AllowAllEmailValidator()
+
+
+def _verification_link(token: str) -> str:
+    return f"{APP_BASE_URL}/verify-email?token={token}"
+
+
+_register_use_case = RegisterUserUseCase(
+    _user_repository,
+    _password_hasher,
+    email_validator=_email_validator,
+    verification_tokens=_verification_token_service,
+    email_sender=_email_sender,
+    link_builder=_verification_link,
+)
 _authenticate_use_case = AuthenticateUserUseCase(_user_repository, _password_hasher, _token_service)
+_verify_email_use_case = VerifyEmailUseCase(
+    _user_repository, _verification_token_service, _token_service
+)
+_change_password_use_case = ChangePasswordUseCase(
+    _user_repository, _password_hasher, _token_service
+)
 _cookie_settings = CookieSettings(
     secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=SESSION_TTL_DAYS * 24 * 3600
+)
+# Brute-force throttle for /auth/login. In-memory: single-worker correct; a multi-worker
+# deploy (WORKERS>1) needs a shared store (Redis) — swap the adapter, the port stays.
+_rate_limiter = InMemoryRateLimiter(
+    max_attempts=LOGIN_RATE_LIMIT_ATTEMPTS,
+    window=timedelta(minutes=LOGIN_RATE_LIMIT_WINDOW_MINUTES),
 )
 
 
@@ -270,9 +337,12 @@ app.include_router(router, dependencies=_auth_guard)
 register_exception_handlers(app)
 app.dependency_overrides[get_register_use_case] = lambda: _register_use_case
 app.dependency_overrides[get_authenticate_use_case] = lambda: _authenticate_use_case
+app.dependency_overrides[get_verify_email_use_case] = lambda: _verify_email_use_case
 app.dependency_overrides[get_user_repository] = lambda: _user_repository
 app.dependency_overrides[get_token_service] = lambda: _token_service
 app.dependency_overrides[get_cookie_settings] = lambda: _cookie_settings
+app.dependency_overrides[get_rate_limiter] = lambda: _rate_limiter
+app.dependency_overrides[get_change_password_use_case] = lambda: _change_password_use_case
 app.dependency_overrides[get_save_profile_use_case] = lambda: save_profile_use_case
 app.dependency_overrides[get_profile_use_case] = lambda: get_user_profile_use_case
 app.dependency_overrides[get_match_offers_use_case] = lambda: match_offers_use_case

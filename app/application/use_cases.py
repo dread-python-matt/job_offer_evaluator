@@ -16,7 +16,7 @@ from app.application.ports import (
     UserProfileRepository,
 )
 from app.domain.errors import AiScoringError, BudgetExceededError
-from app.domain.entities import Offer, UserProfile
+from app.domain.entities import Offer, TaxSituation, UserProfile
 from app.domain.filters import FilterChain, MatchCriteria, OfferBrowseFilters
 from app.domain.salary_calculator import ContractType, NetSalaryBreakdown, SalaryCalculator
 from app.domain.scoring import AiInsight, MatchedOffer, MatchScore, OfferScorer
@@ -58,6 +58,7 @@ class CalculateNetSalaryUseCase:
         business_costs: float = 0.0,
         include_ppk: bool = False,
         include_voluntary_sickness: bool = False,
+        situation: TaxSituation | None = None,
     ) -> NetSalaryBreakdown:
         return self._calculator.calculate(
             contract_type,
@@ -65,6 +66,7 @@ class CalculateNetSalaryUseCase:
             business_costs=business_costs,
             include_ppk=include_ppk,
             include_voluntary_sickness=include_voluntary_sickness,
+            situation=situation,
         )
 
 

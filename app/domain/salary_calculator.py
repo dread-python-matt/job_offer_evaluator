@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
-from app.domain.entities import Offer, Salary
+from app.domain.entities import Offer, Salary, TaxSituation
 
 NetBound = Literal["min", "mid", "max"]
 _NET_ATTR: dict[str, str] = {"min": "net_min", "mid": "net_mid", "max": "net_max"}
@@ -79,6 +79,12 @@ TAX_CREDIT_MONTHLY = 300.0  # kwota zmniejszająca podatek (30,000 PLN/year tax-
 FIRST_BRACKET_RATE = 0.12
 FIRST_BRACKET_MONTHLY_LIMIT = 120_000.0 / 12
 SECOND_BRACKET_RATE = 0.32
+
+# -- Ulga dla młodych (youth relief): PIT is waived on employment/civil income up to this
+# annual cap for taxpayers under 26 (B2B income is not eligible). Applied as a monthly
+# exemption (annual ÷ 12), consistent with the calculator's other monthly approximations. --
+YOUTH_RELIEF_ANNUAL_LIMIT = 85_528.0
+YOUTH_RELIEF_MONTHLY_LIMIT = YOUTH_RELIEF_ANNUAL_LIMIT / _MONTHS_PER_YEAR
 
 EMPLOYMENT_KUP_MONTHLY = 250.0  # standard koszty uzyskania przychodu
 CIVIL_CONTRACT_KUP_RATE = 0.20  # lump-sum koszty uzyskania przychodu
@@ -155,14 +161,24 @@ class NetSalaryBreakdown:
         )
 
 
-def _progressive_tax(taxable_income_monthly: float) -> float:
+def _progressive_tax(taxable_income_monthly: float, *, apply_credit: bool = True) -> float:
     if taxable_income_monthly <= FIRST_BRACKET_MONTHLY_LIMIT:
         tax = taxable_income_monthly * FIRST_BRACKET_RATE
     else:
         tax = FIRST_BRACKET_MONTHLY_LIMIT * FIRST_BRACKET_RATE + (
             taxable_income_monthly - FIRST_BRACKET_MONTHLY_LIMIT
         ) * SECOND_BRACKET_RATE
-    return max(0.0, tax - TAX_CREDIT_MONTHLY)
+    credit = TAX_CREDIT_MONTHLY if apply_credit else 0.0
+    return max(0.0, tax - credit)
+
+
+def _income_tax_after_reliefs(taxable_income: float, situation: TaxSituation) -> float:
+    """PIT on employment/civil income after the personal reliefs in `situation`: youth
+    relief (under 26) shrinks the taxable base, and the PIT-2 flag governs the monthly
+    tax-reducing amount."""
+    if situation.under_26:
+        taxable_income = max(0.0, taxable_income - YOUTH_RELIEF_MONTHLY_LIMIT)
+    return _progressive_tax(taxable_income, apply_credit=situation.applies_tax_credit)
 
 
 class _SalaryStrategy(ABC):
@@ -171,6 +187,7 @@ class _SalaryStrategy(ABC):
         self,
         gross: float,
         *,
+        situation: TaxSituation,
         business_costs: float = 0.0,
         include_ppk: bool = False,
         include_voluntary_sickness: bool = False,
@@ -178,11 +195,13 @@ class _SalaryStrategy(ABC):
 
 
 class _EmploymentStrategy(_SalaryStrategy):
-    def calculate(self, gross: float, *, include_ppk: bool = False, **_: object) -> NetSalaryBreakdown:
+    def calculate(
+        self, gross: float, *, situation: TaxSituation, include_ppk: bool = False, **_: object
+    ) -> NetSalaryBreakdown:
         social_security = gross * EMPLOYMENT_SOCIAL_SECURITY_RATE
         health_insurance = (gross - social_security) * HEALTH_INSURANCE_RATE
         taxable_income = max(0.0, gross - social_security - EMPLOYMENT_KUP_MONTHLY)
-        income_tax = _progressive_tax(taxable_income)
+        income_tax = _income_tax_after_reliefs(taxable_income, situation)
         ppk = gross * PPK_EMPLOYEE_RATE if include_ppk else 0.0
         return NetSalaryBreakdown(
             gross=gross,
@@ -194,7 +213,19 @@ class _EmploymentStrategy(_SalaryStrategy):
 
 
 class _CivilContractStrategy(_SalaryStrategy):
-    def calculate(self, gross: float, *, include_voluntary_sickness: bool = False, **_: object) -> NetSalaryBreakdown:
+    def calculate(
+        self,
+        gross: float,
+        *,
+        situation: TaxSituation,
+        include_voluntary_sickness: bool = False,
+        **_: object,
+    ) -> NetSalaryBreakdown:
+        if situation.is_student and situation.under_26:
+            # Student under 26 on umowa zlecenie: exempt from ZUS, health, and PIT.
+            return NetSalaryBreakdown(
+                gross=gross, social_security=0.0, health_insurance=0.0, income_tax=0.0
+            )
         rate = CIVIL_CONTRACT_BASE_SOCIAL_SECURITY_RATE
         if include_voluntary_sickness:
             rate += EMPLOYEE_SICKNESS_RATE
@@ -202,7 +233,7 @@ class _CivilContractStrategy(_SalaryStrategy):
         health_insurance = (gross - social_security) * HEALTH_INSURANCE_RATE
         kup = (gross - social_security) * CIVIL_CONTRACT_KUP_RATE
         taxable_income = max(0.0, gross - social_security - kup)
-        income_tax = _progressive_tax(taxable_income)
+        income_tax = _income_tax_after_reliefs(taxable_income, situation)
         return NetSalaryBreakdown(
             gross=gross,
             social_security=social_security,
@@ -263,11 +294,13 @@ class SalaryCalculator:
         business_costs: float = 0.0,
         include_ppk: bool = False,
         include_voluntary_sickness: bool = False,
+        situation: TaxSituation | None = None,
     ) -> NetSalaryBreakdown:
         if gross_monthly <= 0:
             raise ValueError("gross_monthly must be positive")
         return _STRATEGIES[contract_type].calculate(
             gross_monthly,
+            situation=situation or TaxSituation(),
             business_costs=business_costs,
             include_ppk=include_ppk,
             include_voluntary_sickness=include_voluntary_sickness,

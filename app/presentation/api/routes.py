@@ -200,6 +200,7 @@ def calculate_salary(
         business_costs=payload.business_costs,
         include_ppk=payload.include_ppk,
         include_voluntary_sickness=payload.include_voluntary_sickness,
+        situation=payload.to_tax_situation(),
     )
     return SalaryCalculationResponseSchema.from_domain(breakdown)
 

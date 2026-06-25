@@ -1,6 +1,6 @@
 import pytest
 
-from app.domain.entities import Salary
+from app.domain.entities import Salary, TaxSituation
 from app.domain.salary_calculator import (
     B2B_FULL_ZUS_BASE_2026,
     B2B_RYCZALT_HEALTH_TIER_1_MONTHLY,
@@ -195,3 +195,99 @@ class TestNetMonthlyTakeHome:
 
     def test_returns_none_for_zero_gross_instead_of_raising(self):
         assert net_monthly_take_home(self._salary(min_amount=0, max_amount=0)) is None
+
+
+class TestTaxSituationIsOptional:
+    def test_default_situation_matches_calling_without_one(self):
+        explicit = SalaryCalculator().calculate(
+            ContractType.EMPLOYMENT, 10000.0, situation=TaxSituation()
+        )
+        implicit = SalaryCalculator().calculate(ContractType.EMPLOYMENT, 10000.0)
+
+        assert explicit == implicit
+
+
+class TestPit2TaxCredit:
+    def test_employee_without_pit2_pays_the_monthly_credit_more_tax(self):
+        with_credit = SalaryCalculator().calculate(ContractType.EMPLOYMENT, 10000.0)
+        without_credit = SalaryCalculator().calculate(
+            ContractType.EMPLOYMENT, 10000.0, situation=TaxSituation(applies_tax_credit=False)
+        )
+
+        assert without_credit.income_tax == pytest.approx(with_credit.income_tax + 300.0)
+
+    def test_contractor_without_pit2_pays_the_monthly_credit_more_tax(self):
+        with_credit = SalaryCalculator().calculate(ContractType.CIVIL, 8000.0)
+        without_credit = SalaryCalculator().calculate(
+            ContractType.CIVIL, 8000.0, situation=TaxSituation(applies_tax_credit=False)
+        )
+
+        assert without_credit.income_tax == pytest.approx(with_credit.income_tax + 300.0)
+
+
+class TestYouthRelief:
+    def test_under_26_employee_pays_no_income_tax_below_the_cap(self):
+        breakdown = SalaryCalculator().calculate(
+            ContractType.EMPLOYMENT, 10000.0, situation=TaxSituation(under_26=True)
+        )
+
+        assert breakdown.income_tax == 0.0
+        # Youth relief is PIT-only: ZUS and health are unaffected.
+        assert breakdown.social_security == pytest.approx(1371.0)
+        assert breakdown.health_insurance == pytest.approx(776.61, abs=0.01)
+        assert breakdown.take_home == pytest.approx(7852.39, abs=0.01)
+
+    def test_under_26_employee_is_taxed_only_on_income_above_the_cap(self):
+        normal = SalaryCalculator().calculate(ContractType.EMPLOYMENT, 20000.0)
+        young = SalaryCalculator().calculate(
+            ContractType.EMPLOYMENT, 20000.0, situation=TaxSituation(under_26=True)
+        )
+
+        assert 0.0 < young.income_tax < normal.income_tax
+
+    def test_under_26_contractor_pays_no_income_tax_but_keeps_paying_zus(self):
+        default = SalaryCalculator().calculate(ContractType.CIVIL, 8000.0)
+        young = SalaryCalculator().calculate(
+            ContractType.CIVIL, 8000.0, situation=TaxSituation(under_26=True)
+        )
+
+        assert young.income_tax == 0.0
+        assert young.social_security == pytest.approx(default.social_security)
+        assert young.health_insurance == pytest.approx(default.health_insurance)
+
+    def test_youth_relief_does_not_apply_to_b2b(self):
+        default = SalaryCalculator().calculate(ContractType.B2B, 10000.0)
+        young = SalaryCalculator().calculate(
+            ContractType.B2B, 10000.0, situation=TaxSituation(under_26=True)
+        )
+
+        assert young == default
+
+
+class TestStudentContractorExemption:
+    def test_student_under_26_on_zlecenie_takes_home_full_gross(self):
+        breakdown = SalaryCalculator().calculate(
+            ContractType.CIVIL, 8000.0, situation=TaxSituation(under_26=True, is_student=True)
+        )
+
+        assert breakdown.social_security == 0.0
+        assert breakdown.health_insurance == 0.0
+        assert breakdown.income_tax == 0.0
+        assert breakdown.take_home == pytest.approx(8000.0)
+
+    def test_student_status_does_not_exempt_an_employee_from_zus(self):
+        breakdown = SalaryCalculator().calculate(
+            ContractType.EMPLOYMENT, 10000.0, situation=TaxSituation(under_26=True, is_student=True)
+        )
+
+        # umowa o pracę always carries ZUS, regardless of student status.
+        assert breakdown.social_security == pytest.approx(1371.0)
+        assert breakdown.income_tax == 0.0  # youth relief still zeroes PIT
+
+    def test_student_over_26_gets_no_exemption(self):
+        default = SalaryCalculator().calculate(ContractType.CIVIL, 8000.0)
+        student = SalaryCalculator().calculate(
+            ContractType.CIVIL, 8000.0, situation=TaxSituation(is_student=True)
+        )
+
+        assert student == default

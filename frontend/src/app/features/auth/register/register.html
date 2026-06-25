@@ -29,6 +29,19 @@
           }
         </mat-form-field>
 
+        <mat-form-field appearance="outline" class="full-width">
+          <mat-label>Confirm password</mat-label>
+          <input
+            matInput
+            type="password"
+            formControlName="confirmPassword"
+            autocomplete="new-password"
+          />
+          @if (form.controls.confirmPassword.touched && form.hasError('passwordMismatch')) {
+            <mat-error>Passwords do not match.</mat-error>
+          }
+        </mat-form-field>
+
         @if (error()) {
           <p class="auth-error">{{ error() }}</p>
         }

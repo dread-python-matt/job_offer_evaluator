@@ -172,6 +172,34 @@ def test_post_profile_saves_and_returns_profile():
     assert response.json()["skills"] == [{"name": "Python", "rating": 5}]
 
 
+def test_profile_round_trips_optional_tax_situation():
+    client = _build_client(profile=None)
+    payload = {
+        **_profile_payload(),
+        "tax_situation": {"under_26": True, "is_student": True, "applies_tax_credit": False},
+    }
+
+    assert client.post("/profile", json=payload).status_code == 200
+    assert client.get("/profile").json()["tax_situation"] == {
+        "under_26": True,
+        "is_student": True,
+        "applies_tax_credit": False,
+    }
+
+
+def test_profile_defaults_tax_situation_when_omitted():
+    client = _build_client()
+
+    response = client.post("/profile", json=_profile_payload())
+
+    assert response.status_code == 200
+    assert response.json()["tax_situation"] == {
+        "under_26": False,
+        "is_student": False,
+        "applies_tax_credit": True,
+    }
+
+
 def test_get_profile_returns_404_when_no_profile_saved():
     client = _build_client(profile=None)
 
@@ -1047,6 +1075,36 @@ def test_calculate_salary_rejects_non_positive_gross_amount():
     )
 
     assert response.status_code == 422
+
+
+def test_calculate_salary_waives_income_tax_for_under_26():
+    client = _build_client()
+
+    response = client.post(
+        "/salary/calculate",
+        json={"contract_type": "employment", "gross_monthly": 10000.0, "under_26": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["income_tax"] == 0.0
+
+
+def test_calculate_salary_without_pit2_credit_increases_income_tax():
+    client = _build_client()
+
+    base = client.post(
+        "/salary/calculate", json={"contract_type": "employment", "gross_monthly": 10000.0}
+    ).json()
+    without_credit = client.post(
+        "/salary/calculate",
+        json={
+            "contract_type": "employment",
+            "gross_monthly": 10000.0,
+            "applies_tax_credit": False,
+        },
+    ).json()
+
+    assert without_credit["income_tax"] == pytest.approx(base["income_tax"] + 300.0)
 
 
 def test_match_offers_ai_returns_503_when_scoring_service_unavailable():

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from app.application.ports import ModelUsageWithLimits
 from app.domain.auth import User
 from app.domain.budget import BudgetStatus
-from app.domain.entities import Experience, Offer, Project, Salary, Skill, UserProfile
+from app.domain.entities import Experience, Offer, Project, Salary, Skill, TaxSituation, UserProfile
 from app.domain.filters import MatchCriteria
 from app.domain.salary_calculator import ContractType, NetSalaryBreakdown
 from app.domain.scoring import AiInsight, MatchedOffer
@@ -72,11 +72,36 @@ class ExperienceSchema(BaseModel):
         )
 
 
+class TaxSituationSchema(BaseModel):
+    """Optional personal tax attributes that refine net-salary calculations. Defaults
+    reproduce the baseline assumption (over 26, not a student, PIT-2 filed)."""
+
+    under_26: bool = False
+    is_student: bool = False
+    applies_tax_credit: bool = True
+
+    def to_domain(self) -> TaxSituation:
+        return TaxSituation(
+            under_26=self.under_26,
+            is_student=self.is_student,
+            applies_tax_credit=self.applies_tax_credit,
+        )
+
+    @classmethod
+    def from_domain(cls, situation: TaxSituation) -> "TaxSituationSchema":
+        return cls(
+            under_26=situation.under_26,
+            is_student=situation.is_student,
+            applies_tax_credit=situation.applies_tax_credit,
+        )
+
+
 class UserProfileSchema(BaseModel):
     summary: str
     skills: list[SkillSchema]
     projects: list[ProjectSchema]
     experience: list[ExperienceSchema]
+    tax_situation: TaxSituationSchema = Field(default_factory=TaxSituationSchema)
 
     def to_domain(self) -> UserProfile:
         return UserProfile(
@@ -84,6 +109,7 @@ class UserProfileSchema(BaseModel):
             skills=[skill.to_domain() for skill in self.skills],
             projects=[project.to_domain() for project in self.projects],
             experience=[experience.to_domain() for experience in self.experience],
+            tax_situation=self.tax_situation.to_domain(),
         )
 
     @classmethod
@@ -95,6 +121,7 @@ class UserProfileSchema(BaseModel):
             experience=[
                 ExperienceSchema.from_domain(experience) for experience in profile.experience
             ],
+            tax_situation=TaxSituationSchema.from_domain(profile.tax_situation),
         )
 
 
@@ -135,6 +162,17 @@ class SalaryCalculationRequestSchema(BaseModel):
     business_costs: float = 0.0
     include_ppk: bool = False
     include_voluntary_sickness: bool = False
+    # Optional personal tax attributes; defaults reproduce the baseline calculation.
+    under_26: bool = False
+    is_student: bool = False
+    applies_tax_credit: bool = True
+
+    def to_tax_situation(self) -> TaxSituation:
+        return TaxSituation(
+            under_26=self.under_26,
+            is_student=self.is_student,
+            applies_tax_credit=self.applies_tax_credit,
+        )
 
 
 class SalaryCalculationResponseSchema(BaseModel):
@@ -358,11 +396,37 @@ _MIN_PASSWORD_LENGTH = 10
 class RegisterRequestSchema(BaseModel):
     email: EmailStr
     password: str = Field(min_length=_MIN_PASSWORD_LENGTH, max_length=128)
+    # Retyped password; must match `password`. Enforced server-side regardless of any
+    # client-side check so the API never relies on the form alone.
+    confirm_password: str
+
+    @model_validator(mode="after")
+    def _passwords_match(self) -> RegisterRequestSchema:
+        if self.password != self.confirm_password:
+            raise ValueError("Passwords do not match")
+        return self
 
 
 class LoginRequestSchema(BaseModel):
     email: EmailStr
     password: str
+
+
+class VerifyEmailRequestSchema(BaseModel):
+    token: str
+
+
+class ChangePasswordRequestSchema(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=_MIN_PASSWORD_LENGTH, max_length=128)
+
+
+class RegistrationPendingSchema(BaseModel):
+    """Returned by registration: the account exists but is unverified, and a confirmation
+    email has been sent. No session is issued until the link is followed."""
+
+    email: str
+    message: str = "Check your email to confirm your account."
 
 
 class UserResponseSchema(BaseModel):

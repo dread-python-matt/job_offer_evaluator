@@ -3,18 +3,30 @@ from dataclasses import dataclass
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
-from app.application.auth_use_cases import AuthenticateUserUseCase, RegisterUserUseCase
-from app.application.ports import TokenService, UserRepository
+from app.application.auth_use_cases import (
+    AuthenticateUserUseCase,
+    ChangePasswordUseCase,
+    RegisterUserUseCase,
+    VerifyEmailUseCase,
+)
+from app.application.ports import RateLimiter, TokenService, UserRepository
 from app.domain.auth import User
 from app.domain.errors import (
     AuthenticationError,
     EmailAlreadyRegisteredError,
+    EmailNotDeliverableError,
+    EmailNotVerifiedError,
     InvalidCredentialsError,
+    InvalidVerificationTokenError,
+    RateLimitExceededError,
 )
 from app.presentation.api.schemas import (
+    ChangePasswordRequestSchema,
     LoginRequestSchema,
     RegisterRequestSchema,
+    RegistrationPendingSchema,
     UserResponseSchema,
+    VerifyEmailRequestSchema,
 )
 
 ACCESS_COOKIE = "access_token"
@@ -43,12 +55,24 @@ def get_authenticate_use_case() -> AuthenticateUserUseCase:
     raise NotImplementedError("override with a configured use case")
 
 
+def get_verify_email_use_case() -> VerifyEmailUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
 def get_user_repository() -> UserRepository:
     raise NotImplementedError("override with a configured repository")
 
 
 def get_token_service() -> TokenService:
     raise NotImplementedError("override with a configured service")
+
+
+def get_rate_limiter() -> RateLimiter:
+    raise NotImplementedError("override with a configured limiter")
+
+
+def get_change_password_use_case() -> ChangePasswordUseCase:
+    raise NotImplementedError("override with a configured use case")
 
 
 def get_cookie_settings() -> CookieSettings:
@@ -116,6 +140,14 @@ def _clear_session(response: Response) -> None:
     response.delete_cookie(CSRF_COOKIE, path="/")
 
 
+def _login_rate_limit_key(request: Request, email: str) -> str:
+    """Throttle per (client IP, email): one host can't lock out arbitrary accounts, and a
+    single account can't be hammered from one host. Mirrors the use case's email
+    normalization so case/whitespace variants share a bucket."""
+    client_ip = request.client.host if request.client else "unknown"
+    return f"{client_ip}:{email.strip().lower()}"
+
+
 # --- routers ---
 
 public_router = APIRouter()
@@ -129,33 +161,73 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@public_router.post("/auth/register", status_code=201, response_model=UserResponseSchema)
+@public_router.post(
+    "/auth/register", status_code=202, response_model=RegistrationPendingSchema
+)
 def register(
     payload: RegisterRequestSchema,
-    response: Response,
     use_case: RegisterUserUseCase = Depends(get_register_use_case),
-    tokens: TokenService = Depends(get_token_service),
-    settings: CookieSettings = Depends(get_cookie_settings),
-) -> UserResponseSchema:
+) -> RegistrationPendingSchema:
+    """Create an unverified account and email a confirmation link. No session is issued;
+    the workflow is finished by following the link (see /auth/verify-email)."""
     try:
         user = use_case.execute(email=payload.email, password=payload.password)
     except EmailAlreadyRegisteredError as exc:
         raise HTTPException(status_code=409, detail="Email already registered") from exc
-    _issue_session(response, tokens.issue(user.id, user.token_version), settings)
+    except EmailNotDeliverableError as exc:
+        raise HTTPException(status_code=422, detail="Email address is not deliverable") from exc
+    return RegistrationPendingSchema(email=user.email)
+
+
+@public_router.post("/auth/verify-email", response_model=UserResponseSchema)
+def verify_email(
+    payload: VerifyEmailRequestSchema,
+    response: Response,
+    use_case: VerifyEmailUseCase = Depends(get_verify_email_use_case),
+    settings: CookieSettings = Depends(get_cookie_settings),
+) -> UserResponseSchema:
+    """Finish registration: confirm the email from the emailed token, then log the user in
+    by issuing a session (so following the link lands them authenticated)."""
+    try:
+        user, token = use_case.execute(payload.token)
+    except InvalidVerificationTokenError as exc:
+        raise HTTPException(
+            status_code=400, detail="Invalid or expired confirmation link"
+        ) from exc
+    _issue_session(response, token, settings)
     return UserResponseSchema.from_domain(user)
 
 
 @public_router.post("/auth/login", response_model=UserResponseSchema)
 def login(
     payload: LoginRequestSchema,
+    request: Request,
     response: Response,
     use_case: AuthenticateUserUseCase = Depends(get_authenticate_use_case),
     settings: CookieSettings = Depends(get_cookie_settings),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> UserResponseSchema:
+    """Throttled to blunt password brute-forcing: only wrong-credential attempts count
+    toward the limit, and a successful login clears the counter for that (IP, email)."""
+    key = _login_rate_limit_key(request, payload.email)
+    try:
+        limiter.check(key)
+    except RateLimitExceededError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please try again later.",
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
     try:
         user, token = use_case.execute(email=payload.email, password=payload.password)
     except InvalidCredentialsError as exc:
+        limiter.record_failure(key)
         raise HTTPException(status_code=401, detail="Invalid email or password") from exc
+    except EmailNotVerifiedError as exc:
+        raise HTTPException(
+            status_code=403, detail="Please confirm your email address before signing in"
+        ) from exc
+    limiter.reset(key)
     _issue_session(response, token, settings)
     return UserResponseSchema.from_domain(user)
 
@@ -168,3 +240,24 @@ def logout(response: Response) -> None:
 @private_router.get("/auth/me", response_model=UserResponseSchema)
 def me(user: User = Depends(get_current_user)) -> UserResponseSchema:
     return UserResponseSchema.from_domain(user)
+
+
+@private_router.post("/auth/password", status_code=204)
+def change_password(
+    payload: ChangePasswordRequestSchema,
+    response: Response,
+    user: User = Depends(get_current_user),
+    use_case: ChangePasswordUseCase = Depends(get_change_password_use_case),
+    settings: CookieSettings = Depends(get_cookie_settings),
+) -> None:
+    """Change the signed-in user's password. Bumping token_version logs out every other
+    session; a fresh session cookie is re-issued here so the current device stays signed in."""
+    try:
+        _, token = use_case.execute(
+            user_id=user.id,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+        )
+    except InvalidCredentialsError as exc:
+        raise HTTPException(status_code=401, detail="Current password is incorrect") from exc
+    _issue_session(response, token, settings)

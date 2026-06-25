@@ -1,4 +1,4 @@
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, select, update
 from sqlalchemy.orm import Session
 
 from app.application.ports import UserRepository
@@ -21,7 +21,24 @@ class PostgresUserRepository(UserRepository):
                     password_hash=user.password_hash,
                     token_version=user.token_version,
                     created_at=user.created_at,
+                    email_verified=user.email_verified,
                 )
+            )
+            session.commit()
+
+    def mark_email_verified(self, user_id: str) -> None:
+        with Session(self._engine) as session:
+            session.execute(
+                update(UserRow).where(UserRow.id == user_id).values(email_verified=True)
+            )
+            session.commit()
+
+    def update_password(self, user_id: str, password_hash: str, token_version: int) -> None:
+        with Session(self._engine) as session:
+            session.execute(
+                update(UserRow)
+                .where(UserRow.id == user_id)
+                .values(password_hash=password_hash, token_version=token_version)
             )
             session.commit()
 
@@ -43,4 +60,5 @@ class PostgresUserRepository(UserRepository):
             password_hash=row.password_hash,
             token_version=row.token_version,
             created_at=row.created_at,
+            email_verified=row.email_verified,
         )

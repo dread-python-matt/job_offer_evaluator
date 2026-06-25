@@ -32,11 +32,30 @@ class Experience:
 
 
 @dataclass(frozen=True)
+class TaxSituation:
+    """Optional personal tax attributes that refine a net-salary calculation. All default
+    to the baseline assumption (over 26, not a student, PIT-2 filed), so an absent or empty
+    situation reproduces the calculator's default behavior.
+
+    - `under_26`: eligible for *ulga dla młodych* — income tax is waived on umowa o pracę /
+      umowa zlecenie earnings up to the annual youth-relief cap (does not apply to B2B).
+    - `is_student`: a student **under 26** on umowa zlecenie pays no ZUS and no health, so
+      take-home equals gross (no effect on umowa o pracę or B2B).
+    - `applies_tax_credit`: whether the monthly tax-reducing amount (PIT-2) is applied.
+    """
+
+    under_26: bool = False
+    is_student: bool = False
+    applies_tax_credit: bool = True
+
+
+@dataclass(frozen=True)
 class UserProfile:
     summary: str
     skills: list[Skill]
     projects: list[Project]
     experience: list[Experience]
+    tax_situation: TaxSituation = TaxSituation()
 
     def skill_names(self) -> set[str]:
         return {skill.name.lower() for skill in self.skills}

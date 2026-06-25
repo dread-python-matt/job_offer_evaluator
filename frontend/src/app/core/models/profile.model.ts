@@ -21,11 +21,18 @@ export interface Experience {
   tech_stack: string[];
 }
 
+export interface TaxSituation {
+  under_26: boolean;
+  is_student: boolean;
+  applies_tax_credit: boolean;
+}
+
 export interface UserProfile {
   summary: string;
   skills: Skill[];
   projects: Project[];
   experience: Experience[];
+  tax_situation?: TaxSituation;
 }
 
 export interface Salary {
