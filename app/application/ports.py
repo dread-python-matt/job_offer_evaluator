@@ -95,10 +95,27 @@ class ModelUsageRepository(ABC):
     @abstractmethod
     def get_summary(self, user_id: str) -> list[ModelUsageSummary]: ...
 
+    @abstractmethod
+    def usage_since(self, user_id: str, start: datetime) -> list[ModelUsageSummary]:
+        """Per-model token totals for a user since `start` (used for budget accounting)."""
+
 
 class ModelLimitsRegistry(ABC):
     @abstractmethod
     def get_limits(self, model: str) -> ModelLimits | None: ...
+
+
+@dataclass(frozen=True)
+class ModelPrice:
+    """USD price per 1,000,000 tokens, split by input vs output."""
+
+    input_per_million: float
+    output_per_million: float
+
+
+class ModelPricingRegistry(ABC):
+    @abstractmethod
+    def get_price(self, model: str) -> ModelPrice | None: ...
 
 
 class ExternalUsageProvider(ABC):
@@ -118,30 +135,39 @@ class AvailableModelsProvider(ABC):
 
 
 class SpendProvider(ABC):
-    """Reads actual money spent since a given instant. Raises CostUnavailableError
-    when the figure can't be retrieved."""
+    """Reads actual money spent (org-wide) since a given instant. Raises
+    CostUnavailableError when the figure can't be retrieved. Used for the global
+    spend backstop; it cannot be attributed per user."""
 
     @abstractmethod
     def spend_since(self, start: datetime) -> float: ...
 
 
+class UserSpendProvider(ABC):
+    """Computes how much a single user has spent since a given instant. The token
+    accounting implementation derives this from the user's recorded model usage."""
+
+    @abstractmethod
+    def spend_since(self, user_id: str, start: datetime) -> float: ...
+
+
 class BudgetRepository(ABC):
-    """Persists the single budget configuration. `load` returns the stored settings,
+    """Persists each user's budget configuration. `load` returns the stored settings,
     lazily initialising defaults on first use so it always returns a value."""
 
     @abstractmethod
-    def load(self) -> BudgetSettings: ...
+    def load(self, user_id: str) -> BudgetSettings: ...
 
     @abstractmethod
-    def save(self, settings: BudgetSettings) -> None: ...
+    def save(self, user_id: str, settings: BudgetSettings) -> None: ...
 
 
 class BudgetStatusReader(ABC):
-    """Exposes the current budget status to consumers (e.g. the AI match gate) that
-    only need to read it, not change it."""
+    """Exposes a user's current budget status to consumers (e.g. the AI match gate)
+    that only need to read it, not change it."""
 
     @abstractmethod
-    def status(self) -> BudgetStatus: ...
+    def status(self, user_id: str) -> BudgetStatus: ...
 
 
 class AiScoreCacheRepository(ABC):

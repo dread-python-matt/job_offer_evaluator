@@ -53,7 +53,7 @@ from tests.fakes import (
     FakeModelUsageRepository,
     FakeOfferRepository,
     FakeUserProfileRepository,
-    FixedSpendProvider,
+    FixedUserSpendProvider,
     InMemoryBudgetRepository,
     InMemorySelectedModelRepository,
     ScoreByLinkScorer,
@@ -1212,6 +1212,9 @@ _ANCHOR = datetime(2026, 6, 1, tzinfo=timezone.utc)
 def _build_budget_client(limit_usd: float = 5.0, spend_provider=None) -> tuple[TestClient, BudgetService]:
     app = FastAPI()
     app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id="user-1", email="dev@example.com", password_hash="x"
+    )
     repo = InMemoryBudgetRepository(BudgetSettings(limit_usd=limit_usd, tracking_since=_ANCHOR))
     service = BudgetService(repo, spend_provider)
     app.dependency_overrides[get_budget_service] = lambda: service
@@ -1219,7 +1222,7 @@ def _build_budget_client(limit_usd: float = 5.0, spend_provider=None) -> tuple[T
 
 
 def test_get_usage_cost_returns_used_and_limit():
-    client, _ = _build_budget_client(limit_usd=5.0, spend_provider=FixedSpendProvider(2.50))
+    client, _ = _build_budget_client(limit_usd=5.0, spend_provider=FixedUserSpendProvider(2.50))
 
     response = client.get("/usage/cost")
 
@@ -1237,14 +1240,14 @@ def test_get_usage_cost_returns_null_when_spend_unknown():
 
 
 def test_put_usage_limit_sets_the_limit():
-    client, service = _build_budget_client(limit_usd=5.0, spend_provider=FixedSpendProvider(1.0))
+    client, service = _build_budget_client(limit_usd=5.0, spend_provider=FixedUserSpendProvider(1.0))
 
     response = client.put("/usage/limit", json={"limit_usd": 25.0})
 
     assert response.status_code == 200
     assert response.json()["limit_usd"] == 25.0
     assert response.json()["used_usd"] == 1.0
-    assert service.status().limit_usd == 25.0
+    assert service.status("user-1").limit_usd == 25.0
 
 
 def test_put_usage_limit_rejects_negative_limit():
@@ -1256,7 +1259,7 @@ def test_put_usage_limit_rejects_negative_limit():
 
 
 def test_post_usage_reset_moves_the_tracking_anchor_forward():
-    client, service = _build_budget_client(spend_provider=FixedSpendProvider(0.0))
+    client, service = _build_budget_client(spend_provider=FixedUserSpendProvider(0.0))
 
     response = client.post("/usage/reset")
 

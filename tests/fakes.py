@@ -13,6 +13,7 @@ from app.application.ports import (
     TokenService,
     UserProfileRepository,
     UserRepository,
+    UserSpendProvider,
 )
 from app.domain.auth import User
 from app.domain.budget import BudgetSettings
@@ -32,14 +33,34 @@ from app.domain.sorting import sort_offers
 
 
 class InMemoryBudgetRepository(BudgetRepository):
-    def __init__(self, settings: BudgetSettings) -> None:
-        self.settings = settings
+    """Per-user budgets, lazily defaulting to the seed `default` until a user saves."""
 
-    def load(self) -> BudgetSettings:
-        return self.settings
+    def __init__(self, default: BudgetSettings) -> None:
+        self._default = default
+        self._by_user: dict[str, BudgetSettings] = {}
 
-    def save(self, settings: BudgetSettings) -> None:
-        self.settings = settings
+    def load(self, user_id: str) -> BudgetSettings:
+        return self._by_user.get(user_id, self._default)
+
+    def save(self, user_id: str, settings: BudgetSettings) -> None:
+        self._by_user[user_id] = settings
+
+
+class FixedUserSpendProvider(UserSpendProvider):
+    """Returns a fixed per-user spend and records what it was asked about (so caching
+    and per-user behaviour can be asserted)."""
+
+    def __init__(self, amount: float) -> None:
+        self.amount = amount
+        self.requested_start: datetime | None = None
+        self.requested_user: str | None = None
+        self.calls = 0
+
+    def spend_since(self, user_id: str, start: datetime) -> float:
+        self.calls += 1
+        self.requested_start = start
+        self.requested_user = user_id
+        return self.amount
 
 
 class InMemorySelectedModelRepository(SelectedModelRepository):
@@ -127,6 +148,9 @@ class FakeModelUsageRepository(ModelUsageRepository):
 
     def get_summary(self, user_id: str) -> list[ModelUsageSummary]:
         # Tests seed a fixed summary list; the user filter is exercised in integration.
+        return self._summaries
+
+    def usage_since(self, user_id: str, start) -> list[ModelUsageSummary]:
         return self._summaries
 
 

@@ -46,6 +46,7 @@ from app.domain.auth import User
 from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
 from app.infrastructure.caching_available_models_provider import CachingAvailableModelsProvider
+from app.infrastructure.composite_budget_status_reader import CompositeBudgetStatusReader
 from app.infrastructure.db import build_engine
 from app.infrastructure.composite_available_models_provider import CompositeAvailableModelsProvider
 from app.infrastructure.agent_models import build_chat_model
@@ -56,6 +57,9 @@ from app.infrastructure.llm_provider_factory import build_llm_provider_factory
 from app.infrastructure.llm_scoring_strategy import LLMScoringStrategy
 from app.infrastructure.openai_available_models_provider import OpenAIAvailableModelsProvider
 from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
+from app.infrastructure.model_pricing_registry import HardcodedModelPricingRegistry
+from app.infrastructure.org_spend_backstop import OrgSpendBackstop
+from app.infrastructure.token_accounting_spend_provider import TokenAccountingSpendProvider
 from app.infrastructure.offer_filters import (
     ExpiredFilter,
     LevelFilter,
@@ -135,11 +139,21 @@ _in_memory_tracker = InMemoryModelUsageTracker()
 _ai_score_repository = PostgresAiScoreRepository(_engine)
 _selected_model_repository = PostgresSelectedModelRepository(_engine)
 _budget_repository = PostgresBudgetRepository(_engine, default_limit_usd=DEFAULT_BUDGET_USD)
+# A user's budget is enforced from their own recorded token usage priced by the registry.
+_user_spend_provider = TokenAccountingSpendProvider(
+    model_usage_repository, HardcodedModelPricingRegistry()
+)
 _budget_service = BudgetService(
     _budget_repository,
-    _llm_factory.build_spend_provider(),
+    _user_spend_provider,
     cache_ttl_seconds=BUDGET_SPEND_CACHE_TTL_SECONDS,
 )
+# AI matches are gated by the user's token budget plus a global org-spend backstop that
+# protects the owner's actual provider bill (active only when an admin key is configured).
+_budget_gate = CompositeBudgetStatusReader([
+    _budget_service,
+    OrgSpendBackstop(_llm_factory.build_spend_provider(), DEFAULT_BUDGET_USD),
+])
 
 _user_repository = PostgresUserRepository(_engine)
 _password_hasher = Argon2PasswordHasher()
@@ -186,7 +200,7 @@ def _build_ai_use_case(model: str) -> MatchOffersWithAiUseCase:
         ai_scorer,
         usage_tracker=_in_memory_tracker,
         usage_repository=model_usage_repository,
-        budget=_budget_service,
+        budget=_budget_gate,
         max_concurrency=AI_MATCH_CONCURRENCY,
         fail_closed=BUDGET_FAIL_CLOSED,
     )

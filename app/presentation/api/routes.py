@@ -247,9 +247,10 @@ def select_model(
 
 @router.get("/usage/cost", response_model=UsageCostSchema | None)
 def get_usage_cost(
+    user: User = Depends(get_current_user),
     service: BudgetService = Depends(get_budget_service),
 ) -> UsageCostSchema | None:
-    status = service.status()
+    status = service.status(user.id)
     if status.used_usd is None:
         return None
     return UsageCostSchema(cost_usd=status.used_usd, limit_usd=status.limit_usd)
@@ -258,16 +259,18 @@ def get_usage_cost(
 @router.put("/usage/limit", response_model=BudgetSchema)
 def set_usage_limit(
     payload: SetBudgetLimitRequestSchema,
+    user: User = Depends(get_current_user),
     service: BudgetService = Depends(get_budget_service),
 ) -> BudgetSchema:
-    return BudgetSchema.from_domain(service.set_limit(payload.limit_usd))
+    return BudgetSchema.from_domain(service.set_limit(user.id, payload.limit_usd))
 
 
 @router.post("/usage/reset", response_model=BudgetSchema)
 def reset_usage(
+    user: User = Depends(get_current_user),
     service: BudgetService = Depends(get_budget_service),
 ) -> BudgetSchema:
-    return BudgetSchema.from_domain(service.reset_usage())
+    return BudgetSchema.from_domain(service.reset_usage(user.id))
 
 
 @router.get("/usage/summary", response_model=list[ModelUsageSummaryItemSchema])

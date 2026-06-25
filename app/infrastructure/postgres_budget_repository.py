@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from datetime import datetime, timezone
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.application.ports import BudgetRepository
@@ -15,11 +15,9 @@ def _utc_now() -> datetime:
 
 
 class PostgresBudgetRepository(BudgetRepository):
-    """Stores the budget in a single row (id=1). On first load it lazily seeds the
-    default limit and anchors usage tracking to 'now', then persists the choice so it
-    survives restarts."""
-
-    _ROW_ID = 1
+    """Stores each user's budget in one row (keyed by user_id). On a user's first load
+    it lazily seeds the default limit and anchors usage tracking to 'now', then persists
+    the choice so it survives restarts."""
 
     def __init__(
         self,
@@ -32,12 +30,12 @@ class PostgresBudgetRepository(BudgetRepository):
         self._default_limit_usd = default_limit_usd
         self._clock = clock
 
-    def load(self) -> BudgetSettings:
+    def load(self, user_id: str) -> BudgetSettings:
         with Session(self._engine) as session:
-            row = session.get(BudgetRow, self._ROW_ID)
+            row = session.scalar(select(BudgetRow).where(BudgetRow.user_id == user_id))
             if row is None:
                 row = BudgetRow(
-                    id=self._ROW_ID,
+                    user_id=user_id,
                     limit_usd=self._default_limit_usd,
                     tracking_since=self._clock(),
                 )
@@ -49,11 +47,11 @@ class PostgresBudgetRepository(BudgetRepository):
                 tracking_since=row.tracking_since,
             )
 
-    def save(self, settings: BudgetSettings) -> None:
+    def save(self, user_id: str, settings: BudgetSettings) -> None:
         with Session(self._engine) as session:
-            row = session.get(BudgetRow, self._ROW_ID)
+            row = session.scalar(select(BudgetRow).where(BudgetRow.user_id == user_id))
             if row is None:
-                row = BudgetRow(id=self._ROW_ID)
+                row = BudgetRow(user_id=user_id)
                 session.add(row)
             row.limit_usd = settings.limit_usd
             row.tracking_since = settings.tracking_since

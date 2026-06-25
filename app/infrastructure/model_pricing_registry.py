@@ -1,0 +1,32 @@
+from app.application.ports import ModelPrice, ModelPricingRegistry
+
+# USD per 1,000,000 tokens (input, output), keyed by model-id prefix so dated snapshots
+# (e.g. gpt-4o-2024-08-06) inherit their family's price. Longest prefix wins. Approximate
+# public list prices — good enough for a budget guard, not invoicing.
+_PRICES: list[tuple[str, ModelPrice]] = [
+    ("gpt-4o-mini", ModelPrice(0.15, 0.60)),
+    ("gpt-4o", ModelPrice(2.50, 10.00)),
+    ("gpt-4.1-nano", ModelPrice(0.10, 0.40)),
+    ("gpt-4.1-mini", ModelPrice(0.40, 1.60)),
+    ("gpt-4.1", ModelPrice(2.00, 8.00)),
+    ("gpt-5", ModelPrice(1.25, 10.00)),
+    ("o1-mini", ModelPrice(1.10, 4.40)),
+    ("o1", ModelPrice(15.00, 60.00)),
+    ("o3-mini", ModelPrice(1.10, 4.40)),
+    ("o3", ModelPrice(2.00, 8.00)),
+    ("o4-mini", ModelPrice(1.10, 4.40)),
+    ("gemini-2.0-flash", ModelPrice(0.10, 0.40)),
+    ("gemini-1.5-flash", ModelPrice(0.075, 0.30)),
+    ("gemini-1.5-pro", ModelPrice(1.25, 5.00)),
+    ("gemini-2.5-pro", ModelPrice(1.25, 10.00)),
+    ("gemini-2.5-flash", ModelPrice(0.30, 2.50)),
+]
+
+
+class HardcodedModelPricingRegistry(ModelPricingRegistry):
+    def get_price(self, model: str) -> ModelPrice | None:
+        best: tuple[str, ModelPrice] | None = None
+        for prefix, price in _PRICES:
+            if model.startswith(prefix) and (best is None or len(prefix) > len(best[0])):
+                best = (prefix, price)
+        return best[1] if best is not None else None

@@ -39,6 +39,11 @@ cd frontend && npm test
 - Frontend: `core/services/auth.service.ts`, `core/interceptors/auth.interceptor.ts` (sends cookies + CSRF header, redirects to /login on 401), `core/guards/auth.guard.ts`.
 - Required env: `JWT_SECRET` (override the dev default in prod). Cross-site prod also needs `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`.
 
+## Multi-tenancy
+- The app is multi-tenant: per-user profile, selected model, usage, and budget. Routes resolve `user: User = Depends(get_current_user)` and pass `user.id` into use cases; app-owned tables (`user_profile`, `selected_model`, `model_usage`, `budget`) carry a `user_id` FK (migrations 0006–0009). `AiScoringContext` resolves each user's model and caches use-cases per-model.
+- Per-user budgets are enforced from the user's own recorded token usage priced by `HardcodedModelPricingRegistry` (`TokenAccountingSpendProvider`), composed with a global org-spend backstop for AI matches.
+- Note: repo constructors `create_all` their table but do NOT add columns to a pre-existing table — apply Alembic migrations (or rebuild) when a column is added.
+
 ## Required Skills
 
  /tdd

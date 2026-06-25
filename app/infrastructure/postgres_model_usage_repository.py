@@ -27,17 +27,26 @@ class PostgresModelUsageRepository(ModelUsageRepository):
             session.commit()
 
     def get_summary(self, user_id: str) -> list[ModelUsageSummary]:
+        return self._aggregate(user_id, since=None)
+
+    def usage_since(self, user_id: str, start: datetime) -> list[ModelUsageSummary]:
+        return self._aggregate(user_id, since=start)
+
+    def _aggregate(self, user_id: str, since: datetime | None) -> list[ModelUsageSummary]:
+        query = (
+            select(
+                ModelUsageRow.company,
+                ModelUsageRow.model,
+                func.sum(ModelUsageRow.input_tokens).label("input_tokens"),
+                func.sum(ModelUsageRow.output_tokens).label("output_tokens"),
+            )
+            .where(ModelUsageRow.user_id == user_id)
+            .group_by(ModelUsageRow.company, ModelUsageRow.model)
+        )
+        if since is not None:
+            query = query.where(ModelUsageRow.created_at >= since)
         with Session(self._engine) as session:
-            rows = session.execute(
-                select(
-                    ModelUsageRow.company,
-                    ModelUsageRow.model,
-                    func.sum(ModelUsageRow.input_tokens).label("input_tokens"),
-                    func.sum(ModelUsageRow.output_tokens).label("output_tokens"),
-                )
-                .where(ModelUsageRow.user_id == user_id)
-                .group_by(ModelUsageRow.company, ModelUsageRow.model)
-            ).all()
+            rows = session.execute(query).all()
 
         return [
             ModelUsageSummary(

@@ -125,12 +125,16 @@ class ModelUsageRow(Base):
 
 
 class BudgetRow(Base):
-    """Single-row table holding the spend budget. The usage anchor (`tracking_since`)
-    only moves on an explicit reset, so accrued usage never resets automatically."""
+    """Each user's spend budget. `user_id` is a unique FK to users. The usage anchor
+    (`tracking_since`) only moves on an explicit reset, so accrued usage never resets
+    automatically."""
 
     __tablename__ = "budget"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), unique=True, index=True
+    )
     limit_usd: Mapped[Decimal] = mapped_column(Numeric)
     tracking_since: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
