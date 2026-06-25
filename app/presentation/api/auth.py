@@ -12,6 +12,7 @@ from app.application.auth_use_cases import (
     VerifyEmailUseCase,
 )
 from app.application.ports import RateLimiter, TokenService, UserRepository
+from app.application.refresh_tokens import InvalidRefreshTokenError, RefreshTokenService
 from app.domain.auth import User
 from app.domain.errors import (
     AuthenticationError,
@@ -36,7 +37,11 @@ from app.presentation.api.schemas import (
 )
 
 ACCESS_COOKIE = "access_token"
+REFRESH_COOKIE = "refresh_token"
 CSRF_COOKIE = "csrf_token"
+# The refresh cookie is scoped to /auth so it reaches /auth/refresh (to rotate) and
+# /auth/logout (to revoke) but never the app's data routes.
+REFRESH_PATH = "/auth"
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
 
@@ -70,6 +75,10 @@ def get_user_repository() -> UserRepository:
 
 
 def get_token_service() -> TokenService:
+    raise NotImplementedError("override with a configured service")
+
+
+def get_refresh_token_service() -> RefreshTokenService:
     raise NotImplementedError("override with a configured service")
 
 
@@ -149,9 +158,22 @@ def _issue_session(response: Response, token: str, settings: CookieSettings) -> 
     )
 
 
+def _set_refresh_cookie(response: Response, refresh_token: str, settings: CookieSettings) -> None:
+    response.set_cookie(
+        REFRESH_COOKIE,
+        refresh_token,
+        max_age=settings.max_age,
+        httponly=True,
+        secure=settings.secure,
+        samesite=settings.samesite,
+        path=REFRESH_PATH,
+    )
+
+
 def _clear_session(response: Response) -> None:
     response.delete_cookie(ACCESS_COOKIE, path="/")
     response.delete_cookie(CSRF_COOKIE, path="/")
+    response.delete_cookie(REFRESH_COOKIE, path=REFRESH_PATH)
 
 
 def _login_rate_limit_key(request: Request, email: str) -> str:
@@ -206,6 +228,7 @@ def verify_email(
     response: Response,
     use_case: VerifyEmailUseCase = Depends(get_verify_email_use_case),
     settings: CookieSettings = Depends(get_cookie_settings),
+    refresh_service: RefreshTokenService = Depends(get_refresh_token_service),
 ) -> UserResponseSchema:
     """Finish registration: confirm the email from the emailed token, then log the user in
     by issuing a session (so following the link lands them authenticated)."""
@@ -216,6 +239,7 @@ def verify_email(
             status_code=400, detail="Invalid or expired confirmation link"
         ) from exc
     _issue_session(response, token, settings)
+    _set_refresh_cookie(response, refresh_service.issue(user.id), settings)
     return UserResponseSchema.from_domain(user)
 
 
@@ -227,6 +251,7 @@ def login(
     use_case: AuthenticateUserUseCase = Depends(get_authenticate_use_case),
     settings: CookieSettings = Depends(get_cookie_settings),
     limiter: RateLimiter = Depends(get_rate_limiter),
+    refresh_service: RefreshTokenService = Depends(get_refresh_token_service),
 ) -> UserResponseSchema:
     """Throttled to blunt password brute-forcing: only wrong-credential attempts count
     toward the limit, and a successful login clears the counter for that (IP, email)."""
@@ -250,6 +275,7 @@ def login(
         ) from exc
     limiter.reset(key)
     _issue_session(response, token, settings)
+    _set_refresh_cookie(response, refresh_service.issue(user.id), settings)
     return UserResponseSchema.from_domain(user)
 
 
@@ -284,6 +310,7 @@ def reset_password(
     response: Response,
     use_case: ResetPasswordUseCase = Depends(get_reset_password_use_case),
     settings: CookieSettings = Depends(get_cookie_settings),
+    refresh_service: RefreshTokenService = Depends(get_refresh_token_service),
 ) -> UserResponseSchema:
     """Set a new password from the emailed token. Invalidates other sessions and issues a
     fresh one, so following the link lands the user signed in."""
@@ -291,12 +318,52 @@ def reset_password(
         user, token = use_case.execute(payload.token, new_password=payload.new_password)
     except InvalidPasswordResetTokenError as exc:
         raise HTTPException(status_code=400, detail="Invalid or expired reset link") from exc
+    refresh_service.revoke_user(user.id)  # the password change invalidates other devices' refresh
     _issue_session(response, token, settings)
+    _set_refresh_cookie(response, refresh_service.issue(user.id), settings)
+    return UserResponseSchema.from_domain(user)
+
+
+@public_router.post("/auth/refresh", response_model=UserResponseSchema)
+def refresh_session(
+    request: Request,
+    response: Response,
+    refresh_service: RefreshTokenService = Depends(get_refresh_token_service),
+    tokens: TokenService = Depends(get_token_service),
+    users: UserRepository = Depends(get_user_repository),
+    settings: CookieSettings = Depends(get_cookie_settings),
+) -> UserResponseSchema:
+    """Exchange a valid refresh token for a fresh access token, rotating the refresh token.
+    Reuse of an already-rotated token revokes the whole family (in the service) and is
+    reported as 401. No CSRF guard is needed: the refresh cookie is httpOnly + SameSite, so
+    a cross-site page cannot drive this endpoint."""
+    raw = request.cookies.get(REFRESH_COOKIE)
+    if not raw:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        user_id, new_refresh = refresh_service.rotate(raw)
+    except InvalidRefreshTokenError as exc:
+        _clear_session(response)
+        raise HTTPException(status_code=401, detail="Not authenticated") from exc
+    user = users.get_by_id(user_id)
+    if user is None:
+        _clear_session(response)
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    _issue_session(response, tokens.issue(user.id, user.token_version), settings)
+    _set_refresh_cookie(response, new_refresh, settings)
     return UserResponseSchema.from_domain(user)
 
 
 @private_router.post("/auth/logout", status_code=204)
-def logout(response: Response) -> None:
+def logout(
+    request: Request,
+    response: Response,
+    refresh_service: RefreshTokenService = Depends(get_refresh_token_service),
+) -> None:
+    """Revoke this device's refresh-token family, then clear the session cookies."""
+    raw = request.cookies.get(REFRESH_COOKIE)
+    if raw:
+        refresh_service.revoke(raw)
     _clear_session(response)
 
 
@@ -312,6 +379,7 @@ def change_password(
     user: User = Depends(get_current_user),
     use_case: ChangePasswordUseCase = Depends(get_change_password_use_case),
     settings: CookieSettings = Depends(get_cookie_settings),
+    refresh_service: RefreshTokenService = Depends(get_refresh_token_service),
 ) -> None:
     """Change the signed-in user's password. Bumping token_version logs out every other
     session; a fresh session cookie is re-issued here so the current device stays signed in."""
@@ -323,4 +391,6 @@ def change_password(
         )
     except InvalidCredentialsError as exc:
         raise HTTPException(status_code=401, detail="Current password is incorrect") from exc
+    refresh_service.revoke_user(user.id)  # other devices' refresh tokens die with the password
     _issue_session(response, token, settings)
+    _set_refresh_cookie(response, refresh_service.issue(user.id), settings)

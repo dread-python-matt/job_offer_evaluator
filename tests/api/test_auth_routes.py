@@ -12,6 +12,7 @@ from app.application.auth_use_cases import (
     ResetPasswordUseCase,
     VerifyEmailUseCase,
 )
+from app.application.refresh_tokens import RefreshTokenService
 from app.infrastructure.in_memory_rate_limiter import InMemoryRateLimiter
 from app.presentation.api.auth import (
     CookieSettings,
@@ -20,6 +21,7 @@ from app.presentation.api.auth import (
     get_change_password_use_case,
     get_current_user,
     get_rate_limiter,
+    get_refresh_token_service,
     get_register_use_case,
     get_request_password_reset_use_case,
     get_reset_password_use_case,
@@ -36,6 +38,7 @@ from tests.fakes import (
     FakeEmailValidator,
     FakePasswordHasher,
     FakePasswordResetTokenService,
+    FakeRefreshTokenRepository,
     FakeTokenService,
     FakeUserRepository,
     FakeVerificationTokenService,
@@ -110,6 +113,8 @@ def _build_app() -> _Ctx:
     app.dependency_overrides[get_reset_password_use_case] = lambda: ResetPasswordUseCase(
         users, reset_tokens, hasher, tokens
     )
+    refresh_service = RefreshTokenService(FakeRefreshTokenRepository(), ttl=timedelta(days=14))
+    app.dependency_overrides[get_refresh_token_service] = lambda: refresh_service
     return _Ctx(app, users, sender)
 
 
@@ -421,6 +426,68 @@ def test_change_password_requires_authentication():
     )
 
     assert response.status_code == 401
+
+
+# --- token refresh ---
+
+
+def test_login_issues_a_refresh_cookie():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+    _register_and_verify(client, ctx.sender)
+    client.cookies.clear()
+
+    client.post("/auth/login", json={"email": "dev@example.com", "password": _PASSWORD})
+
+    assert client.cookies.get("refresh_token")
+
+
+def test_refresh_rotates_the_token_and_returns_the_user():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+    _register_and_verify(client, ctx.sender)
+    before = client.cookies.get("refresh_token")
+
+    response = client.post("/auth/refresh")
+
+    assert response.status_code == 200
+    assert response.json()["email"] == "dev@example.com"
+    assert client.cookies.get("refresh_token") != before  # the refresh token rotated
+
+
+def test_refresh_without_a_cookie_is_unauthorized():
+    client = TestClient(_build_app().app)
+
+    assert client.post("/auth/refresh").status_code == 401
+
+
+def test_replaying_a_rotated_refresh_token_is_rejected():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+    _register_and_verify(client, ctx.sender)
+    old_refresh = client.cookies.get("refresh_token")
+
+    assert client.post("/auth/refresh").status_code == 200  # consumes old_refresh
+
+    # Replaying the now-consumed token is reuse → 401 (and burns the family).
+    replay = TestClient(ctx.app)
+    replay.cookies.set("refresh_token", old_refresh)
+    assert replay.post("/auth/refresh").status_code == 401
+
+
+def test_logout_revokes_the_refresh_token_family():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+    _register_and_verify(client, ctx.sender)
+    refresh = client.cookies.get("refresh_token")
+    csrf = client.cookies.get("csrf_token")
+
+    assert client.post("/auth/logout", headers={"X-CSRF-Token": csrf}).status_code == 204
+
+    # The family was revoked server-side, so the captured refresh token no longer rotates.
+    replay = TestClient(ctx.app)
+    replay.cookies.set("refresh_token", refresh)
+    assert replay.post("/auth/refresh").status_code == 401
 
 
 # --- forgot / reset password ---

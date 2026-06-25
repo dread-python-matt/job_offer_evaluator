@@ -20,6 +20,7 @@ from app.application.ports import (
     UserSpendProvider,
     VerificationTokenService,
 )
+from app.application.refresh_tokens import RefreshTokenRecord, RefreshTokenRepository
 from app.domain.auth import User
 from app.domain.budget import BudgetSettings
 from app.domain.entities import Offer, UserProfile
@@ -189,6 +190,28 @@ class FakeUserRepository(UserRepository):
         user = self._by_id.get(user_id)
         if user is not None:
             self.add(replace(user, password_hash=password_hash, token_version=token_version))
+
+
+class FakeRefreshTokenRepository(RefreshTokenRepository):
+    """In-memory refresh-token store keyed by record id, with hash/family/user lookups."""
+
+    def __init__(self) -> None:
+        self.records: dict[str, RefreshTokenRecord] = {}
+
+    def add(self, record: RefreshTokenRecord) -> None:
+        self.records[record.id] = record
+
+    def get_by_hash(self, token_hash: str) -> RefreshTokenRecord | None:
+        return next((r for r in self.records.values() if r.token_hash == token_hash), None)
+
+    def mark_consumed(self, token_id: str, consumed_at: datetime) -> None:
+        self.records[token_id] = replace(self.records[token_id], consumed_at=consumed_at)
+
+    def revoke_family(self, family_id: str) -> None:
+        self.records = {i: r for i, r in self.records.items() if r.family_id != family_id}
+
+    def revoke_user(self, user_id: str) -> None:
+        self.records = {i: r for i, r in self.records.items() if r.user_id != user_id}
 
 
 class FakeEmailValidator(EmailValidator):

@@ -9,6 +9,11 @@
   z-index: 10;
   gap: 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  // `color="primary"` is a no-op under Material 3, which left the bar on the default
+  // surface with white brand text (invisible). Give it a soft, themed background via the
+  // toolbar's own tokens — a light primary tint that matches the page-header accents.
+  --mat-toolbar-container-background-color: var(--mat-sys-primary-container);
+  --mat-toolbar-container-text-color: var(--mat-sys-on-primary-container);
 }
 
 .brand-icon {
@@ -19,7 +24,8 @@
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--mat-sys-primary);
+  color: white;
 
   mat-icon {
     font-size: 26px;
@@ -32,7 +38,7 @@
   font-size: 1.3rem;
   font-weight: 600;
   letter-spacing: 0.2px;
-  color: white;
+  color: var(--mat-sys-on-primary-container);
 }
 
 .toolbar-spacer {
@@ -40,7 +46,7 @@
 }
 
 .user-email {
-  color: rgba(255, 255, 255, 0.9);
+  color: color-mix(in srgb, var(--mat-sys-on-primary-container) 80%, transparent);
   font-size: 0.9rem;
   margin-right: 4px;
 }

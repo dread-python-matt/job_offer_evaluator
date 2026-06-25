@@ -16,6 +16,7 @@ from app.application.auth_use_cases import (
 )
 from app.application.budget_service import BudgetService
 from app.application.ports import InMemoryModelUsageTracker
+from app.application.refresh_tokens import RefreshTokenService
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     CountOffersUseCase,
@@ -28,6 +29,7 @@ from app.application.use_cases import (
     SaveUserProfileUseCase,
 )
 from app.config import (
+    ACCESS_TOKEN_TTL_MINUTES,
     AI_MATCH_CONCURRENCY,
     APP_BASE_URL,
     BUDGET_FAIL_CLOSED,
@@ -53,7 +55,7 @@ from app.config import (
     OPENAI_API_KEY,
     PASSWORD_RESET_TTL_HOURS,
     PORT,
-    SESSION_TTL_DAYS,
+    REFRESH_TOKEN_TTL_DAYS,
     SMTP_HOST,
     SMTP_PASSWORD,
     SMTP_PORT,
@@ -93,6 +95,7 @@ from app.infrastructure.postgres_model_usage_repository import PostgresModelUsag
 from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
 from app.infrastructure.postgres_selected_model_repository import PostgresSelectedModelRepository
 from app.infrastructure.postgres_user_profile_repository import PostgresUserProfileRepository
+from app.infrastructure.postgres_refresh_token_repository import PostgresRefreshTokenRepository
 from app.infrastructure.postgres_user_repository import PostgresUserRepository
 from app.infrastructure.argon2_password_hasher import Argon2PasswordHasher
 from app.infrastructure.console_email_sender import ConsoleEmailSender
@@ -125,6 +128,7 @@ from app.presentation.api.auth import (
     get_cookie_settings,
     get_current_user,
     get_rate_limiter,
+    get_refresh_token_service,
     get_register_use_case,
     get_request_password_reset_use_case,
     get_reset_password_use_case,
@@ -187,7 +191,7 @@ _budget_gate = CompositeBudgetStatusReader([
 
 _user_repository = PostgresUserRepository(_engine)
 _password_hasher = Argon2PasswordHasher()
-_token_service = JwtTokenService(JWT_SECRET, ttl=timedelta(days=SESSION_TTL_DAYS))
+_token_service = JwtTokenService(JWT_SECRET, ttl=timedelta(minutes=ACCESS_TOKEN_TTL_MINUTES))
 # Email confirmation: unverified accounts receive a single-purpose token by email; following
 # the link verifies the account and logs the user in (see /auth/verify-email).
 _verification_token_service = JwtVerificationTokenService(
@@ -247,7 +251,15 @@ _reset_password_use_case = ResetPasswordUseCase(
     _user_repository, _password_reset_token_service, _password_hasher, _token_service
 )
 _cookie_settings = CookieSettings(
-    secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=SESSION_TTL_DAYS * 24 * 3600
+    secure=COOKIE_SECURE,
+    samesite=COOKIE_SAMESITE,
+    max_age=REFRESH_TOKEN_TTL_DAYS * 24 * 3600,
+)
+# Rotating, reuse-detecting refresh tokens (RFC 9700): the short-lived access token is
+# exchanged at /auth/refresh for a fresh one; replaying a consumed token burns the family.
+_refresh_token_service = RefreshTokenService(
+    PostgresRefreshTokenRepository(_engine),
+    ttl=timedelta(days=REFRESH_TOKEN_TTL_DAYS),
 )
 # Brute-force throttle for /auth/login. In-memory: single-worker correct; a multi-worker
 # deploy (WORKERS>1) needs a shared store (Redis) — swap the adapter, the port stays.
@@ -365,6 +377,7 @@ app.dependency_overrides[get_authenticate_use_case] = lambda: _authenticate_use_
 app.dependency_overrides[get_verify_email_use_case] = lambda: _verify_email_use_case
 app.dependency_overrides[get_user_repository] = lambda: _user_repository
 app.dependency_overrides[get_token_service] = lambda: _token_service
+app.dependency_overrides[get_refresh_token_service] = lambda: _refresh_token_service
 app.dependency_overrides[get_cookie_settings] = lambda: _cookie_settings
 app.dependency_overrides[get_rate_limiter] = lambda: _rate_limiter
 app.dependency_overrides[get_change_password_use_case] = lambda: _change_password_use_case

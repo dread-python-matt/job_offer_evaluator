@@ -1,6 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { Observable, catchError, of, tap } from 'rxjs';
+import { Observable, catchError, finalize, of, shareReplay, tap } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import {
@@ -20,6 +20,10 @@ export class AuthService {
   readonly currentUser = this._currentUser.asReadonly();
   readonly isAuthenticated = computed(() => this._currentUser() !== null);
 
+  // A single in-flight /auth/refresh shared by all callers, so concurrent 401s trigger one
+  // rotation instead of racing each other.
+  private refresh$: Observable<AuthUser> | null = null;
+
   register(payload: RegisterRequest): Observable<AuthUser> {
     return this.http
       .post<AuthUser>(`${this.baseUrl}/auth/register`, payload)
@@ -36,6 +40,19 @@ export class AuthService {
     return this.http
       .post<void>(`${this.baseUrl}/auth/logout`, {})
       .pipe(tap(() => this._currentUser.set(null)));
+  }
+
+  /** Exchange the refresh-token cookie for a new access token, rotating the refresh token.
+   * Concurrent callers share one in-flight request. */
+  refreshSession(): Observable<AuthUser> {
+    this.refresh$ ??= this.http.post<AuthUser>(`${this.baseUrl}/auth/refresh`, {}).pipe(
+      tap((user) => this._currentUser.set(user)),
+      finalize(() => {
+        this.refresh$ = null;
+      }),
+      shareReplay(1),
+    );
+    return this.refresh$;
   }
 
   /** Change the signed-in user's password. The server re-issues this device's session
@@ -63,10 +80,16 @@ export class AuthService {
   loadCurrentUser(): Observable<AuthUser | null> {
     return this.http.get<AuthUser>(`${this.baseUrl}/auth/me`).pipe(
       tap((user) => this._currentUser.set(user)),
-      catchError(() => {
-        this._currentUser.set(null);
-        return of(null);
-      }),
+      // On reload with an expired access token, fall back to a refresh so a still-valid
+      // refresh cookie keeps the user signed in instead of silently logging them out.
+      catchError(() =>
+        this.refreshSession().pipe(
+          catchError(() => {
+            this._currentUser.set(null);
+            return of(null);
+          }),
+        ),
+      ),
     );
   }
 

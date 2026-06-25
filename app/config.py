@@ -46,6 +46,11 @@ AI_MATCH_CONCURRENCY = int(os.environ.get("AI_MATCH_CONCURRENCY", "10"))
 # secret lets anyone forge sessions). The dev default keeps local setup zero-config.
 JWT_SECRET = os.environ.get("JWT_SECRET", "dev-insecure-change-me-0123456789abcdef")
 SESSION_TTL_DAYS = int(os.environ.get("SESSION_TTL_DAYS", "7"))
+# Access tokens are short-lived; a long-lived refresh token (rotated + reuse-detected) is
+# exchanged at /auth/refresh for a fresh access token, limiting how long a stolen access
+# token stays usable. The refresh TTL also bounds the cookie lifetime.
+ACCESS_TOKEN_TTL_MINUTES = int(os.environ.get("ACCESS_TOKEN_TTL_MINUTES", "15"))
+REFRESH_TOKEN_TTL_DAYS = int(os.environ.get("REFRESH_TOKEN_TTL_DAYS", "14"))
 # Login brute-force throttle: wrong-credential attempts allowed per (client IP, email)
 # within the window before /auth/login returns 429. In-memory and per-process, so this is
 # single-worker correct; a multi-worker deploy (WORKERS>1) needs a shared store.
