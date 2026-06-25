@@ -21,10 +21,15 @@ export interface Experience {
   tech_stack: string[];
 }
 
+export type B2BTaxForm = 'ryczalt_12' | 'ryczalt_8_5' | 'liniowy' | 'skala';
+export type ZusScheme = 'duzy_zus' | 'preferential' | 'ulga_na_start';
+
 export interface TaxSituation {
   under_26: boolean;
   is_student: boolean;
   applies_tax_credit: boolean;
+  b2b_tax_form: B2BTaxForm;
+  b2b_zus_scheme: ZusScheme;
 }
 
 export interface UserProfile {

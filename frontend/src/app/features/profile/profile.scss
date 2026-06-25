@@ -21,6 +21,10 @@
   --accent: #15803d;
 }
 
+.section--tax {
+  --accent: var(--mat-sys-secondary);
+}
+
 .section-avatar {
   display: flex;
   align-items: center;
@@ -273,13 +277,22 @@ textarea[matInput] {
   gap: 8px;
 }
 
-.tax-summary {
-  margin: 0;
-  padding-left: 20px;
+.tax-b2b {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 16px;
 
-  li {
-    margin: 2px 0;
+  mat-form-field {
+    flex: 1 1 220px;
   }
+}
+
+.tax-b2b-hint {
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  font-size: 0.85rem;
+  opacity: 0.7;
 }
 
 .spin {

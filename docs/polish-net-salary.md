@@ -206,11 +206,13 @@ through `SalaryCalculator.calculate(..., situation=...)` and exposed on the user
 1. **Under‑26 youth relief** → zero PIT on UoP/zlecenie up to the (monthly‑approximated) cap.
 2. **Student + under‑26 on zlecenie** → zero ZUS + health (net = gross).
 3. **PIT‑2 toggle** (`applies_tax_credit`) → governs the 300 zł/mo tax‑reducing amount.
+4. **B2B tax form** (`b2b_tax_form`: ryczałt 12% · ryczałt 8.5% · liniowy 19% · skala) and
+   **ZUS scheme** (`b2b_zus_scheme`: duży ZUS · preferential · ulga na start).
 
-**Not yet modelled:**
-4. **B2B tax‑form choice** (ryczałt 8.5% vs 12% vs liniowy vs IP Box) and **ZUS scheme**
-   (preferential / Mały ZUS Plus) — currently hardcoded to ryczałt‑12% + duży ZUS. The
-   `TaxSituation` VO is built to extend with these without reworking the calculator.
+**Not yet modelled** (the `TaxSituation` VO extends without reworking the calculator):
+5. **Mały ZUS Plus** (needs prior‑year income) and **IP Box 5%** (qualified‑IP share; 2026 legal
+   flux). The monthly‑constant approximation also applies annual thresholds (32% bracket, youth
+   cap, pension cap) as ÷12.
 
 ---
 

@@ -184,6 +184,8 @@ def test_profile_round_trips_optional_tax_situation():
         "under_26": True,
         "is_student": True,
         "applies_tax_credit": False,
+        "b2b_tax_form": "ryczalt_12",
+        "b2b_zus_scheme": "duzy_zus",
     }
 
 
@@ -197,7 +199,22 @@ def test_profile_defaults_tax_situation_when_omitted():
         "under_26": False,
         "is_student": False,
         "applies_tax_credit": True,
+        "b2b_tax_form": "ryczalt_12",
+        "b2b_zus_scheme": "duzy_zus",
     }
+
+
+def test_profile_round_trips_b2b_tax_settings():
+    client = _build_client(profile=None)
+    payload = {
+        **_profile_payload(),
+        "tax_situation": {"b2b_tax_form": "liniowy", "b2b_zus_scheme": "preferential"},
+    }
+
+    assert client.post("/profile", json=payload).status_code == 200
+    body = client.get("/profile").json()["tax_situation"]
+    assert body["b2b_tax_form"] == "liniowy"
+    assert body["b2b_zus_scheme"] == "preferential"
 
 
 def test_get_profile_returns_404_when_no_profile_saved():
@@ -1105,6 +1122,31 @@ def test_calculate_salary_without_pit2_credit_increases_income_tax():
     ).json()
 
     assert without_credit["income_tax"] == pytest.approx(base["income_tax"] + 300.0)
+
+
+def test_calculate_salary_honours_b2b_tax_form():
+    client = _build_client()
+
+    ryczalt = client.post(
+        "/salary/calculate", json={"contract_type": "b2b", "gross_monthly": 10000.0}
+    ).json()
+    liniowy = client.post(
+        "/salary/calculate",
+        json={"contract_type": "b2b", "gross_monthly": 10000.0, "b2b_tax_form": "liniowy"},
+    ).json()
+
+    assert liniowy["income_tax"] != ryczalt["income_tax"]
+
+
+def test_calculate_salary_rejects_unknown_b2b_tax_form():
+    client = _build_client()
+
+    response = client.post(
+        "/salary/calculate",
+        json={"contract_type": "b2b", "gross_monthly": 10000.0, "b2b_tax_form": "bogus"},
+    )
+
+    assert response.status_code == 422
 
 
 def test_match_offers_ai_returns_503_when_scoring_service_unavailable():

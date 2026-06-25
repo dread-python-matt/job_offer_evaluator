@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Literal
 
-from app.domain.entities import Offer, Salary, TaxSituation
+from app.domain.entities import B2BTaxForm, Offer, Salary, TaxSituation, ZusScheme
 
 NetBound = Literal["min", "mid", "max"]
 _NET_ATTR: dict[str, str] = {"min": "net_min", "mid": "net_mid", "max": "net_max"}
@@ -119,6 +119,24 @@ B2B_RYCZALT_REVENUE_TIER_2_ANNUAL_LIMIT = 300_000.0
 B2B_RYCZALT_HEALTH_TIER_1_MONTHLY = 498.35
 B2B_RYCZALT_HEALTH_TIER_2_MONTHLY = 830.58
 B2B_RYCZALT_HEALTH_TIER_3_MONTHLY = 1495.04
+
+# Preferential "mały ZUS" (first 24 months): base is 30% of the minimum wage, and Fundusz
+# Pracy is not due below the minimum-wage base. "Ulga na start" waives social entirely.
+B2B_PREFERENTIAL_ZUS_BASE_2026 = 1441.80  # 30% of the 2026 minimum wage (4,806)
+B2B_PREFERENTIAL_SOCIAL_SECURITY_RATE = (
+    SELF_EMPLOYED_PENSION_RATE + SELF_EMPLOYED_DISABILITY_RATE + SELF_EMPLOYED_ACCIDENT_RATE
+)
+
+B2B_RYCZALT_8_5_TAX_RATE = 0.085
+
+# Liniowy (flat 19%) and B2B-on-skala derive health from net income (dochód = revenue −
+# costs − social), unlike ryczałt's fixed tiers. Health has a monthly floor; liniowy may
+# deduct paid health from its tax base up to an annual cap.
+LINIOWY_TAX_RATE = 0.19
+LINIOWY_HEALTH_RATE = 0.049
+LINIOWY_HEALTH_MONTHLY_DEDUCTION_LIMIT = 14_100.0 / _MONTHS_PER_YEAR
+SKALA_HEALTH_RATE = HEALTH_INSURANCE_RATE  # 9%
+HEALTH_MIN_MONTHLY_2026 = 432.54  # 9% of the 2026 minimum wage
 
 
 class ContractType(Enum):
@@ -243,32 +261,29 @@ class _CivilContractStrategy(_SalaryStrategy):
 
 
 class _B2BStrategy(_SalaryStrategy):
+    """B2B (JDG) net pay, configured by the contractor's tax form and ZUS scheme (read
+    from `situation`). Defaults — ryczałt 12% + duży ZUS — reproduce the baseline. Health
+    and the tax base differ by form: ryczałt taxes revenue with fixed-tier health; liniowy
+    and skala tax net income (dochód) with income-based health."""
+
     def calculate(
         self,
         gross: float,
         *,
+        situation: TaxSituation,
         business_costs: float = 0.0,
         include_voluntary_sickness: bool = False,
         **_: object,
     ) -> NetSalaryBreakdown:
-        rate = B2B_MANDATORY_SOCIAL_SECURITY_RATE
-        if include_voluntary_sickness:
-            rate += SELF_EMPLOYED_SICKNESS_RATE
-        social_security = B2B_FULL_ZUS_BASE_2026 * rate
-
-        annual_revenue_estimate = gross * 12
-        if annual_revenue_estimate <= B2B_RYCZALT_REVENUE_TIER_1_ANNUAL_LIMIT:
-            health_insurance = B2B_RYCZALT_HEALTH_TIER_1_MONTHLY
-        elif annual_revenue_estimate <= B2B_RYCZALT_REVENUE_TIER_2_ANNUAL_LIMIT:
-            health_insurance = B2B_RYCZALT_HEALTH_TIER_2_MONTHLY
-        else:
-            health_insurance = B2B_RYCZALT_HEALTH_TIER_3_MONTHLY
-
-        taxable_revenue = max(
-            0.0,
-            gross - social_security - health_insurance * B2B_RYCZALT_HEALTH_DEDUCTIBLE_SHARE,
+        social_security = self._social_security(
+            situation.b2b_zus_scheme, include_voluntary_sickness
         )
-        income_tax = taxable_revenue * B2B_RYCZALT_TAX_RATE
+        health_insurance = self._health_insurance(
+            situation.b2b_tax_form, gross, business_costs, social_security
+        )
+        income_tax = self._income_tax(
+            situation.b2b_tax_form, gross, business_costs, social_security, health_insurance, situation
+        )
         return NetSalaryBreakdown(
             gross=gross,
             social_security=social_security,
@@ -276,6 +291,64 @@ class _B2BStrategy(_SalaryStrategy):
             income_tax=income_tax,
             business_costs=business_costs,
         )
+
+    @staticmethod
+    def _social_security(scheme: ZusScheme, include_voluntary_sickness: bool) -> float:
+        if scheme is ZusScheme.ULGA_NA_START:
+            return 0.0  # social contributions waived; only health is due
+        if scheme is ZusScheme.PREFERENTIAL:
+            base, rate = B2B_PREFERENTIAL_ZUS_BASE_2026, B2B_PREFERENTIAL_SOCIAL_SECURITY_RATE
+        else:
+            base, rate = B2B_FULL_ZUS_BASE_2026, B2B_MANDATORY_SOCIAL_SECURITY_RATE
+        if include_voluntary_sickness:
+            rate += SELF_EMPLOYED_SICKNESS_RATE
+        return base * rate
+
+    @staticmethod
+    def _ryczalt_health(gross: float) -> float:
+        annual_revenue_estimate = gross * 12
+        if annual_revenue_estimate <= B2B_RYCZALT_REVENUE_TIER_1_ANNUAL_LIMIT:
+            return B2B_RYCZALT_HEALTH_TIER_1_MONTHLY
+        if annual_revenue_estimate <= B2B_RYCZALT_REVENUE_TIER_2_ANNUAL_LIMIT:
+            return B2B_RYCZALT_HEALTH_TIER_2_MONTHLY
+        return B2B_RYCZALT_HEALTH_TIER_3_MONTHLY
+
+    @classmethod
+    def _health_insurance(
+        cls, form: B2BTaxForm, gross: float, business_costs: float, social_security: float
+    ) -> float:
+        if form in (B2BTaxForm.RYCZALT_12, B2BTaxForm.RYCZALT_8_5):
+            return cls._ryczalt_health(gross)
+        income = max(0.0, gross - business_costs - social_security)
+        rate = LINIOWY_HEALTH_RATE if form is B2BTaxForm.LINIOWY else SKALA_HEALTH_RATE
+        return max(HEALTH_MIN_MONTHLY_2026, income * rate)
+
+    @staticmethod
+    def _income_tax(
+        form: B2BTaxForm,
+        gross: float,
+        business_costs: float,
+        social_security: float,
+        health_insurance: float,
+        situation: TaxSituation,
+    ) -> float:
+        if form in (B2BTaxForm.RYCZALT_12, B2BTaxForm.RYCZALT_8_5):
+            rate = (
+                B2B_RYCZALT_TAX_RATE
+                if form is B2BTaxForm.RYCZALT_12
+                else B2B_RYCZALT_8_5_TAX_RATE
+            )
+            taxable_revenue = max(
+                0.0,
+                gross - social_security - health_insurance * B2B_RYCZALT_HEALTH_DEDUCTIBLE_SHARE,
+            )
+            return taxable_revenue * rate
+        income = max(0.0, gross - business_costs - social_security)
+        if form is B2BTaxForm.LINIOWY:
+            deductible = min(health_insurance, LINIOWY_HEALTH_MONTHLY_DEDUCTION_LIMIT)
+            return max(0.0, income - deductible) * LINIOWY_TAX_RATE
+        # B2B on skala: progressive tax with the kwota wolna; youth relief never applies to B2B.
+        return _progressive_tax(income, apply_credit=situation.applies_tax_credit)
 
 
 _STRATEGIES: dict[ContractType, _SalaryStrategy] = {

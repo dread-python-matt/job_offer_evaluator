@@ -7,6 +7,8 @@ from app.application.auth_use_cases import (
     AuthenticateUserUseCase,
     ChangePasswordUseCase,
     RegisterUserUseCase,
+    RequestPasswordResetUseCase,
+    ResetPasswordUseCase,
     VerifyEmailUseCase,
 )
 from app.application.ports import RateLimiter, TokenService, UserRepository
@@ -17,14 +19,18 @@ from app.domain.errors import (
     EmailNotDeliverableError,
     EmailNotVerifiedError,
     InvalidCredentialsError,
+    InvalidPasswordResetTokenError,
     InvalidVerificationTokenError,
     RateLimitExceededError,
 )
 from app.presentation.api.schemas import (
     ChangePasswordRequestSchema,
+    ForgotPasswordRequestSchema,
     LoginRequestSchema,
+    PasswordResetRequestedSchema,
     RegisterRequestSchema,
     RegistrationPendingSchema,
+    ResetPasswordRequestSchema,
     UserResponseSchema,
     VerifyEmailRequestSchema,
 )
@@ -72,6 +78,14 @@ def get_rate_limiter() -> RateLimiter:
 
 
 def get_change_password_use_case() -> ChangePasswordUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_request_password_reset_use_case() -> RequestPasswordResetUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_reset_password_use_case() -> ResetPasswordUseCase:
     raise NotImplementedError("override with a configured use case")
 
 
@@ -146,6 +160,13 @@ def _login_rate_limit_key(request: Request, email: str) -> str:
     normalization so case/whitespace variants share a bucket."""
     client_ip = request.client.host if request.client else "unknown"
     return f"{client_ip}:{email.strip().lower()}"
+
+
+def _password_reset_rate_limit_key(request: Request, email: str) -> str:
+    """Throttle forgot-password per (client IP, email), namespaced so it shares no bucket
+    with login attempts."""
+    client_ip = request.client.host if request.client else "unknown"
+    return f"forgot:{client_ip}:{email.strip().lower()}"
 
 
 # --- routers ---
@@ -228,6 +249,48 @@ def login(
             status_code=403, detail="Please confirm your email address before signing in"
         ) from exc
     limiter.reset(key)
+    _issue_session(response, token, settings)
+    return UserResponseSchema.from_domain(user)
+
+
+@public_router.post(
+    "/auth/forgot-password", status_code=202, response_model=PasswordResetRequestedSchema
+)
+def forgot_password(
+    payload: ForgotPasswordRequestSchema,
+    request: Request,
+    use_case: RequestPasswordResetUseCase = Depends(get_request_password_reset_use_case),
+    limiter: RateLimiter = Depends(get_rate_limiter),
+) -> PasswordResetRequestedSchema:
+    """Email a password-reset link if the address belongs to an account. Always returns the
+    same 202 (enumeration-resistant) and is throttled per (IP, email) to curb email abuse."""
+    key = _password_reset_rate_limit_key(request, payload.email)
+    try:
+        limiter.check(key)
+    except RateLimitExceededError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many reset requests. Please try again later.",
+            headers={"Retry-After": str(exc.retry_after_seconds)},
+        ) from exc
+    limiter.record_failure(key)  # every request counts toward the throttle
+    use_case.execute(email=payload.email)
+    return PasswordResetRequestedSchema()
+
+
+@public_router.post("/auth/reset-password", response_model=UserResponseSchema)
+def reset_password(
+    payload: ResetPasswordRequestSchema,
+    response: Response,
+    use_case: ResetPasswordUseCase = Depends(get_reset_password_use_case),
+    settings: CookieSettings = Depends(get_cookie_settings),
+) -> UserResponseSchema:
+    """Set a new password from the emailed token. Invalidates other sessions and issues a
+    fresh one, so following the link lands the user signed in."""
+    try:
+        user, token = use_case.execute(payload.token, new_password=payload.new_password)
+    except InvalidPasswordResetTokenError as exc:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link") from exc
     _issue_session(response, token, settings)
     return UserResponseSchema.from_domain(user)
 

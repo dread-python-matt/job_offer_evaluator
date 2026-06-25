@@ -3,7 +3,13 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { Observable, catchError, of, tap } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
-import { AuthUser, Credentials, RegisterRequest } from '../models/auth.model';
+import {
+  AuthUser,
+  ChangePasswordRequest,
+  Credentials,
+  RegisterRequest,
+  ResetPasswordRequest,
+} from '../models/auth.model';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -30,6 +36,26 @@ export class AuthService {
     return this.http
       .post<void>(`${this.baseUrl}/auth/logout`, {})
       .pipe(tap(() => this._currentUser.set(null)));
+  }
+
+  /** Change the signed-in user's password. The server re-issues this device's session
+   * cookie, so the current session stays valid while other sessions are invalidated. */
+  changePassword(payload: ChangePasswordRequest): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/auth/password`, payload);
+  }
+
+  /** Start the password-reset flow. The response is the same whether or not the email is
+   * registered, so callers should always show a neutral "check your email" message. */
+  requestPasswordReset(email: string): Observable<void> {
+    return this.http.post<void>(`${this.baseUrl}/auth/forgot-password`, { email });
+  }
+
+  /** Complete the password-reset flow from the emailed token. The server issues a fresh
+   * session, so the user lands signed in. */
+  resetPassword(payload: ResetPasswordRequest): Observable<AuthUser> {
+    return this.http
+      .post<AuthUser>(`${this.baseUrl}/auth/reset-password`, payload)
+      .pipe(tap((user) => this._currentUser.set(user)));
   }
 
   /** Resolve the current session from the cookie (e.g. on a page reload). Returns

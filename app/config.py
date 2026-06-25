@@ -29,6 +29,9 @@ SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").strip().lower() in {"1", "
 EMAIL_FROM = os.environ.get("EMAIL_FROM", "no-reply@localhost")
 # How long (hours) a confirmation link stays valid.
 EMAIL_VERIFICATION_TTL_HOURS = int(os.environ.get("EMAIL_VERIFICATION_TTL_HOURS", "24"))
+# How long (hours) a password-reset link stays valid. Shorter than the confirmation link
+# since following it grants account access.
+PASSWORD_RESET_TTL_HOURS = int(os.environ.get("PASSWORD_RESET_TTL_HOURS", "1"))
 # When true, verify the address is deliverable (DNS/MX lookup) at registration. Off by
 # default so tests and offline runs don't depend on DNS; enable in production.
 EMAIL_CHECK_DELIVERABILITY = os.environ.get("EMAIL_CHECK_DELIVERABILITY", "false").strip().lower() in {"1", "true", "yes", "on"}

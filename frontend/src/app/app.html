@@ -4,6 +4,10 @@
   @if (isAuthenticated()) {
     <span class="toolbar-spacer"></span>
     <span class="user-email">{{ currentUser()?.email }}</span>
+    <button mat-button type="button" routerLink="/change-password">
+      <mat-icon>lock_reset</mat-icon>
+      Change password
+    </button>
     <button mat-button type="button" (click)="logout()">
       <mat-icon>logout</mat-icon>
       Sign out

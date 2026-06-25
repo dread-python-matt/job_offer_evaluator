@@ -6,7 +6,15 @@ from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from app.application.ports import UserProfileRepository
-from app.domain.entities import Experience, Project, Skill, TaxSituation, UserProfile
+from app.domain.entities import (
+    B2BTaxForm,
+    Experience,
+    Project,
+    Skill,
+    TaxSituation,
+    UserProfile,
+    ZusScheme,
+)
 from app.infrastructure.db import resolve_engine
 from app.infrastructure.orm_models import Base, UserProfileRow
 
@@ -41,6 +49,8 @@ def profile_to_dict(profile: UserProfile) -> dict[str, Any]:
             "under_26": profile.tax_situation.under_26,
             "is_student": profile.tax_situation.is_student,
             "applies_tax_credit": profile.tax_situation.applies_tax_credit,
+            "b2b_tax_form": profile.tax_situation.b2b_tax_form.value,
+            "b2b_zus_scheme": profile.tax_situation.b2b_zus_scheme.value,
         },
     }
 
@@ -56,13 +66,22 @@ def profile_from_dict(data: dict[str, Any]) -> UserProfile:
 
 
 def _tax_situation_from_dict(data: dict[str, Any]) -> TaxSituation:
-    # Tolerant of legacy rows: missing keys fall back to the baseline defaults.
+    # Tolerant of legacy rows: missing or unrecognised values fall back to the defaults.
     defaults = TaxSituation()
     return TaxSituation(
         under_26=data.get("under_26", defaults.under_26),
         is_student=data.get("is_student", defaults.is_student),
         applies_tax_credit=data.get("applies_tax_credit", defaults.applies_tax_credit),
+        b2b_tax_form=_parse_enum(B2BTaxForm, data.get("b2b_tax_form"), defaults.b2b_tax_form),
+        b2b_zus_scheme=_parse_enum(ZusScheme, data.get("b2b_zus_scheme"), defaults.b2b_zus_scheme),
     )
+
+
+def _parse_enum(enum_cls, value, default):
+    try:
+        return enum_cls(value) if value is not None else default
+    except ValueError:
+        return default
 
 
 def _utc_now() -> datetime:

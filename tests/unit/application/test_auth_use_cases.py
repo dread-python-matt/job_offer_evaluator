@@ -6,6 +6,8 @@ from app.application.auth_use_cases import (
     AuthenticateUserUseCase,
     ChangePasswordUseCase,
     RegisterUserUseCase,
+    RequestPasswordResetUseCase,
+    ResetPasswordUseCase,
     VerifyEmailUseCase,
 )
 from app.domain.auth import User
@@ -14,12 +16,14 @@ from app.domain.errors import (
     EmailNotDeliverableError,
     EmailNotVerifiedError,
     InvalidCredentialsError,
+    InvalidPasswordResetTokenError,
     InvalidVerificationTokenError,
 )
 from tests.fakes import (
     FakeEmailSender,
     FakeEmailValidator,
     FakePasswordHasher,
+    FakePasswordResetTokenService,
     FakeTokenService,
     FakeUserRepository,
     FakeVerificationTokenService,
@@ -313,3 +317,117 @@ def test_change_password_rejects_a_wrong_current_password_and_leaves_it_unchange
     stored = repo.get_by_id("user-1")
     assert stored.password_hash == "hashed:correct horse battery"
     assert stored.token_version == 3
+
+
+# --- RequestPasswordResetUseCase ---
+
+_RESET_LINK = "https://app.test/reset-password?token="
+
+
+def _request_password_reset_use_case(users, sender=None, reset_tokens=None):
+    return RequestPasswordResetUseCase(
+        users=users,
+        reset_tokens=reset_tokens or FakePasswordResetTokenService(),
+        email_sender=sender or FakeEmailSender(),
+        link_builder=lambda token: f"{_RESET_LINK}{token}",
+    )
+
+
+def test_request_password_reset_emails_a_link_for_a_known_user():
+    repo = FakeUserRepository([_existing_user()])
+    sender = FakeEmailSender()
+    reset_tokens = FakePasswordResetTokenService()
+    use_case = _request_password_reset_use_case(repo, sender=sender, reset_tokens=reset_tokens)
+
+    use_case.execute(email="dev@example.com")
+
+    assert len(sender.sent) == 1
+    message = sender.sent[0]
+    assert message["to"] == "dev@example.com"
+    assert f"{_RESET_LINK}{reset_tokens.issue('user-1')}" in message["body"]
+
+
+def test_request_password_reset_normalizes_the_email_before_lookup():
+    repo = FakeUserRepository([_existing_user()])
+    sender = FakeEmailSender()
+    use_case = _request_password_reset_use_case(repo, sender=sender)
+
+    use_case.execute(email="  DEV@Example.COM ")
+
+    assert len(sender.sent) == 1
+
+
+def test_request_password_reset_is_silent_for_an_unknown_email():
+    repo = FakeUserRepository()  # no users
+    sender = FakeEmailSender()
+    use_case = _request_password_reset_use_case(repo, sender=sender)
+
+    # Enumeration-resistant: no error and no email for an address we don't know.
+    use_case.execute(email="nobody@example.com")
+
+    assert sender.sent == []
+
+
+# --- ResetPasswordUseCase ---
+
+
+def _reset_password_use_case(users, reset_tokens=None):
+    return ResetPasswordUseCase(
+        users=users,
+        reset_tokens=reset_tokens or FakePasswordResetTokenService(),
+        hasher=FakePasswordHasher(),
+        tokens=FakeTokenService(),
+    )
+
+
+def test_reset_password_sets_the_new_hash_and_returns_a_session():
+    repo = FakeUserRepository([_existing_user()])  # token_version starts at 3
+    reset_tokens = FakePasswordResetTokenService()
+    use_case = _reset_password_use_case(repo, reset_tokens)
+
+    user, session = use_case.execute(reset_tokens.issue("user-1"), new_password=_NEW_PASSWORD)
+
+    assert repo.get_by_id("user-1").password_hash == f"hashed:{_NEW_PASSWORD}"
+    assert user.token_version == 4
+    assert session == "user-1:4"  # FakeTokenService encodes user_id:token_version
+
+
+def test_reset_password_bumps_token_version_to_invalidate_existing_sessions():
+    repo = FakeUserRepository([_existing_user()])
+    reset_tokens = FakePasswordResetTokenService()
+    use_case = _reset_password_use_case(repo, reset_tokens)
+
+    use_case.execute(reset_tokens.issue("user-1"), new_password=_NEW_PASSWORD)
+
+    assert repo.get_by_id("user-1").token_version == 4
+
+
+def test_reset_password_marks_an_unverified_account_verified():
+    # Following the reset link proves email ownership, so it also confirms the address.
+    repo = FakeUserRepository([_existing_user(email_verified=False)])
+    reset_tokens = FakePasswordResetTokenService()
+    use_case = _reset_password_use_case(repo, reset_tokens)
+
+    user, _ = use_case.execute(reset_tokens.issue("user-1"), new_password=_NEW_PASSWORD)
+
+    assert user.email_verified is True
+    assert repo.get_by_id("user-1").email_verified is True
+
+
+def test_reset_password_rejects_a_malformed_token_and_leaves_the_password_unchanged():
+    repo = FakeUserRepository([_existing_user()])
+    use_case = _reset_password_use_case(repo)
+
+    with pytest.raises(InvalidPasswordResetTokenError):
+        use_case.execute("not-a-valid-token", new_password=_NEW_PASSWORD)
+
+    assert repo.get_by_id("user-1").password_hash == "hashed:correct horse battery"
+
+
+def test_reset_password_rejects_a_token_for_an_unknown_user():
+    repo = FakeUserRepository()  # no users
+    reset_tokens = FakePasswordResetTokenService()
+    use_case = _reset_password_use_case(repo, reset_tokens)
+
+    with pytest.raises(InvalidPasswordResetTokenError):
+        use_case.execute(reset_tokens.issue("ghost"), new_password=_NEW_PASSWORD)

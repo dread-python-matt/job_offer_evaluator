@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from enum import Enum
 
 
 @dataclass(frozen=True)
@@ -31,22 +32,42 @@ class Experience:
     tech_stack: list[str]
 
 
+class B2BTaxForm(str, Enum):
+    """How a B2B (JDG) contractor is taxed. IT defaults to ryczałt 12%."""
+
+    RYCZALT_12 = "ryczalt_12"
+    RYCZALT_8_5 = "ryczalt_8_5"
+    LINIOWY = "liniowy"
+    SKALA = "skala"
+
+
+class ZusScheme(str, Enum):
+    """A B2B contractor's social-insurance basis. Defaults to the standard "duży ZUS"."""
+
+    DUZY_ZUS = "duzy_zus"
+    PREFERENTIAL = "preferential"
+    ULGA_NA_START = "ulga_na_start"
+
+
 @dataclass(frozen=True)
 class TaxSituation:
     """Optional personal tax attributes that refine a net-salary calculation. All default
-    to the baseline assumption (over 26, not a student, PIT-2 filed), so an absent or empty
-    situation reproduces the calculator's default behavior.
+    to the baseline assumption (over 26, not a student, PIT-2 filed, B2B on ryczałt 12% +
+    duży ZUS), so an absent or empty situation reproduces the calculator's default behavior.
 
     - `under_26`: eligible for *ulga dla młodych* — income tax is waived on umowa o pracę /
       umowa zlecenie earnings up to the annual youth-relief cap (does not apply to B2B).
     - `is_student`: a student **under 26** on umowa zlecenie pays no ZUS and no health, so
       take-home equals gross (no effect on umowa o pracę or B2B).
     - `applies_tax_credit`: whether the monthly tax-reducing amount (PIT-2) is applied.
+    - `b2b_tax_form` / `b2b_zus_scheme`: only consulted for B2B contracts.
     """
 
     under_26: bool = False
     is_student: bool = False
     applies_tax_credit: bool = True
+    b2b_tax_form: B2BTaxForm = B2BTaxForm.RYCZALT_12
+    b2b_zus_scheme: ZusScheme = ZusScheme.DUZY_ZUS
 
 
 @dataclass(frozen=True)

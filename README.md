@@ -223,7 +223,7 @@ the `X-CSRF-Token` header.
 | GET  | `/offers` | ✓ | Browse offers, paged + filtered (`limit`, `offset`, `location`, `min_salary`, `tech`, `search`, `include_expired`, `level`, `sort_by`, `sort_order`) |
 | POST | `/offers/match` | ✓ | Deterministic match for a `candidate` (skills-based scoring) |
 | POST | `/offers/match/ai` | ✓ | LLM-scored match (402 if budget exceeded, 503 if AI unavailable / fail-closed) |
-| POST | `/salary/calculate` | ✓ | Net monthly PL take-home for a gross + contract type (optional `under_26` / `is_student` / `applies_tax_credit` tax inputs) |
+| POST | `/salary/calculate` | ✓ | Net monthly PL take-home for a gross + contract type (optional personal `under_26` / `is_student` / `applies_tax_credit` and B2B `b2b_tax_form` / `b2b_zus_scheme` inputs) |
 | GET  | `/config/model` | ✓ | The caller's active scoring model |
 | GET  | `/config/models` | ✓ | Available models grouped by company + the active one |
 | PUT  | `/config/model` | ✓ | Select the caller's scoring model (404 if not available) |

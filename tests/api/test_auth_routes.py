@@ -8,6 +8,8 @@ from app.application.auth_use_cases import (
     AuthenticateUserUseCase,
     ChangePasswordUseCase,
     RegisterUserUseCase,
+    RequestPasswordResetUseCase,
+    ResetPasswordUseCase,
     VerifyEmailUseCase,
 )
 from app.infrastructure.in_memory_rate_limiter import InMemoryRateLimiter
@@ -19,6 +21,8 @@ from app.presentation.api.auth import (
     get_current_user,
     get_rate_limiter,
     get_register_use_case,
+    get_request_password_reset_use_case,
+    get_reset_password_use_case,
     get_token_service,
     get_user_repository,
     get_verify_email_use_case,
@@ -31,6 +35,7 @@ from tests.fakes import (
     FakeEmailSender,
     FakeEmailValidator,
     FakePasswordHasher,
+    FakePasswordResetTokenService,
     FakeTokenService,
     FakeUserRepository,
     FakeVerificationTokenService,
@@ -39,6 +44,7 @@ from tests.fakes import (
 _PASSWORD = "correct horse battery"
 _NEW_PASSWORD = "a brand new passphrase"
 _VERIFY_LINK = "http://app.test/verify-email?token="
+_RESET_LINK = "http://app.test/reset-password?token="
 _RATE_LIMIT_ATTEMPTS = 3
 
 
@@ -59,6 +65,7 @@ def _build_app() -> _Ctx:
     hasher = FakePasswordHasher()
     tokens = FakeTokenService()
     verification_tokens = FakeVerificationTokenService()
+    reset_tokens = FakePasswordResetTokenService()
     sender = FakeEmailSender()
     ids = iter(f"user-{i}" for i in range(1, 1000))
 
@@ -91,6 +98,17 @@ def _build_app() -> _Ctx:
     app.dependency_overrides[get_rate_limiter] = lambda: rate_limiter
     app.dependency_overrides[get_change_password_use_case] = lambda: ChangePasswordUseCase(
         users, hasher, tokens
+    )
+    app.dependency_overrides[get_request_password_reset_use_case] = lambda: (
+        RequestPasswordResetUseCase(
+            users,
+            reset_tokens,
+            sender,
+            link_builder=lambda token: f"{_RESET_LINK}{token}",
+        )
+    )
+    app.dependency_overrides[get_reset_password_use_case] = lambda: ResetPasswordUseCase(
+        users, reset_tokens, hasher, tokens
     )
     return _Ctx(app, users, sender)
 
@@ -403,6 +421,118 @@ def test_change_password_requires_authentication():
     )
 
     assert response.status_code == 401
+
+
+# --- forgot / reset password ---
+
+
+def _forgot(client: TestClient, email: str = "dev@example.com"):
+    return client.post("/auth/forgot-password", json={"email": email})
+
+
+def _reset(client: TestClient, token: str, new_password: str = _NEW_PASSWORD, confirm_password=None):
+    return client.post(
+        "/auth/reset-password",
+        json={
+            "token": token,
+            "new_password": new_password,
+            "confirm_password": new_password if confirm_password is None else confirm_password,
+        },
+    )
+
+
+def test_forgot_password_emails_a_reset_link_for_a_known_user():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+    _register_and_verify(client, ctx.sender)
+
+    response = _forgot(client)
+
+    assert response.status_code == 202
+    reset_email = ctx.sender.sent[-1]
+    assert reset_email["to"] == "dev@example.com"
+    assert _RESET_LINK in reset_email["body"]
+
+
+def test_forgot_password_is_accepted_but_sends_nothing_for_an_unknown_email():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+
+    response = _forgot(client, email="nobody@example.com")
+
+    # Same 202 as the known-user case (enumeration-resistant), but no email goes out.
+    assert response.status_code == 202
+    assert ctx.sender.sent == []
+
+
+def test_forgot_password_is_throttled_after_repeated_requests():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+
+    for _ in range(_RATE_LIMIT_ATTEMPTS):
+        assert _forgot(client, email="someone@example.com").status_code == 202
+
+    blocked = _forgot(client, email="someone@example.com")
+    assert blocked.status_code == 429
+    assert blocked.headers.get("Retry-After")
+
+
+def test_reset_password_lets_the_new_password_log_in_and_sets_a_session():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+    _register_and_verify(client, ctx.sender)
+    _forgot(client)
+    token = _token_from_email(ctx.sender.sent[-1]["body"])
+
+    response = _reset(client, token)
+
+    assert response.status_code == 200
+    assert client.cookies.get("access_token")
+    fresh = TestClient(ctx.app)
+    assert (
+        fresh.post(
+            "/auth/login", json={"email": "dev@example.com", "password": _NEW_PASSWORD}
+        ).status_code
+        == 200
+    )
+    assert (
+        fresh.post(
+            "/auth/login", json={"email": "dev@example.com", "password": _PASSWORD}
+        ).status_code
+        == 401
+    )
+
+
+def test_reset_password_invalidates_previously_issued_sessions():
+    ctx = _build_app()
+    client = TestClient(ctx.app)
+    _register_and_verify(client, ctx.sender)
+    stale_cookie = client.cookies.get("access_token")  # session from before the reset
+    _forgot(client)
+    token = _token_from_email(ctx.sender.sent[-1]["body"])
+
+    _reset(client, token)
+
+    other = TestClient(ctx.app)
+    other.cookies.set("access_token", stale_cookie)
+    assert other.get("/auth/me").status_code == 401
+
+
+def test_reset_password_rejects_an_invalid_token():
+    client = TestClient(_build_app().app)
+
+    response = _reset(client, token="not-a-real-token")
+
+    assert response.status_code == 400
+
+
+def test_reset_password_rejects_mismatched_passwords():
+    # The schema rejects the mismatch before the token is even consulted.
+    client = TestClient(_build_app().app)
+
+    response = _reset(client, token="reset:user-1", confirm_password="a different passphrase")
+
+    assert response.status_code == 422
 
 
 # --- the guard ---

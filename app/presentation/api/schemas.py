@@ -7,7 +7,17 @@ from pydantic import BaseModel, EmailStr, Field, model_validator
 from app.application.ports import ModelUsageWithLimits
 from app.domain.auth import User
 from app.domain.budget import BudgetStatus
-from app.domain.entities import Experience, Offer, Project, Salary, Skill, TaxSituation, UserProfile
+from app.domain.entities import (
+    B2BTaxForm,
+    Experience,
+    Offer,
+    Project,
+    Salary,
+    Skill,
+    TaxSituation,
+    UserProfile,
+    ZusScheme,
+)
 from app.domain.filters import MatchCriteria
 from app.domain.salary_calculator import ContractType, NetSalaryBreakdown
 from app.domain.scoring import AiInsight, MatchedOffer
@@ -79,12 +89,16 @@ class TaxSituationSchema(BaseModel):
     under_26: bool = False
     is_student: bool = False
     applies_tax_credit: bool = True
+    b2b_tax_form: B2BTaxForm = B2BTaxForm.RYCZALT_12
+    b2b_zus_scheme: ZusScheme = ZusScheme.DUZY_ZUS
 
     def to_domain(self) -> TaxSituation:
         return TaxSituation(
             under_26=self.under_26,
             is_student=self.is_student,
             applies_tax_credit=self.applies_tax_credit,
+            b2b_tax_form=self.b2b_tax_form,
+            b2b_zus_scheme=self.b2b_zus_scheme,
         )
 
     @classmethod
@@ -93,6 +107,8 @@ class TaxSituationSchema(BaseModel):
             under_26=situation.under_26,
             is_student=situation.is_student,
             applies_tax_credit=situation.applies_tax_credit,
+            b2b_tax_form=situation.b2b_tax_form,
+            b2b_zus_scheme=situation.b2b_zus_scheme,
         )
 
 
@@ -166,12 +182,16 @@ class SalaryCalculationRequestSchema(BaseModel):
     under_26: bool = False
     is_student: bool = False
     applies_tax_credit: bool = True
+    b2b_tax_form: B2BTaxForm = B2BTaxForm.RYCZALT_12
+    b2b_zus_scheme: ZusScheme = ZusScheme.DUZY_ZUS
 
     def to_tax_situation(self) -> TaxSituation:
         return TaxSituation(
             under_26=self.under_26,
             is_student=self.is_student,
             applies_tax_credit=self.applies_tax_credit,
+            b2b_tax_form=self.b2b_tax_form,
+            b2b_zus_scheme=self.b2b_zus_scheme,
         )
 
 
@@ -419,6 +439,30 @@ class VerifyEmailRequestSchema(BaseModel):
 class ChangePasswordRequestSchema(BaseModel):
     current_password: str
     new_password: str = Field(min_length=_MIN_PASSWORD_LENGTH, max_length=128)
+
+
+class ForgotPasswordRequestSchema(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequestSchema(BaseModel):
+    token: str
+    new_password: str = Field(min_length=_MIN_PASSWORD_LENGTH, max_length=128)
+    # Retyped password; must match `new_password`. Enforced server-side too.
+    confirm_password: str
+
+    @model_validator(mode="after")
+    def _passwords_match(self) -> ResetPasswordRequestSchema:
+        if self.new_password != self.confirm_password:
+            raise ValueError("Passwords do not match")
+        return self
+
+
+class PasswordResetRequestedSchema(BaseModel):
+    """Returned by forgot-password. Deliberately the same whether or not the email is
+    registered, so the endpoint can't be used to discover accounts (enumeration-resistant)."""
+
+    message: str = "If that email is registered, a reset link has been sent."
 
 
 class RegistrationPendingSchema(BaseModel):

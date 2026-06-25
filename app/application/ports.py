@@ -264,6 +264,20 @@ class VerificationTokenService(ABC):
         wrong purpose, or has a bad signature."""
 
 
+class PasswordResetTokenService(ABC):
+    """Issues and validates single-purpose password-reset tokens, kept separate from session
+    and email-confirmation tokens so none can be substituted for another."""
+
+    @abstractmethod
+    def issue(self, user_id: str) -> str: ...
+
+    @abstractmethod
+    def verify(self, token: str) -> str:
+        """Return the user id encoded in a reset token. Raises
+        `InvalidPasswordResetTokenError` when the token is malformed, expired, has the
+        wrong purpose, or has a bad signature."""
+
+
 class PasswordHasher(ABC):
     @abstractmethod
     def hash(self, plain: str) -> str: ...

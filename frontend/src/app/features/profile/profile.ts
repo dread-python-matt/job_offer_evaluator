@@ -11,18 +11,42 @@ import { MatDatepicker, MatDatepickerModule } from '@angular/material/datepicker
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { catchError, of } from 'rxjs';
 
 import { ApiService } from '../../core/services/api.service';
-import { Experience, Project, Skill, TaxSituation, UserProfile } from '../../core/models/profile.model';
+import {
+  B2BTaxForm,
+  Experience,
+  Project,
+  Skill,
+  TaxSituation,
+  UserProfile,
+  ZusScheme,
+} from '../../core/models/profile.model';
 
 const DEFAULT_TAX_SITUATION: TaxSituation = {
   under_26: false,
   is_student: false,
   applies_tax_credit: true,
+  b2b_tax_form: 'ryczalt_12',
+  b2b_zus_scheme: 'duzy_zus',
 };
+
+const B2B_TAX_FORMS: ReadonlyArray<{ value: B2BTaxForm; label: string }> = [
+  { value: 'ryczalt_12', label: 'Ryczałt 12% (software dev)' },
+  { value: 'ryczalt_8_5', label: 'Ryczałt 8.5% (support / testing)' },
+  { value: 'liniowy', label: 'Flat tax 19% (liniowy)' },
+  { value: 'skala', label: 'Tax scale 12% / 32% (skala)' },
+];
+
+const ZUS_SCHEMES: ReadonlyArray<{ value: ZusScheme; label: string }> = [
+  { value: 'duzy_zus', label: 'Standard (duży ZUS)' },
+  { value: 'preferential', label: 'Preferential (first 24 months)' },
+  { value: 'ulga_na_start', label: 'Ulga na start (no social ZUS)' },
+];
 
 const MONTH_YEAR_FORMATS: MatDateFormats = {
   parse: {
@@ -85,6 +109,7 @@ type ExperienceRaw = ReturnType<ExperienceGroup['getRawValue']>;
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
+    MatSelectModule,
     MatTooltipModule,
     TextFieldModule,
   ],
@@ -110,6 +135,8 @@ export class Profile implements OnInit {
       under_26: this.fb.control(false, { nonNullable: true }),
       is_student: this.fb.control(false, { nonNullable: true }),
       applies_tax_credit: this.fb.control(true, { nonNullable: true }),
+      b2b_tax_form: this.fb.control<B2BTaxForm>('ryczalt_12', { nonNullable: true }),
+      b2b_zus_scheme: this.fb.control<ZusScheme>('duzy_zus', { nonNullable: true }),
     }),
   });
 
@@ -123,6 +150,17 @@ export class Profile implements OnInit {
 
   get experience(): FormArray<ExperienceGroup> {
     return this.form.controls.experience;
+  }
+
+  readonly b2bTaxForms = B2B_TAX_FORMS;
+  readonly zusSchemes = ZUS_SCHEMES;
+
+  b2bTaxFormLabel(value: B2BTaxForm | undefined): string {
+    return B2B_TAX_FORMS.find((o) => o.value === (value ?? 'ryczalt_12'))?.label ?? '—';
+  }
+
+  zusSchemeLabel(value: ZusScheme | undefined): string {
+    return ZUS_SCHEMES.find((o) => o.value === (value ?? 'duzy_zus'))?.label ?? '—';
   }
 
   ngOnInit(): void {

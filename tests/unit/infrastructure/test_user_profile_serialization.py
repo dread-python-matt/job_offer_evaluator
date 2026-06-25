@@ -1,6 +1,14 @@
 from dataclasses import replace
 
-from app.domain.entities import Experience, Project, Skill, TaxSituation, UserProfile
+from app.domain.entities import (
+    B2BTaxForm,
+    Experience,
+    Project,
+    Skill,
+    TaxSituation,
+    UserProfile,
+    ZusScheme,
+)
 from app.infrastructure.postgres_user_profile_repository import profile_from_dict, profile_to_dict
 
 
@@ -58,3 +66,28 @@ def test_legacy_profile_without_tax_situation_loads_with_defaults():
     legacy = {"summary": "x", "skills": [], "projects": [], "experience": []}
 
     assert profile_from_dict(legacy).tax_situation == TaxSituation()
+
+
+def test_b2b_tax_settings_survive_a_dict_round_trip():
+    profile = replace(
+        _profile(),
+        tax_situation=TaxSituation(
+            b2b_tax_form=B2BTaxForm.LINIOWY, b2b_zus_scheme=ZusScheme.PREFERENTIAL
+        ),
+    )
+
+    assert profile_from_dict(profile_to_dict(profile)) == profile
+
+
+def test_unknown_b2b_enum_values_fall_back_to_defaults():
+    raw = {
+        "summary": "x",
+        "skills": [],
+        "projects": [],
+        "experience": [],
+        "tax_situation": {"b2b_tax_form": "bogus", "b2b_zus_scheme": "nope"},
+    }
+
+    situation = profile_from_dict(raw).tax_situation
+    assert situation.b2b_tax_form == TaxSituation().b2b_tax_form
+    assert situation.b2b_zus_scheme == TaxSituation().b2b_zus_scheme

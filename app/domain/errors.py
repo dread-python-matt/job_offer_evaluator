@@ -49,6 +49,11 @@ class InvalidVerificationTokenError(Exception):
     or no longer maps to a user. Deliberately opaque to avoid leaking which."""
 
 
+class InvalidPasswordResetTokenError(Exception):
+    """A password-reset token is missing, malformed, expired, has the wrong purpose, or no
+    longer maps to a user. Deliberately opaque to avoid leaking which."""
+
+
 class AuthenticationError(Exception):
     """A session token is missing, malformed, expired, or no longer matches the user
     (e.g. its token_version is stale)."""

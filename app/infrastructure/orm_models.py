@@ -192,3 +192,21 @@ class UserRow(Base):
     email_verified: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default=false()
     )
+
+
+class RefreshTokenRow(Base):
+    """A persisted refresh token (one link in a rotation chain). Only the SHA-256
+    `token_hash` is stored, never the raw token. `family_id` groups a rotation chain so a
+    detected reuse can revoke the whole family. `consumed_at` marks a token as already
+    rotated (replaying it is the theft signal)."""
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    family_id: Mapped[str] = mapped_column(String(36), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

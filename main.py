@@ -10,6 +10,8 @@ from app.application.auth_use_cases import (
     AuthenticateUserUseCase,
     ChangePasswordUseCase,
     RegisterUserUseCase,
+    RequestPasswordResetUseCase,
+    ResetPasswordUseCase,
     VerifyEmailUseCase,
 )
 from app.application.budget_service import BudgetService
@@ -49,6 +51,7 @@ from app.config import (
     MODELS_CACHE_TTL_SECONDS,
     OPENAI_ADMIN_KEY,
     OPENAI_API_KEY,
+    PASSWORD_RESET_TTL_HOURS,
     PORT,
     SESSION_TTL_DAYS,
     SMTP_HOST,
@@ -94,6 +97,7 @@ from app.infrastructure.postgres_user_repository import PostgresUserRepository
 from app.infrastructure.argon2_password_hasher import Argon2PasswordHasher
 from app.infrastructure.console_email_sender import ConsoleEmailSender
 from app.infrastructure.email_validators import AllowAllEmailValidator, DnsEmailValidator
+from app.infrastructure.jwt_password_reset_token_service import JwtPasswordResetTokenService
 from app.infrastructure.jwt_token_service import JwtTokenService
 from app.infrastructure.jwt_verification_token_service import JwtVerificationTokenService
 from app.infrastructure.smtp_email_sender import SmtpEmailSender
@@ -122,6 +126,8 @@ from app.presentation.api.auth import (
     get_current_user,
     get_rate_limiter,
     get_register_use_case,
+    get_request_password_reset_use_case,
+    get_reset_password_use_case,
     get_token_service,
     get_user_repository,
     get_verify_email_use_case,
@@ -187,6 +193,10 @@ _token_service = JwtTokenService(JWT_SECRET, ttl=timedelta(days=SESSION_TTL_DAYS
 _verification_token_service = JwtVerificationTokenService(
     JWT_SECRET, ttl=timedelta(hours=EMAIL_VERIFICATION_TTL_HOURS)
 )
+# Password reset uses its own single-purpose token (distinct from confirmation tokens).
+_password_reset_token_service = JwtPasswordResetTokenService(
+    JWT_SECRET, ttl=timedelta(hours=PASSWORD_RESET_TTL_HOURS)
+)
 _email_sender = (
     SmtpEmailSender(
         host=SMTP_HOST,
@@ -220,6 +230,21 @@ _verify_email_use_case = VerifyEmailUseCase(
 )
 _change_password_use_case = ChangePasswordUseCase(
     _user_repository, _password_hasher, _token_service
+)
+
+
+def _reset_link(token: str) -> str:
+    return f"{APP_BASE_URL}/reset-password?token={token}"
+
+
+_request_password_reset_use_case = RequestPasswordResetUseCase(
+    _user_repository,
+    _password_reset_token_service,
+    _email_sender,
+    link_builder=_reset_link,
+)
+_reset_password_use_case = ResetPasswordUseCase(
+    _user_repository, _password_reset_token_service, _password_hasher, _token_service
 )
 _cookie_settings = CookieSettings(
     secure=COOKIE_SECURE, samesite=COOKIE_SAMESITE, max_age=SESSION_TTL_DAYS * 24 * 3600
@@ -343,6 +368,8 @@ app.dependency_overrides[get_token_service] = lambda: _token_service
 app.dependency_overrides[get_cookie_settings] = lambda: _cookie_settings
 app.dependency_overrides[get_rate_limiter] = lambda: _rate_limiter
 app.dependency_overrides[get_change_password_use_case] = lambda: _change_password_use_case
+app.dependency_overrides[get_request_password_reset_use_case] = lambda: _request_password_reset_use_case
+app.dependency_overrides[get_reset_password_use_case] = lambda: _reset_password_use_case
 app.dependency_overrides[get_save_profile_use_case] = lambda: save_profile_use_case
 app.dependency_overrides[get_profile_use_case] = lambda: get_user_profile_use_case
 app.dependency_overrides[get_match_offers_use_case] = lambda: match_offers_use_case

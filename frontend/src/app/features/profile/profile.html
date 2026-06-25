@@ -26,24 +26,6 @@
       </mat-card-content>
     </mat-card>
 
-    <mat-card appearance="outlined" class="section section--tax">
-      <mat-card-header>
-        <div mat-card-avatar class="section-avatar"><mat-icon>account_balance</mat-icon></div>
-        <mat-card-title>Tax situation</mat-card-title>
-      </mat-card-header>
-      <mat-card-content>
-        <ul class="tax-summary">
-          <li>{{ profile.tax_situation?.under_26 ? 'Under 26 — youth tax relief' : 'Over 26' }}</li>
-          <li>{{ profile.tax_situation?.is_student ? 'Student' : 'Not a student' }}</li>
-          <li>
-            {{ (profile.tax_situation?.applies_tax_credit ?? true)
-              ? 'PIT-2 tax-reducing amount applied'
-              : 'No PIT-2 tax-reducing amount' }}
-          </li>
-        </ul>
-      </mat-card-content>
-    </mat-card>
-
     <mat-card appearance="outlined" class="section section--skills">
       <mat-card-header>
         <div mat-card-avatar class="section-avatar"><mat-icon>star_outline</mat-icon></div>
@@ -144,6 +126,26 @@
         }
       </mat-card-content>
     </mat-card>
+
+    <mat-card appearance="outlined" class="section section--tax">
+      <mat-card-header>
+        <div mat-card-avatar class="section-avatar"><mat-icon>account_balance</mat-icon></div>
+        <mat-card-title>Tax situation</mat-card-title>
+      </mat-card-header>
+      <mat-card-content>
+        <mat-chip-set class="view-chip-set">
+          <mat-chip>{{ profile.tax_situation?.under_26 ? 'Under 26' : 'Over 26' }}</mat-chip>
+          @if (profile.tax_situation?.is_student) {
+            <mat-chip>Student</mat-chip>
+          }
+          <mat-chip>
+            {{ (profile.tax_situation?.applies_tax_credit ?? true) ? 'PIT-2 applied' : 'No PIT-2' }}
+          </mat-chip>
+          <mat-chip>B2B: {{ b2bTaxFormLabel(profile.tax_situation?.b2b_tax_form) }}</mat-chip>
+          <mat-chip>ZUS: {{ zusSchemeLabel(profile.tax_situation?.b2b_zus_scheme) }}</mat-chip>
+        </mat-chip-set>
+      </mat-card-content>
+    </mat-card>
   </div>
 } @else {
 <form [formGroup]="form" (ngSubmit)="save()" class="page">
@@ -186,27 +188,6 @@
           placeholder='e.g. "Backend developer focused on Python APIs and data pipelines."'
         ></textarea>
       </mat-form-field>
-    </mat-card-content>
-  </mat-card>
-
-  <mat-card appearance="outlined" class="section section--tax">
-    <mat-card-header>
-      <div mat-card-avatar class="section-avatar"><mat-icon>account_balance</mat-icon></div>
-      <mat-card-title>Tax situation</mat-card-title>
-      <mat-card-subtitle>Optional — refines net-salary estimates. Leave as-is if unsure.</mat-card-subtitle>
-    </mat-card-header>
-    <mat-card-content>
-      <div class="tax-options" formGroupName="tax">
-        <mat-checkbox formControlName="under_26">
-          I'm under 26 — income-tax relief on permanent / contract work
-        </mat-checkbox>
-        <mat-checkbox formControlName="is_student">
-          I'm a student — no ZUS on a contract (umowa zlecenie) when under 26
-        </mat-checkbox>
-        <mat-checkbox formControlName="applies_tax_credit">
-          Apply the PIT-2 monthly tax-reducing amount
-        </mat-checkbox>
-      </div>
     </mat-card-content>
   </mat-card>
 
@@ -484,6 +465,48 @@
         <mat-icon>add</mat-icon>
         Add experience
       </button>
+    </mat-card-content>
+  </mat-card>
+
+  <mat-card appearance="outlined" class="section section--tax">
+    <mat-card-header>
+      <div mat-card-avatar class="section-avatar"><mat-icon>account_balance</mat-icon></div>
+      <mat-card-title>Tax situation</mat-card-title>
+      <mat-card-subtitle>Optional — refines net-salary estimates. Leave as-is if unsure.</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      <div formGroupName="tax">
+        <div class="tax-options">
+          <mat-checkbox formControlName="under_26">
+            I'm under 26 — income-tax relief on permanent / contract work
+          </mat-checkbox>
+          <mat-checkbox formControlName="is_student">
+            I'm a student — no ZUS on a contract (umowa zlecenie) when under 26
+          </mat-checkbox>
+          <mat-checkbox formControlName="applies_tax_credit">
+            Apply the PIT-2 monthly tax-reducing amount
+          </mat-checkbox>
+        </div>
+        <div class="tax-b2b">
+          <p class="tax-b2b-hint">B2B only — used when an offer is a B2B contract:</p>
+          <mat-form-field>
+            <mat-label>Tax form</mat-label>
+            <mat-select formControlName="b2b_tax_form">
+              @for (option of b2bTaxForms; track option.value) {
+                <mat-option [value]="option.value">{{ option.label }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+          <mat-form-field>
+            <mat-label>ZUS scheme</mat-label>
+            <mat-select formControlName="b2b_zus_scheme">
+              @for (option of zusSchemes; track option.value) {
+                <mat-option [value]="option.value">{{ option.label }}</mat-option>
+              }
+            </mat-select>
+          </mat-form-field>
+        </div>
+      </div>
     </mat-card-content>
   </mat-card>
 

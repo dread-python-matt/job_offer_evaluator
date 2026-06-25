@@ -1,6 +1,6 @@
 import pytest
 
-from app.domain.entities import Salary, TaxSituation
+from app.domain.entities import B2BTaxForm, Salary, TaxSituation, ZusScheme
 from app.domain.salary_calculator import (
     B2B_FULL_ZUS_BASE_2026,
     B2B_RYCZALT_HEALTH_TIER_1_MONTHLY,
@@ -291,3 +291,89 @@ class TestStudentContractorExemption:
         )
 
         assert student == default
+
+
+def _b2b(gross: float, **situation_kwargs) -> object:
+    return SalaryCalculator().calculate(
+        ContractType.B2B, gross, situation=TaxSituation(**situation_kwargs)
+    )
+
+
+class TestB2BTaxForm:
+    def test_default_is_ryczalt_12_on_duzy_zus(self):
+        explicit = SalaryCalculator().calculate(
+            ContractType.B2B,
+            10000.0,
+            situation=TaxSituation(
+                b2b_tax_form=B2BTaxForm.RYCZALT_12, b2b_zus_scheme=ZusScheme.DUZY_ZUS
+            ),
+        )
+        implicit = SalaryCalculator().calculate(ContractType.B2B, 10000.0)
+
+        assert explicit == implicit
+
+    def test_ryczalt_8_5_taxes_the_same_base_at_a_lower_rate(self):
+        twelve = _b2b(10000.0, b2b_tax_form=B2BTaxForm.RYCZALT_12)
+        eight_five = _b2b(10000.0, b2b_tax_form=B2BTaxForm.RYCZALT_8_5)
+
+        assert eight_five.health_insurance == pytest.approx(twelve.health_insurance)
+        assert eight_five.income_tax == pytest.approx(662.68, abs=0.01)
+        assert eight_five.income_tax < twelve.income_tax
+
+    def test_liniowy_taxes_net_income_at_19_percent_with_income_based_health(self):
+        breakdown = _b2b(20000.0, b2b_tax_form=B2BTaxForm.LINIOWY)
+
+        assert breakdown.social_security == pytest.approx(1788.48, abs=0.01)
+        assert breakdown.health_insurance == pytest.approx(892.36, abs=0.01)
+        assert breakdown.income_tax == pytest.approx(3290.64, abs=0.01)
+        assert breakdown.take_home == pytest.approx(14028.52, abs=0.01)
+
+    def test_liniowy_health_has_a_monthly_floor(self):
+        breakdown = _b2b(5000.0, b2b_tax_form=B2BTaxForm.LINIOWY)
+
+        assert breakdown.health_insurance == pytest.approx(432.54, abs=0.01)
+
+    def test_skala_uses_progressive_tax_and_non_deductible_health(self):
+        breakdown = _b2b(10000.0, b2b_tax_form=B2BTaxForm.SKALA)
+
+        assert breakdown.health_insurance == pytest.approx(739.04, abs=0.01)
+        assert breakdown.income_tax == pytest.approx(685.38, abs=0.01)
+        assert breakdown.take_home == pytest.approx(6787.10, abs=0.01)
+
+    def test_business_costs_reduce_the_liniowy_tax_base(self):
+        without_costs = _b2b(20000.0, b2b_tax_form=B2BTaxForm.LINIOWY)
+        with_costs = SalaryCalculator().calculate(
+            ContractType.B2B,
+            20000.0,
+            business_costs=3000.0,
+            situation=TaxSituation(b2b_tax_form=B2BTaxForm.LINIOWY),
+        )
+
+        assert with_costs.income_tax < without_costs.income_tax
+
+    def test_youth_relief_never_applies_to_b2b_even_on_skala(self):
+        without_youth = _b2b(10000.0, b2b_tax_form=B2BTaxForm.SKALA)
+        with_youth = _b2b(10000.0, b2b_tax_form=B2BTaxForm.SKALA, under_26=True)
+
+        assert with_youth.income_tax == pytest.approx(without_youth.income_tax)
+
+
+class TestB2BZusScheme:
+    def test_preferential_scheme_lowers_social_security(self):
+        duzy = _b2b(10000.0, b2b_zus_scheme=ZusScheme.DUZY_ZUS)
+        preferential = _b2b(10000.0, b2b_zus_scheme=ZusScheme.PREFERENTIAL)
+
+        assert preferential.social_security == pytest.approx(420.86, abs=0.01)
+        assert preferential.social_security < duzy.social_security
+
+    def test_ulga_na_start_waives_social_security_but_not_health(self):
+        breakdown = _b2b(10000.0, b2b_zus_scheme=ZusScheme.ULGA_NA_START)
+
+        assert breakdown.social_security == 0.0
+        assert breakdown.health_insurance > 0.0
+
+    def test_zus_scheme_does_not_change_the_ryczalt_health_tier(self):
+        duzy = _b2b(10000.0, b2b_zus_scheme=ZusScheme.DUZY_ZUS)
+        ulga = _b2b(10000.0, b2b_zus_scheme=ZusScheme.ULGA_NA_START)
+
+        assert ulga.health_insurance == pytest.approx(duzy.health_insurance)

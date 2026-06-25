@@ -10,6 +10,7 @@ from app.application.ports import (
     ModelUsageSummary,
     OfferRepository,
     PasswordHasher,
+    PasswordResetTokenService,
     SelectedModelRepository,
     SpendProvider,
     TokenClaims,
@@ -22,7 +23,11 @@ from app.application.ports import (
 from app.domain.auth import User
 from app.domain.budget import BudgetSettings
 from app.domain.entities import Offer, UserProfile
-from app.domain.errors import AuthenticationError, InvalidVerificationTokenError
+from app.domain.errors import (
+    AuthenticationError,
+    InvalidPasswordResetTokenError,
+    InvalidVerificationTokenError,
+)
 from app.domain.filters import (
     OfferBrowseFilters,
     expired_matches,
@@ -222,6 +227,21 @@ class FakeVerificationTokenService(VerificationTokenService):
     def verify(self, token: str) -> str:
         if not token.startswith(self._PREFIX):
             raise InvalidVerificationTokenError("malformed verification token")
+        return token[len(self._PREFIX) :]
+
+
+class FakePasswordResetTokenService(PasswordResetTokenService):
+    """Encodes the user id as a `reset:<user_id>` string so tests can issue and verify
+    reset tokens without crypto. Anything else raises, like the real adapter."""
+
+    _PREFIX = "reset:"
+
+    def issue(self, user_id: str) -> str:
+        return f"{self._PREFIX}{user_id}"
+
+    def verify(self, token: str) -> str:
+        if not token.startswith(self._PREFIX):
+            raise InvalidPasswordResetTokenError("malformed reset token")
         return token[len(self._PREFIX) :]
 
 

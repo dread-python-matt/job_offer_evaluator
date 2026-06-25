@@ -7,6 +7,7 @@ from app.application.ports import (
     EmailSender,
     EmailValidator,
     PasswordHasher,
+    PasswordResetTokenService,
     TokenService,
     UserRepository,
     VerificationTokenService,
@@ -17,6 +18,7 @@ from app.domain.errors import (
     EmailNotDeliverableError,
     EmailNotVerifiedError,
     InvalidCredentialsError,
+    InvalidPasswordResetTokenError,
     InvalidVerificationTokenError,
 )
 
@@ -165,4 +167,80 @@ class ChangePasswordUseCase:
         new_hash = self._hasher.hash(new_password)
         self._users.update_password(user.id, new_hash, new_version)
         updated = replace(user, password_hash=new_hash, token_version=new_version)
+        return updated, self._tokens.issue(updated.id, updated.token_version)
+
+
+_RESET_SUBJECT = "Reset your password"
+
+
+def _reset_body(link: str) -> str:
+    return (
+        "We received a request to reset your password. Open this link to choose a new one:"
+        f"\n\n{link}\n\n"
+        "If you didn't request this, you can safely ignore this email — your password "
+        "won't change."
+    )
+
+
+class RequestPasswordResetUseCase:
+    """Starts the 'forgot password' flow: if the email belongs to an account, emails a
+    single-purpose reset link. Deliberately silent when the email is unknown so the endpoint
+    can't be used to discover which addresses are registered (enumeration-resistant)."""
+
+    def __init__(
+        self,
+        users: UserRepository,
+        reset_tokens: PasswordResetTokenService,
+        email_sender: EmailSender,
+        link_builder: Callable[[str], str],
+    ) -> None:
+        self._users = users
+        self._reset_tokens = reset_tokens
+        self._email_sender = email_sender
+        self._link_builder = link_builder
+
+    def execute(self, email: str) -> None:
+        user = self._users.get_by_email(_normalize_email(email))
+        if user is None:
+            return
+        token = self._reset_tokens.issue(user.id)
+        link = self._link_builder(token)
+        self._email_sender.send(
+            to=user.email,
+            subject=_RESET_SUBJECT,
+            body=_reset_body(link),
+        )
+
+
+class ResetPasswordUseCase:
+    """Completes the 'forgot password' flow: validates a reset token, sets the new password,
+    and bumps token_version so every previously issued session is invalidated. Following the
+    link also confirms the email (it proves ownership). Returns a fresh session token so the
+    user lands signed in."""
+
+    def __init__(
+        self,
+        users: UserRepository,
+        reset_tokens: PasswordResetTokenService,
+        hasher: PasswordHasher,
+        tokens: TokenService,
+    ) -> None:
+        self._users = users
+        self._reset_tokens = reset_tokens
+        self._hasher = hasher
+        self._tokens = tokens
+
+    def execute(self, token: str, new_password: str) -> tuple[User, str]:
+        user_id = self._reset_tokens.verify(token)
+        user = self._users.get_by_id(user_id)
+        if user is None:
+            raise InvalidPasswordResetTokenError("No account for this reset token")
+        new_version = user.token_version + 1
+        new_hash = self._hasher.hash(new_password)
+        self._users.update_password(user.id, new_hash, new_version)
+        if not user.email_verified:
+            self._users.mark_email_verified(user.id)
+        updated = replace(
+            user, password_hash=new_hash, token_version=new_version, email_verified=True
+        )
         return updated, self._tokens.issue(updated.id, updated.token_version)
