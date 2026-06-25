@@ -43,15 +43,15 @@ Fixes were applied for everything except **C1** (the owner has decided not to pu
 - **L3** — `CORS_ORIGINS` entries are now stripped/blank-dropped.
 - **L6** — scoring prompt hardened to treat candidate/offer text as untrusted data, not instructions.
 - **L8** — `SmtpEmailSender` rejects CR/LF in `to`/`subject` (header-injection defense-in-depth).
-- **Cleanup** — removed dead config (`USER_PROFILE_PATH`, `SESSION_TTL_DAYS`); corrected the inaccurate `BudgetExceededError` message; fixed a pre-existing time-bomb test in `test_jwt_verification_token_service.py` (hardcoded date + real-clock verify) that fails once wall-clock passes the token's expiry.
+- **L4** — `refresh_tokens` rows are now garbage-collected: `RefreshTokenRepository.delete_expired()` (real DELETE in the Postgres adapter, no-op default elsewhere) is swept opportunistically by `RefreshTokenService.rotate()` at most once per hour, and is also exposed as `purge_expired()` for a scheduled job. Bounds previously-unbounded table growth. Tests: `tests/unit/application/test_refresh_token_service.py`.
+- **Login timing enumeration** (additional hardening, beyond the report's L1) — `AuthenticateUserUseCase` now runs a verify against a throwaway hash when the email is unknown, so a missing account costs the same time as a wrong password and login response timing can't be used to discover registered emails. Test in `test_auth_use_cases.py`.
+- **Cleanup** — removed dead config (`USER_PROFILE_PATH`, `SESSION_TTL_DAYS`) and the dead `MarkdownUserProfileRepository` (obsolete since the move to multi-tenant Postgres) plus its integration test; corrected the inaccurate `BudgetExceededError` message; fixed a pre-existing time-bomb test in `test_jwt_verification_token_service.py` (hardcoded date + real-clock verify) that fails once wall-clock passes the token's expiry.
 
 **Deferred (by design / needs infrastructure)**
 - **C1** — accepted by owner (no `.git` publication). Rotation + history purge still recommended if that changes.
 - **M2** — the budget check-then-act race is only fully closable with a shared reservation/pre-charge store (same class of problem as M3's limiter). Per-user token accounting + the org-spend backstop remain as guards; flagged for a shared-store follow-up.
 - **L1** — register `409` (email-taken) enumeration is an accepted registration UX trade-off.
 - **L2** — login/refresh CSRF (low impact) left as-is.
-- **L4** — refresh-token row GC needs a scheduled job; not wired here.
-- **Dead code** — `MarkdownUserProfileRepository` left in place (it still has integration tests); noted for later removal.
 
 ---
 

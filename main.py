@@ -14,6 +14,12 @@ from app.application.auth_use_cases import (
     ResetPasswordUseCase,
     VerifyEmailUseCase,
 )
+from app.application.api_key_use_cases import (
+    AddApiKeyUseCase,
+    DeleteApiKeyUseCase,
+    ListApiKeysUseCase,
+    SetApiKeyBudgetUseCase,
+)
 from app.application.budget_service import BudgetService
 from app.application.refresh_tokens import RefreshTokenService
 from app.application.use_cases import (
@@ -30,6 +36,7 @@ from app.application.use_cases import (
 from app.config import (
     ACCESS_TOKEN_TTL_MINUTES,
     AI_MATCH_CONCURRENCY,
+    API_KEY_ENCRYPTION_KEY,
     APP_BASE_URL,
     BUDGET_FAIL_CLOSED,
     BUDGET_SPEND_CACHE_TTL_SECONDS,
@@ -99,6 +106,12 @@ from app.infrastructure.postgres_user_profile_repository import PostgresUserProf
 from app.infrastructure.postgres_refresh_token_repository import PostgresRefreshTokenRepository
 from app.infrastructure.postgres_user_repository import PostgresUserRepository
 from app.infrastructure.argon2_password_hasher import Argon2PasswordHasher
+from app.infrastructure.fernet_key_cipher import FernetKeyCipher
+from app.infrastructure.model_listing_api_key_validator import ModelListingApiKeyValidator
+from app.infrastructure.postgres_api_key_repository import PostgresApiKeyRepository
+from app.infrastructure.token_accounting_provider_spend_provider import (
+    TokenAccountingProviderSpendProvider,
+)
 from app.infrastructure.console_email_sender import ConsoleEmailSender
 from app.infrastructure.email_validators import AllowAllEmailValidator, DnsEmailValidator
 from app.infrastructure.jwt_password_reset_token_service import JwtPasswordResetTokenService
@@ -108,9 +121,13 @@ from app.infrastructure.smtp_email_sender import SmtpEmailSender
 from app.infrastructure.scoring_strategies import SkillBasedScorer
 from app.infrastructure.translation_agents import build_polish_to_english_agent
 from app.presentation.api.routes import (
+    get_add_api_key_use_case,
     get_ai_scoring_context,
     get_calculate_salary_use_case,
     get_budget_service,
+    get_delete_api_key_use_case,
+    get_list_api_keys_use_case,
+    get_set_api_key_budget_use_case,
     get_count_offers_use_case,
     get_list_available_models_use_case,
     get_list_offers_use_case,
@@ -190,6 +207,29 @@ _budget_service = BudgetService(
     _user_spend_provider,
     cache_ttl_seconds=BUDGET_SPEND_CACHE_TTL_SECONDS,
 )
+
+# --- User-supplied provider API keys (each with its own budget) ---
+# Keys are encrypted at rest (the server must replay them, so encryption not hashing) and
+# validated against the provider — by listing models, which is free — before being stored.
+_api_key_repository = PostgresApiKeyRepository(_engine)
+_key_cipher = FernetKeyCipher(API_KEY_ENCRYPTION_KEY)
+
+
+def _models_provider_for_key(provider: str, key: str):
+    if provider == "google":
+        return GeminiAvailableModelsProvider(key, timeout=LLM_TIMEOUT_SECONDS)
+    return OpenAIAvailableModelsProvider(key, timeout=LLM_TIMEOUT_SECONDS)
+
+
+_api_key_validator = ModelListingApiKeyValidator(provider_factory=_models_provider_for_key)
+# Each key's usage is derived per provider from the user's recorded, priced token usage.
+_provider_spend_provider = TokenAccountingProviderSpendProvider(
+    model_usage_repository, HardcodedModelPricingRegistry()
+)
+_add_api_key_use_case = AddApiKeyUseCase(_api_key_repository, _key_cipher, _api_key_validator)
+_list_api_keys_use_case = ListApiKeysUseCase(_api_key_repository, _provider_spend_provider)
+_set_api_key_budget_use_case = SetApiKeyBudgetUseCase(_api_key_repository, _provider_spend_provider)
+_delete_api_key_use_case = DeleteApiKeyUseCase(_api_key_repository)
 # AI matches are gated by the user's token budget plus a global org-spend backstop that
 # protects the owner's actual provider bill (active only when an admin key is configured).
 _budget_gate = CompositeBudgetStatusReader([
@@ -404,6 +444,10 @@ app.dependency_overrides[get_list_offers_use_case] = lambda: list_offers_use_cas
 app.dependency_overrides[get_calculate_salary_use_case] = lambda: calculate_salary_use_case
 app.dependency_overrides[get_model_usage_summary_use_case] = lambda: get_model_usage_summary_use_case_instance
 app.dependency_overrides[get_budget_service] = lambda: _budget_service
+app.dependency_overrides[get_add_api_key_use_case] = lambda: _add_api_key_use_case
+app.dependency_overrides[get_list_api_keys_use_case] = lambda: _list_api_keys_use_case
+app.dependency_overrides[get_set_api_key_budget_use_case] = lambda: _set_api_key_budget_use_case
+app.dependency_overrides[get_delete_api_key_use_case] = lambda: _delete_api_key_use_case
 
 
 def main() -> None:

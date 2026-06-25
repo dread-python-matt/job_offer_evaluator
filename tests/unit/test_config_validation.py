@@ -2,16 +2,18 @@ import logging
 
 import pytest
 
-from app.config import DEV_JWT_SECRET
+from app.config import DEV_API_KEY_ENCRYPTION_KEY, DEV_JWT_SECRET
 from app.config_validation import InsecureConfigurationError, validate_runtime_config
 
 _STRONG_SECRET = "x" * 32
+_STRONG_ENCRYPTION_KEY = "Zr8mNq1pVwXyZaBcDeFgHiJkLmNoPqRsTuVwXyZ0123="
 
 
 def _validate(**overrides):
     base = dict(
         app_env="production",
         jwt_secret=_STRONG_SECRET,
+        api_key_encryption_key=_STRONG_ENCRYPTION_KEY,
         cookie_secure=True,
         cors_origins=["https://app.example.com"],
         workers=1,
@@ -39,6 +41,11 @@ def test_production_rejects_default_jwt_secret():
 def test_production_rejects_too_short_jwt_secret():
     with pytest.raises(InsecureConfigurationError, match="JWT_SECRET"):
         _validate(jwt_secret="short")
+
+
+def test_production_rejects_default_api_key_encryption_key():
+    with pytest.raises(InsecureConfigurationError, match="API_KEY_ENCRYPTION_KEY"):
+        _validate(api_key_encryption_key=DEV_API_KEY_ENCRYPTION_KEY)
 
 
 def test_production_rejects_insecure_cookies():

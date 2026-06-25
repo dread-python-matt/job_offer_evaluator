@@ -44,6 +44,15 @@ class RefreshTokenRepository(ABC):
     def revoke_user(self, user_id: str) -> None:
         """Invalidate every refresh token for a user (logout-everywhere / password change)."""
 
+    def delete_expired(self, now: datetime) -> int:
+        """Hard-delete tokens whose `expires_at` is in the past, returning the count removed.
+
+        Bounds the table: without this, consumed/rotated rows accrue forever (one per refresh
+        per device). Expired rows are safe to drop — an expired token is rejected on its own
+        merits, and a same-family non-expired token is still caught by reuse detection. The
+        default is a no-op for stores that don't accumulate (e.g. in-memory test repos)."""
+        return 0
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -69,12 +78,17 @@ class RefreshTokenService:
         clock: Callable[[], datetime] = _utc_now,
         token_factory: Callable[[], str] = lambda: secrets.token_urlsafe(32),
         id_factory: Callable[[], str] = lambda: str(uuid.uuid4()),
+        purge_interval: timedelta = timedelta(hours=1),
     ) -> None:
         self._repository = repository
         self._ttl = ttl
         self._clock = clock
         self._token_factory = token_factory
         self._id_factory = id_factory
+        # Expired rows are swept opportunistically on rotate, at most once per interval, so
+        # the table stays bounded without needing a separate scheduled job.
+        self._purge_interval = purge_interval
+        self._last_purge: datetime | None = None
 
     def issue(self, user_id: str, family_id: str | None = None) -> str:
         """Issue a new refresh token for the user, returning the raw token (the only time it
@@ -94,6 +108,7 @@ class RefreshTokenService:
     def rotate(self, raw_token: str) -> tuple[str, str]:
         """Validate and rotate a refresh token, returning (user_id, new_raw_token). Raises
         InvalidRefreshTokenError if the token is unknown, expired, or being reused."""
+        self._maybe_purge_expired()
         record = self._repository.get_by_hash(_hash_token(raw_token))
         if record is None:
             raise InvalidRefreshTokenError("unknown refresh token")
@@ -114,3 +129,15 @@ class RefreshTokenService:
 
     def revoke_user(self, user_id: str) -> None:
         self._repository.revoke_user(user_id)
+
+    def purge_expired(self) -> int:
+        """Delete expired tokens now, returning the count removed. Safe to call from a
+        scheduled job; also invoked opportunistically by `rotate` (throttled)."""
+        return self._repository.delete_expired(self._clock())
+
+    def _maybe_purge_expired(self) -> None:
+        now = self._clock()
+        if self._last_purge is not None and now - self._last_purge < self._purge_interval:
+            return
+        self._last_purge = now
+        self._repository.delete_expired(now)

@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
+from app.application.api_key_use_cases import ApiKeyView
 from app.application.ports import ModelUsageWithLimits
 from app.domain.auth import User
 from app.domain.budget import BudgetStatus
@@ -386,6 +387,42 @@ class BudgetSchema(BaseModel):
 
 
 class SetBudgetLimitRequestSchema(BaseModel):
+    limit_usd: float = Field(ge=0)
+
+
+class ApiProviderSchema(BaseModel):
+    """A provider the user may register a key for (for the 'choose from a list' UI)."""
+
+    provider: str
+    company: str
+
+
+class ApiKeySchema(BaseModel):
+    """A stored API key as the user may see it: never the key itself, only a masked hint
+    plus the key's own budget and derived usage."""
+
+    api_provider: str
+    key_hint: str
+    limit_usd: float
+    used_usd: float
+
+    @classmethod
+    def from_view(cls, view: "ApiKeyView") -> "ApiKeySchema":
+        return cls(
+            api_provider=view.api_provider,
+            key_hint=view.key_hint,
+            limit_usd=view.limit_usd,
+            used_usd=view.used_usd,
+        )
+
+
+class AddApiKeyRequestSchema(BaseModel):
+    api_provider: str
+    key: str = Field(min_length=1)
+    limit_usd: float = Field(ge=0)
+
+
+class SetApiKeyBudgetRequestSchema(BaseModel):
     limit_usd: float = Field(ge=0)
 
 

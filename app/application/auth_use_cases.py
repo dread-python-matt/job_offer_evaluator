@@ -1,3 +1,4 @@
+import secrets
 import uuid
 from collections.abc import Callable
 from dataclasses import replace
@@ -106,10 +107,17 @@ class AuthenticateUserUseCase:
         self._users = users
         self._hasher = hasher
         self._tokens = tokens
+        # A throwaway valid hash to verify against when no account matches, so a missing
+        # email costs the same time as a wrong password — login timing can't be used to
+        # discover which emails are registered.
+        self._dummy_hash = hasher.hash(secrets.token_urlsafe(16))
 
     def execute(self, email: str, password: str) -> tuple[User, str]:
         user = self._users.get_by_email(_normalize_email(email))
-        if user is None or not self._hasher.verify(password, user.password_hash):
+        if user is None:
+            self._hasher.verify(password, self._dummy_hash)  # equalize timing, then fail
+            raise InvalidCredentialsError("Invalid email or password")
+        if not self._hasher.verify(password, user.password_hash):
             raise InvalidCredentialsError("Invalid email or password")
         if not user.email_verified:
             raise EmailNotVerifiedError("Email address has not been confirmed")

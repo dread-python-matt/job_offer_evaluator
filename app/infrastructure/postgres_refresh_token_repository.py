@@ -57,6 +57,16 @@ class PostgresRefreshTokenRepository(RefreshTokenRepository):
             session.execute(delete(RefreshTokenRow).where(RefreshTokenRow.user_id == user_id))
             session.commit()
 
+    def delete_expired(self, now: datetime) -> int:
+        """Hard-delete tokens past their expiry, returning how many rows were removed. Keeps
+        the table bounded; expired rows are unusable anyway, so reuse detection is unaffected."""
+        with Session(self._engine) as session:
+            result = session.execute(
+                delete(RefreshTokenRow).where(RefreshTokenRow.expires_at < now)
+            )
+            session.commit()
+            return result.rowcount or 0
+
     @staticmethod
     def _to_record(row: RefreshTokenRow) -> RefreshTokenRecord:
         return RefreshTokenRecord(

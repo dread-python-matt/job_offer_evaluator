@@ -21,8 +21,10 @@ def _database_reachable() -> bool:
 
 pytestmark = pytest.mark.skipif(not _database_reachable(), reason="database is not reachable")
 
-_USER_ID = "11111111-1111-1111-1111-111111111111"
-_OTHER_USER_ID = "22222222-2222-2222-2222-222222222222"
+# Distinct from the IDs the other integration suites use, so this suite's user
+# setup/teardown can never contaminate their shared rows under random test ordering.
+_USER_ID = "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1"
+_OTHER_USER_ID = "b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2"
 
 
 def _seed_user(conn, user_id: str) -> None:

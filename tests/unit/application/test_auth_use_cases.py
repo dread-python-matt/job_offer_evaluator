@@ -200,6 +200,30 @@ def test_authenticate_rejects_unknown_email():
         use_case.execute(email="nobody@example.com", password="correct horse battery")
 
 
+class _CountingHasher(FakePasswordHasher):
+    """FakePasswordHasher that counts verify() calls, so the timing-equalization behaviour
+    can be asserted without measuring wall-clock time."""
+
+    def __init__(self) -> None:
+        self.verify_calls = 0
+
+    def verify(self, plain: str, hashed: str) -> bool:
+        self.verify_calls += 1
+        return super().verify(plain, hashed)
+
+
+def test_authenticate_verifies_a_dummy_hash_for_unknown_email_to_resist_timing_enumeration():
+    # When no account matches, a verify must still run (against a throwaway hash) so the
+    # response time doesn't reveal whether the email is registered.
+    hasher = _CountingHasher()
+    use_case = AuthenticateUserUseCase(FakeUserRepository(), hasher, FakeTokenService())
+
+    with pytest.raises(InvalidCredentialsError):
+        use_case.execute(email="nobody@example.com", password="whatever pass phrase")
+
+    assert hasher.verify_calls == 1
+
+
 def test_authenticate_rejects_a_user_whose_email_is_not_verified():
     repo = FakeUserRepository([_existing_user(email_verified=False)])
     use_case = _authenticate_use_case(repo)

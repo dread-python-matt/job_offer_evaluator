@@ -1,6 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from app.application.ai_scoring_context import AiScoringContext
+from app.application.api_key_use_cases import (
+    AddApiKeyUseCase,
+    DeleteApiKeyUseCase,
+    ListApiKeysUseCase,
+    SetApiKeyBudgetUseCase,
+)
 from app.application.budget_service import BudgetService
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
@@ -13,17 +19,29 @@ from app.application.use_cases import (
     MatchOffersWithAiUseCase,
     SaveUserProfileUseCase,
 )
+from app.domain.api_providers import SUPPORTED_API_PROVIDERS, company_for_provider
 from app.domain.auth import User
-from app.domain.errors import AiScoringError, BudgetExceededError
+from app.domain.errors import (
+    AiScoringError,
+    ApiKeyAlreadyExistsError,
+    ApiKeyNotFoundError,
+    BudgetExceededError,
+    InvalidApiKeyError,
+    UnsupportedApiProviderError,
+)
 from app.domain.filters import OfferBrowseFilters
 from app.presentation.api.auth import get_current_user
 from app.domain.sorting import SortBy, SortOrder
 from app.infrastructure.llm_utils import company_from_model
 from app.presentation.api.schemas import (
+    AddApiKeyRequestSchema,
     AiMatchResponseSchema,
     AiUsageSchema,
+    ApiKeySchema,
+    ApiProviderSchema,
     AvailableModelsSchema,
     BudgetSchema,
+    SetApiKeyBudgetRequestSchema,
     CompanyModelsSchema,
     CurrentModelSchema,
     MatchAiRequestSchema,
@@ -86,6 +104,22 @@ def get_ai_scoring_context() -> AiScoringContext:
 
 def get_budget_service() -> BudgetService:
     raise NotImplementedError("override with a configured service")
+
+
+def get_add_api_key_use_case() -> AddApiKeyUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_list_api_keys_use_case() -> ListApiKeysUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_set_api_key_budget_use_case() -> SetApiKeyBudgetUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_delete_api_key_use_case() -> DeleteApiKeyUseCase:
+    raise NotImplementedError("override with a configured use case")
 
 
 @router.post("/profile", response_model=UserProfileSchema)
@@ -280,3 +314,64 @@ def get_usage_summary(
     use_case: GetModelUsageSummaryUseCase = Depends(get_model_usage_summary_use_case),
 ) -> list[ModelUsageSummaryItemSchema]:
     return [ModelUsageSummaryItemSchema.from_domain(item) for item in use_case.execute(user.id)]
+
+
+@router.get("/api-keys/providers", response_model=list[ApiProviderSchema])
+def list_api_key_providers() -> list[ApiProviderSchema]:
+    """The fixed list of providers a user may register a key for (drives the picker UI)."""
+    return [
+        ApiProviderSchema(provider=provider, company=company_for_provider(provider))
+        for provider in SUPPORTED_API_PROVIDERS
+    ]
+
+
+@router.get("/api-keys", response_model=list[ApiKeySchema])
+def list_api_keys(
+    user: User = Depends(get_current_user),
+    use_case: ListApiKeysUseCase = Depends(get_list_api_keys_use_case),
+) -> list[ApiKeySchema]:
+    return [ApiKeySchema.from_view(view) for view in use_case.execute(user.id)]
+
+
+@router.post("/api-keys", response_model=ApiKeySchema, status_code=201)
+def add_api_key(
+    payload: AddApiKeyRequestSchema,
+    user: User = Depends(get_current_user),
+    use_case: AddApiKeyUseCase = Depends(get_add_api_key_use_case),
+) -> ApiKeySchema:
+    try:
+        view = use_case.execute(user.id, payload.api_provider, payload.key, payload.limit_usd)
+    except UnsupportedApiProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except InvalidApiKeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ApiKeyAlreadyExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ApiKeySchema.from_view(view)
+
+
+@router.patch("/api-keys/{api_provider}", response_model=ApiKeySchema)
+def set_api_key_budget(
+    api_provider: str,
+    payload: SetApiKeyBudgetRequestSchema,
+    user: User = Depends(get_current_user),
+    use_case: SetApiKeyBudgetUseCase = Depends(get_set_api_key_budget_use_case),
+) -> ApiKeySchema:
+    try:
+        view = use_case.execute(user.id, api_provider, payload.limit_usd)
+    except ApiKeyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ApiKeySchema.from_view(view)
+
+
+@router.delete("/api-keys/{api_provider}", status_code=204)
+def delete_api_key(
+    api_provider: str,
+    user: User = Depends(get_current_user),
+    use_case: DeleteApiKeyUseCase = Depends(get_delete_api_key_use_case),
+) -> Response:
+    try:
+        use_case.execute(user.id, api_provider)
+    except ApiKeyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)

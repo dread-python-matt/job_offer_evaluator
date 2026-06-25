@@ -57,6 +57,13 @@ DEV_JWT_SECRET = "dev-insecure-change-me-0123456789abcdef"
 # Minimum acceptable secret length (bytes) enforced in production.
 MIN_JWT_SECRET_LENGTH = 32
 JWT_SECRET = os.environ.get("JWT_SECRET", DEV_JWT_SECRET)
+# Fernet secret encrypting users' stored provider API keys at rest. Unlike a password, an
+# API key must be replayed to the provider, so it is symmetrically encrypted (never hashed)
+# and the secret lives outside the DB. MUST be overridden in production; rotating it makes
+# existing stored keys undecryptable. Generate one with:
+#   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+DEV_API_KEY_ENCRYPTION_KEY = "PG4EqSsP_M6JLdG-_C8nzuzDaj_JsdwAIY9v3ClP0lk="
+API_KEY_ENCRYPTION_KEY = os.environ.get("API_KEY_ENCRYPTION_KEY", DEV_API_KEY_ENCRYPTION_KEY)
 # Access tokens are short-lived; a long-lived refresh token (rotated + reuse-detected) is
 # exchanged at /auth/refresh for a fresh access token, limiting how long a stolen access
 # token stays usable. The refresh TTL also bounds the cookie lifetime.

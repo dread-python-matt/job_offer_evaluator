@@ -16,6 +16,7 @@ class _FakeRefreshTokenRepository(RefreshTokenRepository):
 
     def __init__(self) -> None:
         self.records: dict[str, RefreshTokenRecord] = {}
+        self.delete_expired_calls = 0
 
     def add(self, record: RefreshTokenRecord) -> None:
         self.records[record.id] = record
@@ -31,6 +32,13 @@ class _FakeRefreshTokenRepository(RefreshTokenRepository):
 
     def revoke_user(self, user_id: str) -> None:
         self.records = {i: r for i, r in self.records.items() if r.user_id != user_id}
+
+    def delete_expired(self, now: datetime) -> int:
+        self.delete_expired_calls += 1
+        expired = [i for i, r in self.records.items() if r.expires_at < now]
+        for i in expired:
+            del self.records[i]
+        return len(expired)
 
 
 class _Clock:
@@ -155,3 +163,53 @@ def test_revoke_user_invalidates_all_of_that_users_tokens():
         service.rotate(second)
     # A different user's token is untouched.
     assert service.rotate(other)[0] == "user-2"
+
+
+# --- expired-token garbage collection ---
+
+
+def test_purge_expired_deletes_only_expired_tokens():
+    repo = _FakeRefreshTokenRepository()
+    clock = _Clock(datetime(2026, 6, 25, 12, 0, tzinfo=timezone.utc))
+    service = _service(repo, clock=clock)
+    service.issue("user-1")  # expires at now + 14d
+
+    clock.now = clock.now + timedelta(days=15)  # the issued token is now expired
+    fresh = service.issue("user-1")  # expires well in the future
+
+    removed = service.purge_expired()
+
+    assert removed == 1
+    # The fresh token survives and still works.
+    assert service.rotate(fresh)[0] == "user-1"
+
+
+def test_rotate_sweeps_expired_tokens_opportunistically():
+    repo = _FakeRefreshTokenRepository()
+    clock = _Clock(datetime(2026, 6, 25, 12, 0, tzinfo=timezone.utc))
+    service = _service(repo, clock=clock)
+    stale = service.issue("user-1")  # id-1
+
+    clock.now = clock.now + timedelta(days=15)  # `stale` is now expired
+    fresh = service.issue("user-1")  # id-2
+
+    service.rotate(fresh)  # triggers the opportunistic purge
+
+    # The expired row was swept; the consumed `fresh` token and its successor remain.
+    assert "id-1" not in repo.records
+    assert all(record.expires_at >= clock.now for record in repo.records.values())
+    # `stale` is gone from the store, so replaying it is simply unknown (still rejected).
+    with pytest.raises(InvalidRefreshTokenError):
+        service.rotate(stale)
+
+
+def test_rotate_throttles_the_purge_to_once_per_interval():
+    repo = _FakeRefreshTokenRepository()
+    clock = _Clock(datetime(2026, 6, 25, 12, 0, tzinfo=timezone.utc))
+    service = _service(repo, clock=clock)
+    token = service.issue("user-1")
+
+    _, successor = service.rotate(token)  # first rotate runs the purge
+    service.rotate(successor)  # immediately after: within the interval, so no second purge
+
+    assert repo.delete_expired_calls == 1

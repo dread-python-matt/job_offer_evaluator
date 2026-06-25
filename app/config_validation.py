@@ -1,9 +1,11 @@
 import logging
 
 from app.config import (
+    API_KEY_ENCRYPTION_KEY,
     APP_ENV,
     COOKIE_SECURE,
     CORS_ORIGINS,
+    DEV_API_KEY_ENCRYPTION_KEY,
     DEV_JWT_SECRET,
     JWT_SECRET,
     MIN_JWT_SECRET_LENGTH,
@@ -23,6 +25,7 @@ def validate_runtime_config(
     *,
     app_env: str = APP_ENV,
     jwt_secret: str = JWT_SECRET,
+    api_key_encryption_key: str = API_KEY_ENCRYPTION_KEY,
     cookie_secure: bool = COOKIE_SECURE,
     cors_origins: list[str] = CORS_ORIGINS,
     workers: int = WORKERS,
@@ -57,6 +60,11 @@ def validate_runtime_config(
     elif len(jwt_secret) < MIN_JWT_SECRET_LENGTH:
         problems.append(
             f"JWT_SECRET is too short (< {MIN_JWT_SECRET_LENGTH} chars); use a long random secret."
+        )
+    if api_key_encryption_key == DEV_API_KEY_ENCRYPTION_KEY:
+        problems.append(
+            "API_KEY_ENCRYPTION_KEY is the public dev default; set a unique Fernet key so stored "
+            "provider API keys aren't decryptable by anyone."
         )
     if not cookie_secure:
         problems.append("COOKIE_SECURE must be true in production so cookies are HTTPS-only.")
