@@ -18,6 +18,11 @@ dependencies = [
     "uvicorn[standard]>=0.39.0",
 ]
 
+[project.optional-dependencies]
+# Shared rate-limiter backend for multi-worker / multi-instance deploys
+# (RATE_LIMITER_BACKEND=redis). Install with: uv sync --extra redis
+redis = ["redis>=5.0"]
+
 [dependency-groups]
 dev = [
     "httpx2>=2.4",

@@ -6,6 +6,10 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 DATABASE_URL = os.environ["DATABASE_URL"]
+# Connection-pool sizing (SQLAlchemy defaults 5 / 10). Raise for high concurrency, but keep
+# WORKERS * (DB_POOL_SIZE + DB_MAX_OVERFLOW) under the database's max connections.
+DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))
+DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "10"))
 # Deployment environment. "production" turns on fail-fast config validation (see
 # app/config_validation.py): the app refuses to boot with insecure defaults.
 APP_ENV = os.environ.get("APP_ENV", "development").strip().lower()
@@ -76,6 +80,12 @@ REFRESH_TOKEN_TTL_DAYS = int(os.environ.get("REFRESH_TOKEN_TTL_DAYS", "14"))
 # single-worker correct; a multi-worker deploy (WORKERS>1) needs a shared store.
 LOGIN_RATE_LIMIT_ATTEMPTS = int(os.environ.get("LOGIN_RATE_LIMIT_ATTEMPTS", "5"))
 LOGIN_RATE_LIMIT_WINDOW_MINUTES = int(os.environ.get("LOGIN_RATE_LIMIT_WINDOW_MINUTES", "15"))
+# Rate-limiter backend: "memory" (default, per-process — correct only for a single worker)
+# or "redis" (shared across workers/instances). "redis" needs REDIS_URL and the optional
+# redis package (`uv sync --extra redis`); without it a multi-worker deploy throttles per
+# worker. config_validation.py warns when WORKERS>1 with the memory backend.
+RATE_LIMITER_BACKEND = os.environ.get("RATE_LIMITER_BACKEND", "memory").strip().lower()
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 # Cookie flags. Dev over http on same-site localhost uses lax + non-secure; cross-site
 # prod over https needs COOKIE_SAMESITE=none and COOKIE_SECURE=true.
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").strip().lower() in {"1", "true", "yes", "on"}
@@ -84,8 +94,9 @@ COOKIE_SAMESITE = os.environ.get("COOKIE_SAMESITE", "lax").strip().lower()
 # HOST=0.0.0.0 explicitly (behind auth / a gateway) for container/remote deploys.
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8000"))
-# Number of worker processes. The active model is persisted (shared across workers),
-# so >1 is safe for horizontal scaling.
+# Number of worker processes. DB-backed state (model selection, usage, tokens) is shared,
+# but the in-memory rate limiter + caches are per-process: for >1 worker set
+# RATE_LIMITER_BACKEND=redis so login throttling stays correct across workers.
 WORKERS = int(os.environ.get("WORKERS", "1"))
 # Timeout (seconds) for outbound LLM/provider HTTP calls, so a hung provider can't
 # tie up a worker indefinitely.

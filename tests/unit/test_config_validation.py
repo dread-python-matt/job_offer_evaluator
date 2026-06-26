@@ -17,6 +17,7 @@ def _validate(**overrides):
         cookie_secure=True,
         cors_origins=["https://app.example.com"],
         workers=1,
+        rate_limiter_backend="memory",
     )
     base.update(overrides)
     return validate_runtime_config(**base)
@@ -79,3 +80,10 @@ def test_multiple_workers_warns_but_does_not_block(caplog):
     with caplog.at_level(logging.WARNING):
         _validate(workers=4)
     assert any("worker" in record.message.lower() for record in caplog.records)
+
+
+def test_multiple_workers_with_redis_backend_do_not_warn(caplog):
+    # The Redis limiter is shared across workers, so WORKERS>1 is fine — no warning.
+    with caplog.at_level(logging.WARNING):
+        _validate(workers=4, rate_limiter_backend="redis")
+    assert not any("worker" in record.message.lower() for record in caplog.records)

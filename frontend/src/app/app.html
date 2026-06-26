@@ -1,15 +1,23 @@
 <mat-toolbar class="app-toolbar">
-  <a class="brand" routerLink="/profile" aria-label="Job Offer Matcher — home">
+  <a class="brand" routerLink="/profile" aria-label="Merge — home">
     <span class="brand-mark" aria-hidden="true">
-      <svg class="brand-svg" viewBox="0 0 24 24" fill="none">
-        <circle cx="9.3" cy="12" r="5.4" stroke="currentColor" stroke-width="2" />
-        <circle cx="14.7" cy="12" r="5.4" stroke="currentColor" stroke-width="2" />
-        <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+      <svg
+        class="brand-svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+      >
+        <path d="M6 6 C 6 12, 12 12, 18 12" />
+        <path d="M6 18 C 6 12, 12 12, 18 12" />
+        <circle cx="6" cy="6" r="2.3" fill="currentColor" stroke="none" />
+        <circle cx="6" cy="18" r="2.3" fill="currentColor" stroke="none" />
+        <circle cx="18" cy="12" r="2.3" fill="currentColor" stroke="none" />
       </svg>
     </span>
     <span class="brand-name">
-      <span class="brand-name-lead">Job&nbsp;Offer</span>
-      <span class="brand-name-accent">Matcher</span>
+      <span class="brand-word">Merge</span><span class="brand-dot">.</span>
     </span>
   </a>
   @if (isAuthenticated()) {

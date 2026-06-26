@@ -9,6 +9,7 @@ from app.config import (
     DEV_JWT_SECRET,
     JWT_SECRET,
     MIN_JWT_SECRET_LENGTH,
+    RATE_LIMITER_BACKEND,
     WORKERS,
 )
 
@@ -29,6 +30,7 @@ def validate_runtime_config(
     cookie_secure: bool = COOKIE_SECURE,
     cors_origins: list[str] = CORS_ORIGINS,
     workers: int = WORKERS,
+    rate_limiter_backend: str = RATE_LIMITER_BACKEND,
     logger: logging.Logger = _logger,
 ) -> None:
     """Fail fast on insecure production configuration; warn on risky-but-valid settings.
@@ -40,14 +42,15 @@ def validate_runtime_config(
       - cookies are not marked Secure (`COOKIE_SECURE` is false) — they could ride plaintext;
       - a wildcard (`*`) CORS origin is configured alongside credentialed requests.
 
-    Regardless of environment, it logs a warning when `WORKERS > 1`, because the bundled
-    in-memory rate limiter is per-process and a multi-worker deploy needs a shared store.
+    Regardless of environment, it logs a warning when `WORKERS > 1` while still on the
+    per-process in-memory rate limiter, since the throttle would then be multiplied per
+    worker. Selecting the shared Redis backend (`RATE_LIMITER_BACKEND=redis`) silences it.
     """
-    if workers > 1:
+    if workers > 1 and rate_limiter_backend != "redis":
         logger.warning(
             "WORKERS=%d but the in-memory rate limiter is per-process: login/registration "
-            "throttling is multiplied per worker. Use a shared-store limiter (e.g. Redis) "
-            "for multi-worker deployments.",
+            "throttling is multiplied per worker. Set RATE_LIMITER_BACKEND=redis (a shared "
+            "store) for multi-worker deployments.",
             workers,
         )
 

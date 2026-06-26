@@ -22,10 +22,8 @@ describe('App', () => {
     const compiled = fixture.nativeElement as HTMLElement;
     const brand = compiled.querySelector('mat-toolbar a.brand');
     expect(brand?.getAttribute('href')).toBe('/profile');
-    // The name is a two-tone wordmark: "Job Offer" (lead) + "Matcher" (accent).
-    const norm = (sel: string) =>
-      brand?.querySelector(sel)?.textContent?.replace(/\s+/g, ' ').trim();
-    expect(norm('.brand-name-lead')).toBe('Job Offer');
-    expect(norm('.brand-name-accent')).toBe('Matcher');
+    // The wordmark is "Merge" with an accent "merge node" dot.
+    expect(brand?.querySelector('.brand-word')?.textContent?.trim()).toBe('Merge');
+    expect(brand?.querySelector('.brand-dot')?.textContent?.trim()).toBe('.');
   });
 });

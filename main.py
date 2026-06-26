@@ -46,6 +46,8 @@ from app.config import (
     COOKIE_SECURE,
     CORS_ORIGINS,
     DATABASE_URL,
+    DB_MAX_OVERFLOW,
+    DB_POOL_SIZE,
     DEFAULT_BUDGET_USD,
     EMAIL_CHECK_DELIVERABILITY,
     EMAIL_FROM,
@@ -63,6 +65,8 @@ from app.config import (
     OPENAI_API_KEY,
     PASSWORD_RESET_TTL_HOURS,
     PORT,
+    RATE_LIMITER_BACKEND,
+    REDIS_URL,
     REFRESH_TOKEN_TTL_DAYS,
     SMTP_HOST,
     SMTP_PASSWORD,
@@ -80,7 +84,9 @@ from app.domain.salary_calculator import SalaryCalculator
 from app.infrastructure.llm_utils import company_from_model
 from app.infrastructure.composite_budget_status_reader import CompositeBudgetStatusReader
 from app.infrastructure.db import build_engine
+from app.application.ports import RateLimiter
 from app.infrastructure.in_memory_rate_limiter import InMemoryRateLimiter
+from app.infrastructure.redis_rate_limiter import RedisRateLimiter
 from app.infrastructure.agent_models import build_chat_model_with_key
 from app.infrastructure.api_key_budget_status_reader import ApiKeyBudgetStatusReader
 from app.infrastructure.caching_ai_scorer import CachingAiScorer
@@ -184,7 +190,7 @@ _llm_factory = build_llm_provider_factory(
     LLM_PROVIDER, OPENAI_API_KEY, OPENAI_ADMIN_KEY, GEMINI_API_KEY
 )
 
-_engine = build_engine(DATABASE_URL)
+_engine = build_engine(DATABASE_URL, pool_size=DB_POOL_SIZE, max_overflow=DB_MAX_OVERFLOW)
 profile_repository = PostgresUserProfileRepository(_engine)
 offer_repository = PostgresOfferRepository(_engine)
 filter_chain = FilterChain(
@@ -355,12 +361,23 @@ _refresh_token_service = RefreshTokenService(
     PostgresRefreshTokenRepository(_engine),
     ttl=timedelta(days=REFRESH_TOKEN_TTL_DAYS),
 )
-# Brute-force throttle for /auth/login. In-memory: single-worker correct; a multi-worker
-# deploy (WORKERS>1) needs a shared store (Redis) — swap the adapter, the port stays.
-_rate_limiter = InMemoryRateLimiter(
-    max_attempts=LOGIN_RATE_LIMIT_ATTEMPTS,
-    window=timedelta(minutes=LOGIN_RATE_LIMIT_WINDOW_MINUTES),
-)
+# Brute-force throttle for /auth/login + /auth/forgot-password. In-memory is per-process
+# (single-worker correct); RATE_LIMITER_BACKEND=redis swaps in a store shared across all
+# workers/instances. Same port either way — only the adapter changes.
+def _build_rate_limiter() -> RateLimiter:
+    window = timedelta(minutes=LOGIN_RATE_LIMIT_WINDOW_MINUTES)
+    if RATE_LIMITER_BACKEND == "redis":
+        import redis  # optional dependency, imported only for the redis backend
+
+        return RedisRateLimiter(
+            redis.from_url(REDIS_URL),
+            max_attempts=LOGIN_RATE_LIMIT_ATTEMPTS,
+            window=window,
+        )
+    return InMemoryRateLimiter(max_attempts=LOGIN_RATE_LIMIT_ATTEMPTS, window=window)
+
+
+_rate_limiter = _build_rate_limiter()
 
 
 def _disable_tracing(_model: str) -> None:
