@@ -53,7 +53,13 @@ export interface Salary {
 }
 
 export type SortBy = 'recent' | 'salary_min' | 'salary_mid' | 'salary_max';
-export type MatchSortBy = 'score' | 'recent' | 'score_recent' | 'salary_min' | 'salary_mid' | 'salary_max';
+export type MatchSortBy =
+  | 'score'
+  | 'recent'
+  | 'score_recent'
+  | 'salary_min'
+  | 'salary_mid'
+  | 'salary_max';
 export type SortOrder = 'asc' | 'desc';
 
 export interface AiInsight {

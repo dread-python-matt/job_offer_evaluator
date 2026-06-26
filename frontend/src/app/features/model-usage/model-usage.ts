@@ -12,7 +12,12 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { ApiService } from '../../core/services/api.service';
-import { AvailableModels, CurrentModelConfig, ModelUsageSummaryItem, OrgSpend } from '../../core/models/profile.model';
+import {
+  AvailableModels,
+  CurrentModelConfig,
+  ModelUsageSummaryItem,
+  OrgSpend,
+} from '../../core/models/profile.model';
 import { ApiKeys } from '../api-keys/api-keys';
 
 @Component({
@@ -52,38 +57,42 @@ export class ModelUsage implements OnInit {
   readonly modelControl = new FormControl<string | null>(null);
 
   constructor() {
-    this.companyControl.valueChanges.pipe(
-      filter((v): v is string => v != null),
-      takeUntilDestroyed(),
-    ).subscribe((company) => {
-      this.selectedCompany.set(company);
-      const models = this.availableModels();
-      const first = models?.companies.find(c => c.name === company)?.models[0] ?? null;
-      this.modelControl.setValue(first);
-    });
+    this.companyControl.valueChanges
+      .pipe(
+        filter((v): v is string => v != null),
+        takeUntilDestroyed(),
+      )
+      .subscribe((company) => {
+        this.selectedCompany.set(company);
+        const models = this.availableModels();
+        const first = models?.companies.find((c) => c.name === company)?.models[0] ?? null;
+        this.modelControl.setValue(first);
+      });
 
-    this.modelControl.valueChanges.pipe(
-      filter((v): v is string => v != null),
-      switchMap((model) => {
-        this.selecting.set(true);
-        this.selectError.set(null);
-        return this.api.selectModel(model).pipe(
-          catchError(() => {
-            this.selecting.set(false);
-            this.selectError.set('Failed to switch model. Please try again.');
-            const cm = this.currentModel();
-            this.companyControl.setValue(cm?.company ?? null, { emitEvent: false });
-            this.modelControl.setValue(cm?.model ?? null, { emitEvent: false });
-            this.selectedCompany.set(cm?.company ?? null);
-            return EMPTY;
-          }),
-        );
-      }),
-      takeUntilDestroyed(),
-    ).subscribe((updated) => {
-      this.currentModel.set(updated);
-      this.selecting.set(false);
-    });
+    this.modelControl.valueChanges
+      .pipe(
+        filter((v): v is string => v != null),
+        switchMap((model) => {
+          this.selecting.set(true);
+          this.selectError.set(null);
+          return this.api.selectModel(model).pipe(
+            catchError(() => {
+              this.selecting.set(false);
+              this.selectError.set('Failed to switch model. Please try again.');
+              const cm = this.currentModel();
+              this.companyControl.setValue(cm?.company ?? null, { emitEvent: false });
+              this.modelControl.setValue(cm?.model ?? null, { emitEvent: false });
+              this.selectedCompany.set(cm?.company ?? null);
+              return EMPTY;
+            }),
+          );
+        }),
+        takeUntilDestroyed(),
+      )
+      .subscribe((updated) => {
+        this.currentModel.set(updated);
+        this.selecting.set(false);
+      });
   }
 
   ngOnInit(): void {
@@ -119,7 +128,7 @@ export class ModelUsage implements OnInit {
     const company = this.selectedCompany();
     const available = this.availableModels();
     if (!company || !available) return [];
-    return available.companies.find(c => c.name === company)?.models ?? [];
+    return available.companies.find((c) => c.name === company)?.models ?? [];
   }
 
   total(item: ModelUsageSummaryItem): number {

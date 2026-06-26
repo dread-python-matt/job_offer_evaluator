@@ -1,0 +1,43 @@
+// =============================================================================
+// Global utilities — emitted once (imported by styles.scss only).
+// Small, composable classes + the shared keyframes the whole app reuses.
+// =============================================================================
+@use 'mixins' as m;
+
+// One spin animation for the whole app (the name is global under Angular's
+// emulated encapsulation, so four component copies were redundant). Components
+// keep their `.spin { animation: spin … }` rule; this owns the keyframes.
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+// Opt-in design-language building blocks, available in any template.
+.app-card-accent {
+  @include m.accent-card;
+}
+
+.app-avatar {
+  @include m.avatar;
+}
+
+// A centered "empty / loading / error" state block, repeated across list views.
+.app-status-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--app-space-3);
+  padding: var(--app-space-7) var(--app-space-4);
+  color: var(--mat-sys-on-surface-variant);
+  text-align: center;
+}

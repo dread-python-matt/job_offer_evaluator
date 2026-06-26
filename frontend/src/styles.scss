@@ -1,12 +1,20 @@
-// Include theming for Angular Material with `mat.theme()`.
-// This Sass mixin will define CSS variables that are used for styling Angular Material
-// components according to the Material 3 design spec.
-// Learn more about theming and how to use it for your application's
-// custom components at https://material.angular.dev/guide/theming
+// Angular Material theming (Material 3 design spec). Defines the `--mat-sys-*`
+// system variables our components build on. See https://material.angular.dev/guide/theming
 @use '@angular/material' as mat;
+
+// App design language: tokens (once) + global utilities (once). Pattern mixins
+// are pulled in per-component, not here. See src/styles/ and DESIGN.md.
+@use 'tokens';
+@use 'utilities';
 
 html {
   height: 100%;
+
+  // Defer to the user's OS light/dark preference. Material's system variables
+  // and our `light-dark()` tokens both resolve against this, so dark mode works
+  // without a second theme block. Set on the root so it cascades to everything.
+  color-scheme: light dark;
+
   @include mat.theme(
     (
       color: (
@@ -24,26 +32,41 @@ html {
 }
 
 body {
-  // Default the application to a light color theme. This can be changed to
-  // `dark` to enable the dark color theme, or to `light dark` to defer to the
-  // user's system settings.
-  color-scheme: light;
-
-  // Set a default background, font and text colors for the application using
-  // Angular Material's system-level CSS variables. Learn more about these
-  // variables at https://material.angular.dev/guide/system-variables
   background-color: var(--mat-sys-surface-container-low);
   color: var(--mat-sys-on-surface);
   font: var(--mat-sys-body-medium);
-
-  // Reset the user agent margin.
   margin: 0;
   height: 100%;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+// --- Base typography rhythm --------------------------------------------------
+// Headings lean on Material's type scale instead of ad-hoc font-sizes, so
+// hierarchy stays consistent across pages.
+h1,
+h2,
+h3 {
+  margin: 0 0 var(--app-space-3);
+  color: var(--mat-sys-on-surface);
+  font-weight: 600;
+}
+h1 {
+  font: var(--mat-sys-headline-small);
+  font-weight: 600;
+}
+h2 {
+  font: var(--mat-sys-title-large);
+  font-weight: 600;
+}
+h3 {
+  font: var(--mat-sys-title-medium);
+  font-weight: 600;
 }
 
 a {
   color: var(--mat-sys-primary);
+  text-underline-offset: 2px;
 }
 
 :focus-visible {
@@ -55,35 +78,36 @@ a {
   width: 10px;
   height: 10px;
 }
-
 ::-webkit-scrollbar-thumb {
   background: var(--mat-sys-outline-variant);
-  border-radius: 8px;
+  border-radius: var(--app-radius-sm);
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
+// The shared content column every routed page sits in.
 .page {
-  max-width: 1100px;
+  max-width: var(--app-content-max);
   margin: 0 auto;
-  padding: 32px 24px 64px;
+  padding: var(--app-space-6) var(--app-space-5) var(--app-space-7);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--app-space-5);
 
   @media (max-width: 600px) {
-    padding: 20px 16px 48px;
+    padding: var(--app-space-5) var(--app-space-4) var(--app-space-7);
   }
 }
 
+// Shared page header: an accent icon + title/hint banner reused by feature pages.
+// Drive the color with `--page-accent` (defaults to the brand primary).
 .page-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 20px 24px;
-  border-radius: 16px;
+  gap: var(--app-space-4);
+  padding: var(--app-space-5);
+  border-radius: var(--app-radius-lg);
   border-left: 4px solid var(--page-accent, var(--mat-sys-primary));
   background: linear-gradient(
     135deg,
@@ -92,8 +116,8 @@ a {
   );
 
   @media (max-width: 600px) {
-    padding: 16px;
-    gap: 12px;
+    padding: var(--app-space-4);
+    gap: var(--app-space-3);
   }
 }
 
@@ -101,12 +125,12 @@ a {
   flex-shrink: 0;
   width: 48px;
   height: 48px;
-  border-radius: 50%;
+  border-radius: var(--app-radius-pill);
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--page-accent, var(--mat-sys-primary));
-  color: white;
+  color: #fff;
 
   mat-icon {
     font-size: 26px;
@@ -127,8 +151,9 @@ a {
 }
 
 .page-header h2 {
-  margin: 0 0 4px;
+  margin: 0 0 var(--app-space-1);
   font: var(--mat-sys-headline-small);
+  font-weight: 600;
   color: var(--page-accent, var(--mat-sys-primary));
 }
 

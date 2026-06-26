@@ -7,8 +7,8 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  gap: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  gap: var(--app-space-3);
+  box-shadow: var(--app-shadow-1);
   // `color="primary"` is a no-op under Material 3, which left the bar on the default
   // surface with white brand text (invisible). Give it a soft, themed background via the
   // toolbar's own tokens — a light primary tint that matches the page-header accents.
@@ -74,7 +74,10 @@
     font-size: 0.95rem;
     font-weight: 500;
     border-bottom: 3px solid transparent;
-    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+    transition:
+      color var(--app-duration) var(--app-ease),
+      border-color var(--app-duration) var(--app-ease),
+      background-color var(--app-duration) var(--app-ease);
 
     mat-icon {
       vertical-align: middle;

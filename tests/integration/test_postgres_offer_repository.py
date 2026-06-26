@@ -2,8 +2,8 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 
-from app.domain.entities import Offer
-from app.domain.filters import OfferBrowseFilters
+from app.domain.entities import Offer, UserProfile
+from app.domain.filters import MatchCriteria, OfferBrowseFilters
 from app.config import DATABASE_URL
 from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
 
@@ -21,10 +21,17 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def test_list_offers_returns_offers_from_real_read_only_database():
+def _empty_profile() -> UserProfile:
+    return UserProfile(summary="", skills=[], projects=[], experience=[])
+
+
+def test_candidate_offers_returns_offers_from_real_read_only_database():
     repository = PostgresOfferRepository(DATABASE_URL)
 
-    offers = repository.list_offers()
+    # include_expired=True with no other filter is the broadest candidate set.
+    offers = repository.candidate_offers(
+        MatchCriteria(candidate=_empty_profile(), include_expired=True)
+    )
 
     assert len(offers) > 0
     assert all(isinstance(offer, Offer) for offer in offers)
@@ -36,19 +43,36 @@ def test_list_offers_returns_offers_from_real_read_only_database():
     assert isinstance(sample.tech_stack_nice_to_have, list)
 
 
-def test_count_offers_matches_number_of_listed_offers():
+def test_count_offers_matches_unfiltered_candidate_offers():
     repository = PostgresOfferRepository(DATABASE_URL)
 
-    assert repository.count_offers() == len(repository.list_offers())
+    # No structural filters + include_expired is the whole table, matching count_offers.
+    unfiltered = repository.candidate_offers(
+        MatchCriteria(candidate=_empty_profile(), include_expired=True)
+    )
+    assert repository.count_offers() == len(unfiltered)
 
 
-def test_list_offers_returns_offers_sorted_by_published_date_newest_first():
+def test_candidate_offers_excludes_expired_offers_by_default():
     repository = PostgresOfferRepository(DATABASE_URL)
 
-    offers = repository.list_offers()
+    # include_expired defaults to False, so expired offers must be filtered out in SQL.
+    offers = repository.candidate_offers(MatchCriteria(candidate=_empty_profile()))
 
-    dates = [o.published for o in offers if o.published]
-    assert dates == sorted(dates, reverse=True)
+    assert all(not offer.expired for offer in offers)
+
+
+def test_candidate_offers_filters_by_min_salary_on_the_net_floor():
+    repository = PostgresOfferRepository(DATABASE_URL)
+    net_floor = _best_net_by_link("net_of_min")  # the filter uses net_of_min
+    threshold = 15000.0
+
+    offers = repository.candidate_offers(
+        MatchCriteria(candidate=_empty_profile(), include_expired=True, min_salary=threshold)
+    )
+
+    for offer in offers:
+        assert net_floor.get(offer.link, 0.0) >= threshold
 
 
 def _best_net_by_link(column: str) -> dict[str, float]:

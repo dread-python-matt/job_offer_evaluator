@@ -52,7 +52,17 @@ export class ApiService {
   }
 
   matchOffers(options: MatchOffersOptions): Observable<MatchedOffer[]> {
-    const { candidate, offersLimit, minScore, location, minSalary, level, tech, sortBy = 'score', sortOrder = 'desc' } = options;
+    const {
+      candidate,
+      offersLimit,
+      minScore,
+      location,
+      minSalary,
+      level,
+      tech,
+      sortBy = 'score',
+      sortOrder = 'desc',
+    } = options;
     return this.http.post<MatchedOffer[]>(`${this.baseUrl}/offers/match`, {
       candidate,
       offers_limit: offersLimit,

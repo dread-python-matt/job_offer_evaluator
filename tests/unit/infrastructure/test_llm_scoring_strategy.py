@@ -310,7 +310,9 @@ def test_usage_tracker_is_not_called_when_not_provided():
     strategy.score(_candidate(), _offer())  # must not raise
 
 
-def test_usage_tracker_is_skipped_when_sdk_returns_no_usage():
+def test_usage_is_estimated_when_sdk_returns_no_usage():
+    # The provider didn't report usage — estimate it from the prompt + output rather than
+    # silently dropping the call (which would undercount spend). Flagged `estimated`.
     def run(agent, prompt):
         return SimpleNamespace(
             final_output=AgentScore(rate=3, pros=[], cons=[], rate_reason="ok"),
@@ -320,9 +322,23 @@ def test_usage_tracker_is_skipped_when_sdk_returns_no_usage():
     tracker = FakeModelUsageTracker()
     strategy = LLMScoringStrategy(agent=object(), run=run, usage_tracker=tracker)
 
-    strategy.score(_candidate(), _offer())  # must not raise
+    strategy.score(_candidate(), _offer())
 
-    assert tracker.recorded == []
+    scoring_record = next(r for r in tracker.recorded if r.label == "scoring")
+    assert scoring_record.estimated is True
+    assert scoring_record.input_tokens > 0
+    assert scoring_record.output_tokens > 0
+
+
+def test_measured_usage_is_not_flagged_estimated():
+    run, _ = _fake_run_with_usage(rate=4, input_tokens=200, output_tokens=80)
+    tracker = FakeModelUsageTracker()
+    strategy = LLMScoringStrategy(agent=object(), run=run, usage_tracker=tracker)
+
+    strategy.score(_candidate(), _offer())
+
+    scoring_record = next(r for r in tracker.recorded if r.label == "scoring")
+    assert scoring_record.estimated is False
 
 
 def test_score_raises_ai_scoring_error_when_api_call_fails():
@@ -335,10 +351,13 @@ def test_score_raises_ai_scoring_error_when_api_call_fails():
         strategy.score(_candidate(), _offer())
 
 
-def _status_error(status_code: int) -> openai.APIStatusError:
+def _status_error(status_code: int, retry_after: str | None = None) -> openai.APIStatusError:
+    headers = {"retry-after": retry_after} if retry_after is not None else None
     return openai.APIStatusError(
         "error",
-        response=httpx.Response(status_code, request=httpx.Request("POST", "https://api.example.com")),
+        response=httpx.Response(
+            status_code, headers=headers, request=httpx.Request("POST", "https://api.example.com")
+        ),
         body=None,
     )
 
@@ -397,6 +416,54 @@ def test_non_retryable_4xx_raises_immediately():
         strategy.score(_candidate(), _offer())
 
     assert len(calls) == 1
+
+
+def test_retry_after_header_is_honored_over_the_fixed_backoff():
+    # Free-tier Gemini answers a 429 with a Retry-After telling you exactly how long to wait
+    # (tens of seconds); the fixed 1s/2s backoff is far too short, so we must obey the header.
+    slept: list[float] = []
+    calls = []
+
+    def fails_once_with_retry_after(agent, prompt):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _status_error(429, retry_after="30")
+        return SimpleNamespace(final_output=AgentScore(rate=3, pros=[], cons=[], rate_reason="ok"))
+
+    strategy = LLMScoringStrategy(agent=object(), run=fails_once_with_retry_after, _sleep=slept.append)
+    strategy.score(_candidate(), _offer())
+
+    assert slept == [30.0]
+
+
+def test_retry_after_is_capped_so_a_huge_value_cannot_wedge_a_worker():
+    slept: list[float] = []
+
+    def always_429(agent, prompt):
+        raise _status_error(429, retry_after="600")
+
+    strategy = LLMScoringStrategy(agent=object(), run=always_429, _sleep=slept.append)
+
+    with pytest.raises(AiScoringError):
+        strategy.score(_candidate(), _offer())
+
+    assert slept  # it did back off
+    assert all(delay <= 60.0 for delay in slept)
+
+
+def test_non_numeric_retry_after_falls_back_to_fixed_backoff():
+    # Retry-After may be an HTTP-date rather than seconds; we must not crash on it.
+    slept: list[float] = []
+
+    def always_429(agent, prompt):
+        raise _status_error(429, retry_after="Wed, 21 Oct 2026 07:28:00 GMT")
+
+    strategy = LLMScoringStrategy(agent=object(), run=always_429, _sleep=slept.append)
+
+    with pytest.raises(AiScoringError):
+        strategy.score(_candidate(), _offer())
+
+    assert slept == [1.0, 2.0]  # fixed exponential backoff
 
 
 def test_backoff_sleep_is_called_between_retries():

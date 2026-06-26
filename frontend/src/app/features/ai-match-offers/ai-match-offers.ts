@@ -108,8 +108,16 @@ export class AiMatchOffers implements OnInit {
           this.errorMessage.set(null);
         }),
         switchMap(() => {
-          const { offersLimit, offersToScore, minScore, aiMinScore, location, minSalary, level, sort } =
-            this.filters.getRawValue();
+          const {
+            offersLimit,
+            offersToScore,
+            minScore,
+            aiMinScore,
+            location,
+            minSalary,
+            level,
+            sort,
+          } = this.filters.getRawValue();
           const trimmedLocation = location?.trim() || null;
           const { sortBy, sortOrder } = AI_MATCH_SORT_OPTION_VALUES[sort];
 

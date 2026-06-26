@@ -1,5 +1,13 @@
 import { DecimalPipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  computed,
+  inject,
+  output,
+  signal,
+} from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
@@ -51,9 +59,16 @@ export class ApiKeys implements OnInit {
   readonly busyProvider = signal<string | null>(null);
   readonly rowError = signal<string | null>(null);
 
-  readonly providerControl = new FormControl<string | null>(null, { validators: [Validators.required] });
-  readonly keyControl = new FormControl('', { nonNullable: true, validators: [Validators.required] });
-  readonly limitControl = new FormControl<number | null>(5, { validators: [Validators.required, Validators.min(0)] });
+  readonly providerControl = new FormControl<string | null>(null, {
+    validators: [Validators.required],
+  });
+  readonly keyControl = new FormControl('', {
+    nonNullable: true,
+    validators: [Validators.required],
+  });
+  readonly limitControl = new FormControl<number | null>(5, {
+    validators: [Validators.required, Validators.min(0)],
+  });
 
   /** Groups the add-key controls so the <form> carries a FormGroupDirective. Without it,
    * `(ngSubmit)` never binds and the submit button does a native page reload instead of
@@ -123,7 +138,9 @@ export class ApiKeys implements OnInit {
     this.addError.set(null);
     this.api.addApiKey(provider, key, limit).subscribe({
       next: (added) => {
-        this.keys.update((list) => [...list, added].sort((a, b) => a.api_provider.localeCompare(b.api_provider)));
+        this.keys.update((list) =>
+          [...list, added].sort((a, b) => a.api_provider.localeCompare(b.api_provider)),
+        );
         this.providerControl.reset(null);
         this.keyControl.reset('');
         this.limitControl.reset(5);
@@ -143,7 +160,9 @@ export class ApiKeys implements OnInit {
     this.rowError.set(null);
     this.api.updateApiKeyBudget(key.api_provider, rawLimit).subscribe({
       next: (updated) => {
-        this.keys.update((list) => list.map((k) => (k.api_provider === updated.api_provider ? updated : k)));
+        this.keys.update((list) =>
+          list.map((k) => (k.api_provider === updated.api_provider ? updated : k)),
+        );
         this.busyProvider.set(null);
       },
       error: (err: HttpErrorResponse) => {

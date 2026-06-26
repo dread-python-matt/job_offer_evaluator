@@ -41,8 +41,7 @@ export const routes: Routes = [
   {
     path: 'match-offers',
     canActivate: [authGuard],
-    loadComponent: () =>
-      import('./features/match-offers/match-offers').then((m) => m.MatchOffers),
+    loadComponent: () => import('./features/match-offers/match-offers').then((m) => m.MatchOffers),
   },
   {
     path: 'ai-match-offers',
@@ -59,7 +58,6 @@ export const routes: Routes = [
   {
     path: 'model-usage',
     canActivate: [authGuard],
-    loadComponent: () =>
-      import('./features/model-usage/model-usage').then((m) => m.ModelUsage),
+    loadComponent: () => import('./features/model-usage/model-usage').then((m) => m.ModelUsage),
   },
 ];

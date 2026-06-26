@@ -1,6 +1,20 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  OnInit,
+  inject,
+  signal,
+} from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { FormArray, FormBuilder, FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import {
+  FormArray,
+  FormBuilder,
+  FormControl,
+  FormGroup,
+  ReactiveFormsModule,
+  Validators,
+} from '@angular/forms';
 import { TextFieldModule } from '@angular/cdk/text-field';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -192,7 +206,9 @@ export class Profile implements OnInit {
   removeSkill(index: number): void {
     const removed = this.skills.at(index).getRawValue();
     this.skills.removeAt(index);
-    this.offerUndo('Skill removed.', () => this.skills.insert(index, this.buildSkillGroup(removed)));
+    this.offerUndo('Skill removed.', () =>
+      this.skills.insert(index, this.buildSkillGroup(removed)),
+    );
   }
 
   setSkillRating(index: number, rating: number): void {
@@ -341,7 +357,9 @@ export class Profile implements OnInit {
   save(): void {
     if (this.form.invalid) {
       this.form.markAllAsTouched();
-      this.snackBar.open('Fix the highlighted fields before saving.', 'Dismiss', { duration: 4000 });
+      this.snackBar.open('Fix the highlighted fields before saving.', 'Dismiss', {
+        duration: 4000,
+      });
       return;
     }
 
@@ -379,15 +397,22 @@ export class Profile implements OnInit {
     (profile?.skills ?? []).forEach((skill) => this.skills.push(this.buildSkillGroup(skill)));
 
     this.projects.clear();
-    (profile?.projects ?? []).forEach((project) => this.projects.push(this.buildProjectGroup(project)));
+    (profile?.projects ?? []).forEach((project) =>
+      this.projects.push(this.buildProjectGroup(project)),
+    );
 
     this.experience.clear();
-    (profile?.experience ?? []).forEach((exp) => this.experience.push(this.buildExperienceGroup(exp)));
+    (profile?.experience ?? []).forEach((exp) =>
+      this.experience.push(this.buildExperienceGroup(exp)),
+    );
   }
 
   private buildSkillGroup(skill?: Skill): SkillGroup {
     return this.fb.group({
-      name: this.fb.control(skill?.name ?? '', { nonNullable: true, validators: Validators.required }),
+      name: this.fb.control(skill?.name ?? '', {
+        nonNullable: true,
+        validators: Validators.required,
+      }),
       rating: this.fb.control(skill?.rating ?? 3, {
         nonNullable: true,
         validators: [Validators.required, Validators.min(1), Validators.max(5)],
@@ -398,7 +423,10 @@ export class Profile implements OnInit {
   private buildProjectGroup(project?: Project): ProjectGroup {
     const isPresent = project?.date_to === 'Present';
     const group = this.fb.group({
-      name: this.fb.control(project?.name ?? '', { nonNullable: true, validators: Validators.required }),
+      name: this.fb.control(project?.name ?? '', {
+        nonNullable: true,
+        validators: Validators.required,
+      }),
       repository_link: this.fb.control(project?.repository_link ?? '', { nonNullable: true }),
       summary: this.fb.control(project?.summary ?? '', {
         nonNullable: true,
@@ -407,7 +435,9 @@ export class Profile implements OnInit {
       date_from: this.fb.control<Date | null>(this.parseYearMonth(project?.date_from), {
         validators: Validators.required,
       }),
-      date_to: this.fb.control<Date | null>(this.parseYearMonth(isPresent ? null : project?.date_to)),
+      date_to: this.fb.control<Date | null>(
+        this.parseYearMonth(isPresent ? null : project?.date_to),
+      ),
       date_to_present: this.fb.control(isPresent, { nonNullable: true }),
       tech_stack: this.fb.control(project?.tech_stack ?? [], { nonNullable: true }),
     });
@@ -418,7 +448,10 @@ export class Profile implements OnInit {
   private buildExperienceGroup(exp?: Experience): ExperienceGroup {
     const isPresent = exp?.date_to === 'Present';
     const group = this.fb.group({
-      title: this.fb.control(exp?.title ?? '', { nonNullable: true, validators: Validators.required }),
+      title: this.fb.control(exp?.title ?? '', {
+        nonNullable: true,
+        validators: Validators.required,
+      }),
       company: this.fb.control(exp?.company ?? '', {
         nonNullable: true,
         validators: Validators.required,

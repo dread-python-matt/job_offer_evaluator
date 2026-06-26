@@ -15,7 +15,11 @@ _PRICES: list[tuple[str, ModelPrice]] = [
     ("o3-mini", ModelPrice(1.10, 4.40)),
     ("o3", ModelPrice(2.00, 8.00)),
     ("o4-mini", ModelPrice(1.10, 4.40)),
+    # Flash-Lite / Flash-8B are cheaper than their Flash parents; explicit entries keep the
+    # longest-prefix match from inheriting (and overcharging at) the parent's price.
+    ("gemini-2.0-flash-lite", ModelPrice(0.075, 0.30)),
     ("gemini-2.0-flash", ModelPrice(0.10, 0.40)),
+    ("gemini-1.5-flash-8b", ModelPrice(0.0375, 0.15)),
     ("gemini-1.5-flash", ModelPrice(0.075, 0.30)),
     ("gemini-1.5-pro", ModelPrice(1.25, 5.00)),
     ("gemini-2.5-pro", ModelPrice(1.25, 10.00)),

@@ -205,6 +205,26 @@ def test_match_offers_use_case_filters_by_location():
     assert [r.offer.link for r in results] == ["a"]
 
 
+def test_match_offers_use_case_pushes_structural_filters_to_the_repository():
+    # Structural filters (location/salary/expired/level) are applied by the repository
+    # (candidate_offers) so the database returns only candidate rows instead of the whole
+    # table. They therefore take effect even when not also present in the FilterChain.
+    candidate = _profile("Python")
+    offers = [
+        Offer(link="a", title="A", company="C", tech_stack=["Python"], locations=["Warsaw"]),
+        Offer(link="b", title="B", company="C", tech_stack=["Python"], locations=["Berlin"]),
+    ]
+    use_case = MatchOffersUseCase(
+        FakeOfferRepository(offers), SkillBasedScorer(), FilterChain([SkillFilter()])
+    )
+
+    results = use_case.execute(
+        criteria=MatchCriteria(candidate=candidate, location="warsaw"), offers_limit=10
+    )
+
+    assert [r.offer.link for r in results] == ["a"]
+
+
 def test_match_offers_with_ai_use_case_excludes_offers_via_filter_chain_before_scoring():
     candidate = _profile("Python")
     offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]

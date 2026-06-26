@@ -26,7 +26,12 @@ const OFFER = {
   published: '2026-06-20',
 };
 
-function flush(fixture: ReturnType<typeof TestBed.createComponent<AiMatchOffers>>, httpMock: HttpTestingController, matches = [OFFER], usage: { input_tokens: number; output_tokens: number } | null = null) {
+function flush(
+  fixture: ReturnType<typeof TestBed.createComponent<AiMatchOffers>>,
+  httpMock: HttpTestingController,
+  matches = [OFFER],
+  usage: { input_tokens: number; output_tokens: number } | null = null,
+) {
   fixture.componentInstance.search();
   httpMock.expectOne((req) => req.url.endsWith('/profile')).flush(PROFILE);
   const req = httpMock.expectOne((req) => req.url.endsWith('/offers/match/ai'));
@@ -243,10 +248,11 @@ describe('AiMatchOffers', () => {
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('.usage-stats')).not.toBeNull();
 
-    httpMock.expectOne((req) => req.url.endsWith('/offers/match/ai')).flush({ matches: [], usage: null });
+    httpMock
+      .expectOne((req) => req.url.endsWith('/offers/match/ai'))
+      .flush({ matches: [], usage: null });
     fixture.detectChanges();
   });
-
 
   it('shows inline error block when the AI match request fails', () => {
     const fixture = TestBed.createComponent(AiMatchOffers);
@@ -257,7 +263,10 @@ describe('AiMatchOffers', () => {
     httpMock.expectOne((req) => req.url.endsWith('/profile')).flush(PROFILE);
     httpMock
       .expectOne((req) => req.url.endsWith('/offers/match/ai'))
-      .flush({ detail: 'Gemini API quota exceeded' }, { status: 503, statusText: 'Service Unavailable' });
+      .flush(
+        { detail: 'Gemini API quota exceeded' },
+        { status: 503, statusText: 'Service Unavailable' },
+      );
     fixture.detectChanges();
 
     const el = fixture.nativeElement as HTMLElement;

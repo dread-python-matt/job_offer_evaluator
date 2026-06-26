@@ -66,7 +66,11 @@ describe('ApiKeys', () => {
 
     const req = httpMock.expectOne((r) => r.url.endsWith('/api-keys'));
     expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ api_provider: 'openai', key: 'sk-secret-1234', limit_usd: 15 });
+    expect(req.request.body).toEqual({
+      api_provider: 'openai',
+      key: 'sk-secret-1234',
+      limit_usd: 15,
+    });
     req.flush({ api_provider: 'openai', key_hint: 'sk-…1234', limit_usd: 15, used_usd: 0 });
 
     expect(c.keys().map((k) => k.api_provider)).toEqual(['openai']);

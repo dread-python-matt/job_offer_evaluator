@@ -45,7 +45,16 @@ describe('BrowseOffers', () => {
             company: 'Acme',
             locations: ['Warsaw'],
             salaries: [
-              { contract_type: 'permanent', min: 20000, max: 25000, net_monthly: null, net_min: null, net_max: null, currency: 'PLN', period: 'month' },
+              {
+                contract_type: 'permanent',
+                min: 20000,
+                max: 25000,
+                net_monthly: null,
+                net_min: null,
+                net_max: null,
+                currency: 'PLN',
+                period: 'month',
+              },
             ],
             tech_stack: ['Python'],
             tech_stack_nice_to_have: [],
@@ -72,7 +81,10 @@ describe('BrowseOffers', () => {
   it('requests the next offset when the paginator page changes', () => {
     const fixture = TestBed.createComponent(BrowseOffers);
     fixture.detectChanges();
-    expectOffersRequest({ limit: '20', offset: '0' }, { offers: [], total: 50, limit: 20, offset: 0 });
+    expectOffersRequest(
+      { limit: '20', offset: '0' },
+      { offers: [], total: 50, limit: 20, offset: 0 },
+    );
     fixture.detectChanges();
 
     const component = fixture.componentInstance;
@@ -98,7 +110,10 @@ describe('BrowseOffers', () => {
   it('applies filters and resets to the first page', () => {
     const fixture = TestBed.createComponent(BrowseOffers);
     fixture.detectChanges();
-    expectOffersRequest({ limit: '20', offset: '0' }, { offers: [], total: 0, limit: 20, offset: 0 });
+    expectOffersRequest(
+      { limit: '20', offset: '0' },
+      { offers: [], total: 0, limit: 20, offset: 0 },
+    );
     fixture.detectChanges();
 
     const component = fixture.componentInstance;
@@ -129,7 +144,10 @@ describe('BrowseOffers', () => {
   it('clears filters and reloads without filter params', () => {
     const fixture = TestBed.createComponent(BrowseOffers);
     fixture.detectChanges();
-    expectOffersRequest({ limit: '20', offset: '0' }, { offers: [], total: 0, limit: 20, offset: 0 });
+    expectOffersRequest(
+      { limit: '20', offset: '0' },
+      { offers: [], total: 0, limit: 20, offset: 0 },
+    );
     fixture.detectChanges();
 
     const component = fixture.componentInstance;
@@ -141,12 +159,14 @@ describe('BrowseOffers', () => {
       sort: 'recent-desc',
     });
     component.applyFilters();
-    httpMock.expectOne((request) => request.url.endsWith('/offers')).flush({
-      offers: [],
-      total: 0,
-      limit: 20,
-      offset: 0,
-    });
+    httpMock
+      .expectOne((request) => request.url.endsWith('/offers'))
+      .flush({
+        offers: [],
+        total: 0,
+        limit: 20,
+        offset: 0,
+      });
 
     component.clearFilters();
 
@@ -160,18 +180,29 @@ describe('BrowseOffers', () => {
   it('preserves active filters when the paginator page changes', () => {
     const fixture = TestBed.createComponent(BrowseOffers);
     fixture.detectChanges();
-    expectOffersRequest({ limit: '20', offset: '0' }, { offers: [], total: 50, limit: 20, offset: 0 });
+    expectOffersRequest(
+      { limit: '20', offset: '0' },
+      { offers: [], total: 50, limit: 20, offset: 0 },
+    );
     fixture.detectChanges();
 
     const component = fixture.componentInstance;
-    component.filters.setValue({ location: 'Warsaw', minSalary: null, search: null, level: [], sort: 'recent-desc' });
-    component.applyFilters();
-    httpMock.expectOne((request) => request.url.endsWith('/offers')).flush({
-      offers: [],
-      total: 50,
-      limit: 20,
-      offset: 0,
+    component.filters.setValue({
+      location: 'Warsaw',
+      minSalary: null,
+      search: null,
+      level: [],
+      sort: 'recent-desc',
     });
+    component.applyFilters();
+    httpMock
+      .expectOne((request) => request.url.endsWith('/offers'))
+      .flush({
+        offers: [],
+        total: 50,
+        limit: 20,
+        offset: 0,
+      });
 
     component.onPage({ pageIndex: 1, pageSize: 20, length: 50 });
 
@@ -184,12 +215,18 @@ describe('BrowseOffers', () => {
   it('sends sort_by and sort_order when a sort option is chosen and resets to the first page', () => {
     const fixture = TestBed.createComponent(BrowseOffers);
     fixture.detectChanges();
-    expectOffersRequest({ limit: '20', offset: '0' }, { offers: [], total: 50, limit: 20, offset: 0 });
+    expectOffersRequest(
+      { limit: '20', offset: '0' },
+      { offers: [], total: 50, limit: 20, offset: 0 },
+    );
     fixture.detectChanges();
 
     const component = fixture.componentInstance;
     component.onPage({ pageIndex: 1, pageSize: 20, length: 50 });
-    expectOffersRequest({ limit: '20', offset: '20' }, { offers: [], total: 50, limit: 20, offset: 20 });
+    expectOffersRequest(
+      { limit: '20', offset: '20' },
+      { offers: [], total: 50, limit: 20, offset: 20 },
+    );
 
     component.filters.controls.sort.setValue('salary_mid-desc');
     component.onSortChange();
@@ -203,7 +240,10 @@ describe('BrowseOffers', () => {
   it('sends sort_by=recent with an ascending order', () => {
     const fixture = TestBed.createComponent(BrowseOffers);
     fixture.detectChanges();
-    expectOffersRequest({ limit: '20', offset: '0' }, { offers: [], total: 0, limit: 20, offset: 0 });
+    expectOffersRequest(
+      { limit: '20', offset: '0' },
+      { offers: [], total: 0, limit: 20, offset: 0 },
+    );
     fixture.detectChanges();
 
     fixture.componentInstance.filters.controls.sort.setValue('recent-asc');

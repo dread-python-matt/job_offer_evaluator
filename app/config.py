@@ -47,7 +47,9 @@ CORS_ORIGINS = [
 ]
 # Max offers scored by the AI in parallel per match request. Each scoring is a slow
 # LLM round-trip, so this bounds latency without overrunning provider rate limits.
-AI_MATCH_CONCURRENCY = int(os.environ.get("AI_MATCH_CONCURRENCY", "10"))
+# Defaults low to stay within free-tier provider limits (e.g. Gemini free tier allows
+# only ~5-10 requests/minute); raise it via the env var on a paid tier with higher RPM.
+AI_MATCH_CONCURRENCY = int(os.environ.get("AI_MATCH_CONCURRENCY", "3"))
 
 # --- Authentication ---
 # Secret for signing session JWTs. MUST be overridden in production (a leaked or default

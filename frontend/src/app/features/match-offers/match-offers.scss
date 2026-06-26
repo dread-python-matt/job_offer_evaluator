@@ -1,3 +1,5 @@
+@use 'mixins' as m;
+
 .page {
   --page-accent: var(--mat-sys-tertiary);
 }
@@ -5,24 +7,11 @@
 .filters-card {
   width: 100%;
   --accent: var(--mat-sys-primary);
-  border-radius: 12px;
-  border-left: 4px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 4%, var(--mat-sys-surface));
+  @include m.accent-card;
 }
 
 .section-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent);
-  color: white;
-  border-radius: 50%;
-
-  mat-icon {
-    font-size: 22px;
-    width: 22px;
-    height: 22px;
-  }
+  @include m.avatar;
 }
 
 .filters {
@@ -43,15 +32,6 @@
 
 .spin {
   animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .limit-field {
@@ -128,9 +108,7 @@
   --accent: var(--mat-sys-tertiary);
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
-  border-left: 4px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 4%, var(--mat-sys-surface));
+  @include m.accent-card;
 
   .mat-mdc-card-content {
     display: flex;
@@ -201,19 +179,16 @@
   flex-shrink: 0;
 }
 
-// Amber is used here as a universal "caution" signal — the M3 palette in
-// use (violet/cyan) has no dedicated warning role, so a fixed accent color
-// is intentional rather than a theme-token miss.
-$score-medium-accent: #8a5a00;
-
 .score-high {
-  background: color-mix(in srgb, var(--mat-sys-tertiary) 18%, transparent);
-  color: var(--mat-sys-tertiary);
+  background: var(--app-info-container);
+  color: var(--app-info);
 }
 
+// Amber "caution" — the violet/cyan scheme has no warning role, so this is the
+// app's own semantic token (adapts for dark mode).
 .score-medium {
-  background: color-mix(in srgb, $score-medium-accent 18%, transparent);
-  color: $score-medium-accent;
+  background: var(--app-warning-container);
+  color: var(--app-warning);
 }
 
 .score-low {

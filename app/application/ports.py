@@ -9,7 +9,7 @@ from app.domain.entities import Offer, UserProfile
 from app.domain.scoring import MatchScore
 
 if TYPE_CHECKING:
-    from app.domain.filters import OfferBrowseFilters
+    from app.domain.filters import MatchCriteria, OfferBrowseFilters
 
 
 class UserProfileRepository(ABC):
@@ -22,7 +22,13 @@ class UserProfileRepository(ABC):
 
 class OfferRepository(ABC):
     @abstractmethod
-    def list_offers(self) -> list[Offer]: ...
+    def candidate_offers(self, criteria: "MatchCriteria") -> list[Offer]:
+        """Offers eligible to be matched against `criteria`, with the structural filters
+        (location, min_salary, expired, level) pushed to the data store so the whole table
+        is never loaded. Reads only those criteria fields — not the candidate's skills,
+        which drive scoring, not retrieval. The caller still applies the domain
+        `FilterChain` for exact semantics (this is a safe superset)."""
+        ...
 
     @abstractmethod
     def count_offers(self) -> int: ...
@@ -41,6 +47,9 @@ class ModelUsage:
     model: str = ""
     company: str = ""
     user_id: str = ""
+    # True when the provider didn't report usage and the counts were estimated from text
+    # length (so spend isn't undercounted); kept distinguishable from measured usage.
+    estimated: bool = False
 
 
 class ModelUsageTracker(ABC):

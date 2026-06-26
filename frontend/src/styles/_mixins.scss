@@ -1,0 +1,55 @@
+// =============================================================================
+// Reusable pattern mixins — the recurring "shapes" of the design language.
+//
+// Defining nothing at module load (only `@mixin`s), so components can
+// `@use 'mixins' as m;` freely without duplicating CSS. The CSS is emitted only
+// where a mixin is `@include`d. Resolved via angular.json includePaths: src/styles.
+// =============================================================================
+
+// The signature surface of the app: a card with a colored left rail and a faint
+// wash of that same accent. Drive the color by setting `--accent` on the element
+// (falls back to the brand primary). This was copy-pasted across six features;
+// it now lives here once.
+@mixin accent-card($tint: 4%) {
+  border-radius: var(--app-radius-md);
+  border-left: 4px solid var(--accent, var(--mat-sys-primary));
+  background: color-mix(
+    in srgb,
+    var(--accent, var(--mat-sys-primary)) #{$tint},
+    var(--mat-sys-surface)
+  );
+}
+
+// A round, filled icon badge used as a section/card leader. Same `--accent`
+// convention as accent-card, so a section and its avatar share one color.
+@mixin avatar($size: 40px) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: $size;
+  height: $size;
+  border-radius: var(--app-radius-pill);
+  background: var(--accent, var(--mat-sys-primary));
+  color: #fff; // white reads on every saturated accent, light or dark
+  flex-shrink: 0;
+
+  mat-icon {
+    font-size: 22px;
+    width: 22px;
+    height: 22px;
+  }
+}
+
+// A pill-shaped status badge. Pass the semantic color; background is a soft tint.
+@mixin status-badge($color) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--app-space-1);
+  padding: 2px 10px;
+  border-radius: var(--app-radius-pill);
+  font-weight: 500;
+  font-size: 0.85em;
+  white-space: nowrap;
+  color: #{$color};
+  background: color-mix(in srgb, #{$color} 16%, transparent);
+}

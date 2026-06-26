@@ -1,0 +1,58 @@
+// =============================================================================
+// Design tokens — the single source of truth for the app's design language.
+//
+// These layer ON TOP of Angular Material's `--mat-sys-*` system variables:
+// Material owns the themeable brand/surface/neutral roles (primary, surface,
+// outline, error, …) and adapts them per light/dark automatically. We add the
+// pieces Material's palette doesn't give us a role for — semantic status colors,
+// and consistent spacing / radius / elevation / motion scales.
+//
+// Rules of the road (see DESIGN.md):
+//   • Never hard-code a hex in a component. Use a token or a `--mat-sys-*` role.
+//   • Color: brand/structure → `--mat-sys-*`; status meaning → `--app-*` below.
+//   • Spacing & radius come from the scales, not magic numbers.
+// =============================================================================
+
+:root {
+  // ---- Semantic status colors -------------------------------------------------
+  // Material's violet/cyan scheme has no success/warning role, so these are ours.
+  // Each adapts for dark mode via light-dark() (the app sets `color-scheme` on
+  // :root). Tuned so the *foreground* form clears WCAG AA on app surfaces.
+  --app-success: light-dark(#15803d, #4ade80);
+  --app-warning: light-dark(#b45309, #fbbf24);
+  --app-danger: var(--mat-sys-error); // reuse Material's error role
+  --app-info: var(--mat-sys-tertiary); // cyan — "AI / insight / highlight"
+  --app-rating: light-dark(#c77700, #fbbf24); // star ratings (amber)
+
+  // Soft tint backgrounds for status chips/badges (foreground = matching color).
+  --app-success-container: color-mix(in srgb, var(--app-success) 16%, transparent);
+  --app-warning-container: color-mix(in srgb, var(--app-warning) 16%, transparent);
+  --app-info-container: color-mix(in srgb, var(--app-info) 18%, transparent);
+
+  // ---- Spacing scale (4px base) ----------------------------------------------
+  --app-space-1: 4px;
+  --app-space-2: 8px;
+  --app-space-3: 12px;
+  --app-space-4: 16px;
+  --app-space-5: 24px;
+  --app-space-6: 32px;
+  --app-space-7: 48px;
+
+  // ---- Radius scale ----------------------------------------------------------
+  --app-radius-sm: 8px;
+  --app-radius-md: 12px; // default for cards / surfaces
+  --app-radius-lg: 16px;
+  --app-radius-pill: 999px; // badges / avatars / chips
+
+  // ---- Elevation -------------------------------------------------------------
+  --app-shadow-1: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.08);
+  --app-shadow-2: 0 4px 12px rgba(0, 0, 0, 0.1);
+
+  // ---- Motion ----------------------------------------------------------------
+  --app-ease: cubic-bezier(0.2, 0, 0, 1);
+  --app-duration-fast: 120ms;
+  --app-duration: 160ms;
+
+  // Width the page content column shares everywhere.
+  --app-content-max: 1100px;
+}

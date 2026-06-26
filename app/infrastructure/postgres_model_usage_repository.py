@@ -22,6 +22,7 @@ class PostgresModelUsageRepository(ModelUsageRepository):
                 label=usage.label,
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens,
+                estimated=usage.estimated,
                 created_at=datetime.now(timezone.utc),
             ))
             session.commit()

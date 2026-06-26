@@ -1,8 +1,8 @@
+@use 'mixins' as m;
+
 .section {
   width: 100%;
-  border-radius: 12px;
-  border-left: 4px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 4%, var(--mat-sys-surface));
+  @include m.accent-card;
 }
 
 .section--summary {
@@ -14,11 +14,11 @@
 }
 
 .section--projects {
-  --accent: #d97706;
+  --accent: var(--app-warning);
 }
 
 .section--experience {
-  --accent: #15803d;
+  --accent: var(--app-success);
 }
 
 .section--tax {
@@ -26,18 +26,7 @@
 }
 
 .section-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent);
-  color: white;
-  border-radius: 50%;
-
-  mat-icon {
-    font-size: 22px;
-    width: 22px;
-    height: 22px;
-  }
+  @include m.avatar;
 }
 
 .full-width {
@@ -123,9 +112,11 @@ textarea[matInput] {
   background: none;
   padding: 0;
   cursor: pointer;
-  color: #f5a623;
-  border-radius: 50%;
-  transition: background-color 0.15s ease, transform 0.1s ease;
+  color: var(--app-rating);
+  border-radius: var(--app-radius-pill);
+  transition:
+    background-color var(--app-duration) var(--app-ease),
+    transform var(--app-duration-fast) var(--app-ease);
 
   mat-icon {
     font-size: 22px;
@@ -134,7 +125,7 @@ textarea[matInput] {
   }
 
   &:hover {
-    background: color-mix(in srgb, #f5a623 14%, transparent);
+    background: color-mix(in srgb, var(--app-rating) 14%, transparent);
     transform: scale(1.1);
   }
 
@@ -145,7 +136,7 @@ textarea[matInput] {
 }
 
 .rating-stars .star-icon {
-  color: #f5a623;
+  color: var(--app-rating);
   font-size: 20px;
   width: 20px;
   height: 20px;
@@ -297,13 +288,4 @@ textarea[matInput] {
 
 .spin {
   animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
 }

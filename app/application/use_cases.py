@@ -97,9 +97,12 @@ class _BaseMatchOffersUseCase(ABC):
         self._filter_chain = filter_chain
 
     def _load_candidates(self, criteria: MatchCriteria) -> list[Offer]:
+        # The repository pushes the structural filters into the data store (so the whole
+        # offers table is never materialized); the FilterChain then applies exact domain
+        # semantics, including the candidate-specific SkillFilter that can't go to SQL.
         return [
             offer
-            for offer in self._offer_repository.list_offers()
+            for offer in self._offer_repository.candidate_offers(criteria)
             if self._filter_chain.passes(offer, criteria)
         ]
 

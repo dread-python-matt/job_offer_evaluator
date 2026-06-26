@@ -33,6 +33,7 @@ from app.domain.errors import (
     InvalidVerificationTokenError,
 )
 from app.domain.filters import (
+    MatchCriteria,
     OfferBrowseFilters,
     expired_matches,
     level_matches,
@@ -157,8 +158,18 @@ class FakeOfferRepository(OfferRepository):
     def __init__(self, offers: list[Offer]) -> None:
         self.offers = offers
 
-    def list_offers(self) -> list[Offer]:
-        return self.offers
+    def candidate_offers(self, criteria: MatchCriteria) -> list[Offer]:
+        # Mirror the real adapter: apply only the structural filters in SQL terms
+        # (location, net-salary floor, expired, level); skill relevance is scored, not
+        # filtered, so the candidate's skills are not used here.
+        return [
+            offer
+            for offer in self.offers
+            if expired_matches(offer, criteria.include_expired)
+            and location_matches(offer, criteria.location)
+            and salary_meets_minimum(offer, criteria.min_salary)
+            and level_matches(offer, criteria.level)
+        ]
 
     def count_offers(self) -> int:
         return len(self.offers)

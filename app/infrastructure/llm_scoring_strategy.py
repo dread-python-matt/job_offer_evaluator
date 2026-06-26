@@ -13,10 +13,12 @@ from app.domain.entities import Offer, UserProfile
 from app.domain.scoring import AiInsight, MatchScore, OfferScorer, ScoreComponent
 from app.infrastructure.llm_utils import company_from_model
 from app.infrastructure.scoring_strategies import SkillBasedScorer
+from app.infrastructure.token_estimation import estimate_tokens
 
 _RETRYABLE_STATUS_CODES = frozenset({429, 503})
 _MAX_RETRIES = 2
 _BACKOFF_BASE = 1.0  # seconds; doubles each attempt: 1s, 2s
+_MAX_BACKOFF = 60.0  # cap a provider-supplied Retry-After so one call can't wedge a worker
 
 _INSTRUCTIONS = (
     "You evaluate how well a candidate fits a job offer, based on the candidate's "
@@ -152,45 +154,80 @@ class LLMScoringStrategy(OfferScorer):
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 result = self._run(agent, prompt)
-                self._record_usage(result, label)
+                self._record_usage(result, label, prompt)
                 return result
             except openai.APIStatusError as exc:
                 if exc.status_code not in _RETRYABLE_STATUS_CODES or attempt == _MAX_RETRIES:
                     raise AiScoringError(f"AI service error ({exc.status_code}). Please try again.") from exc
-                self._sleep(_BACKOFF_BASE * (2**attempt))
+                self._sleep(self._retry_delay(exc, attempt))
             except openai.APIError as exc:
                 raise AiScoringError(str(exc)) from exc
         raise AiScoringError("AI scoring failed after exhausting retries")
+
+    @staticmethod
+    def _retry_delay(exc: openai.APIStatusError, attempt: int) -> float:
+        """How long to wait before the next retry. Defaults to exponential backoff
+        (1s, 2s, …) but obeys a provider-supplied `Retry-After` when it asks for longer —
+        free-tier rate limits (e.g. Gemini) reply to a 429 with the exact delay to wait,
+        which is usually far longer than the fixed backoff. Capped at `_MAX_BACKOFF` so a
+        large value can't pin a worker, and a non-numeric (HTTP-date) header is ignored."""
+        backoff = _BACKOFF_BASE * (2**attempt)
+        retry_after = exc.response.headers.get("retry-after")
+        if retry_after:
+            try:
+                backoff = max(backoff, float(retry_after))
+            except ValueError:
+                pass  # HTTP-date form — fall back to the exponential backoff
+        return min(backoff, _MAX_BACKOFF)
 
     async def _run_tracked_async(self, agent: Agent, prompt: str, label: str) -> Any:
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 result = await self._run_async(agent, prompt)
-                self._record_usage(result, label)
+                self._record_usage(result, label, prompt)
                 return result
             except openai.APIStatusError as exc:
                 if exc.status_code not in _RETRYABLE_STATUS_CODES or attempt == _MAX_RETRIES:
                     raise AiScoringError(f"AI service error ({exc.status_code}). Please try again.") from exc
-                await self._asleep(_BACKOFF_BASE * (2**attempt))
+                await self._asleep(self._retry_delay(exc, attempt))
             except openai.APIError as exc:
                 raise AiScoringError(str(exc)) from exc
         raise AiScoringError("AI scoring failed after exhausting retries")
 
-    def _record_usage(self, result: Any, label: str) -> None:
+    def _record_usage(self, result: Any, label: str, prompt: str) -> None:
         if not self._usage_tracker:
             return
         sdk_usage = result.context_wrapper.usage
-        if sdk_usage is None:
-            return
+        if sdk_usage is not None:
+            input_tokens, output_tokens, estimated = (
+                sdk_usage.input_tokens,
+                sdk_usage.output_tokens,
+                False,
+            )
+        else:
+            # The provider didn't report usage — estimate from the prompt + output so the
+            # call isn't silently dropped (which would undercount spend). Flagged estimated.
+            input_tokens = estimate_tokens(prompt)
+            output_tokens = estimate_tokens(self._output_text(result.final_output))
+            estimated = True
         self._usage_tracker.record(
             ModelUsage(
                 label=label,
-                input_tokens=sdk_usage.input_tokens,
-                output_tokens=sdk_usage.output_tokens,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
                 model=self._model,
                 company=company_from_model(self._model),
+                estimated=estimated,
             )
         )
+
+    @staticmethod
+    def _output_text(output: Any) -> str:
+        """Best-effort text of an agent result for output-token estimation: structured
+        outputs (Pydantic) serialize to JSON, translations are already strings."""
+        if isinstance(output, BaseModel):
+            return output.model_dump_json()
+        return output if isinstance(output, str) else str(output)
 
     @staticmethod
     def _build_prompt(candidate: UserProfile, description: str) -> str:

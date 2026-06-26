@@ -1,29 +1,18 @@
+@use 'mixins' as m;
+
 .page {
   --page-accent: var(--mat-sys-tertiary);
 }
 
 .filters-card {
   width: 100%;
-  margin-bottom: 16px;
+  margin-bottom: var(--app-space-4);
   --accent: var(--mat-sys-primary);
-  border-radius: 12px;
-  border-left: 4px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 4%, var(--mat-sys-surface));
+  @include m.accent-card;
 }
 
 .section-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent);
-  color: white;
-  border-radius: 50%;
-
-  mat-icon {
-    font-size: 22px;
-    width: 22px;
-    height: 22px;
-  }
+  @include m.avatar;
 }
 
 .filters {
@@ -89,9 +78,7 @@
   --accent: var(--mat-sys-tertiary);
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
-  border-left: 4px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 4%, var(--mat-sys-surface));
+  @include m.accent-card;
 
   .mat-mdc-card-content {
     display: flex;

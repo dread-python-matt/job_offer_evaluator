@@ -138,6 +138,9 @@ class ModelUsageRow(Base):
     label: Mapped[str]
     input_tokens: Mapped[int]
     output_tokens: Mapped[int]
+    # True when the counts were estimated (provider reported no usage), so estimated and
+    # measured usage stay distinguishable in the data.
+    estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

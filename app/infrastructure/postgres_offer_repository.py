@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.application.ports import OfferRepository
 from app.domain.entities import Offer
-from app.domain.filters import OfferBrowseFilters
+from app.domain.filters import MatchCriteria, OfferBrowseFilters
 from app.infrastructure.db import resolve_engine
 from app.infrastructure.orm_models import NormalizedSalaryRow, OfferRow, SalaryRow
 
@@ -17,13 +17,21 @@ class PostgresOfferRepository(OfferRepository):
     def __init__(self, database_or_engine: str | Engine) -> None:
         self._engine = resolve_engine(database_or_engine)
 
-    def list_offers(self) -> list[Offer]:
+    def candidate_offers(self, criteria: MatchCriteria) -> list[Offer]:
+        # A match filters on the same structural fields as browsing (location, net-salary
+        # floor, expired, level), so reuse the exact SQL machinery — only matching rows are
+        # loaded instead of the whole table. tech/search/sort don't apply: skill relevance
+        # is scored (not filtered) and the use case sorts the final results.
+        filters = OfferBrowseFilters(
+            location=criteria.location,
+            min_salary=criteria.min_salary,
+            include_expired=criteria.include_expired,
+            level=criteria.level,
+        )
+        salary_sq = self._salary_subquery_if_needed(filters)
+        stmt = self._apply_filters(select(OfferRow), filters, salary_sq)
         with Session(self._engine) as session:
-            rows = session.scalars(
-                select(OfferRow).order_by(OfferRow.published_date.desc(), OfferRow.link.asc())
-            ).all()
-
-        return [row.to_offer() for row in rows]
+            return [row.to_offer() for row in session.scalars(stmt).all()]
 
     def count_offers(self) -> int:
         with Session(self._engine) as session:
@@ -36,29 +44,37 @@ class PostgresOfferRepository(OfferRepository):
         # `normalized_salary` table (precomputed NET monthly figures), so no full-table
         # load + Python pass is needed. An offer's salary is its best contract type
         # (max net_of_max across its salary rows).
-        needs_salary = filters.min_salary is not None or filters.sort_by in _SALARY_SORT_COLUMNS
-        salary_sq = self._best_salary_subquery() if needs_salary else None
-
-        def apply(stmt):
-            stmt = self._apply_sql_filters(stmt, filters)
-            if salary_sq is not None:
-                stmt = stmt.outerjoin(salary_sq, salary_sq.c.offer_id == OfferRow.id)
-                if filters.min_salary is not None:
-                    stmt = stmt.where(salary_sq.c.net_min >= filters.min_salary)
-            return stmt
-
+        salary_sq = self._salary_subquery_if_needed(filters)
         with Session(self._engine) as session:
             total = session.scalar(
-                select(func.count()).select_from(apply(select(OfferRow.id)).subquery())
+                select(func.count()).select_from(
+                    self._apply_filters(select(OfferRow.id), filters, salary_sq).subquery()
+                )
             ) or 0
             data_q = (
-                apply(select(OfferRow))
+                self._apply_filters(select(OfferRow), filters, salary_sq)
                 .order_by(self._order_clause(filters, salary_sq))
                 .limit(limit)
                 .offset(offset)
             )
             rows = session.scalars(data_q).all()
             return [row.to_offer() for row in rows], total
+
+    def _salary_subquery_if_needed(self, filters: OfferBrowseFilters):
+        """The best-salary subquery, but only when the request needs it (a min-salary floor
+        or a salary sort) — otherwise None, so no join is added."""
+        needs_salary = filters.min_salary is not None or filters.sort_by in _SALARY_SORT_COLUMNS
+        return self._best_salary_subquery() if needs_salary else None
+
+    def _apply_filters(self, stmt, filters: OfferBrowseFilters, salary_sq):
+        """Apply the structural filters and (when present) the salary-floor join shared by
+        browsing and matching, so both express identical filter semantics in SQL."""
+        stmt = self._apply_sql_filters(stmt, filters)
+        if salary_sq is not None:
+            stmt = stmt.outerjoin(salary_sq, salary_sq.c.offer_id == OfferRow.id)
+            if filters.min_salary is not None:
+                stmt = stmt.where(salary_sq.c.net_min >= filters.min_salary)
+        return stmt
 
     @staticmethod
     def _best_salary_subquery():
