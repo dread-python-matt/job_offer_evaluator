@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -120,12 +121,17 @@ class OfferRow(Base):
 
 class ModelUsageRow(Base):
     __tablename__ = "model_usage"
+    # Spend is derived by summing a user's usage since an anchor timestamp
+    # (TokenAccountingSpendProvider.spend_since), so the hot query filters on user_id AND
+    # created_at. A composite index serves that and the user-only summary (leftmost prefix),
+    # which is why user_id no longer carries a standalone index.
+    __table_args__ = (Index("ix_model_usage_user_created", "user_id", "created_at"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # Nullable: rows written before multi-tenancy are unattributed and excluded from
     # any user's per-user summary.
     user_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+        String(36), ForeignKey("users.id", ondelete="CASCADE")
     )
     company: Mapped[str]
     model: Mapped[str]

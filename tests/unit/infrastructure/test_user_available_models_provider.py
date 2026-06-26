@@ -158,3 +158,28 @@ def test_invalidate_an_uncached_user_is_harmless():
     )
 
     caching.invalidate("never-cached")  # must not raise
+
+
+def test_caching_is_bounded_and_evicts_least_recently_used():
+    # The per-user cache must not grow without bound; once full it evicts the
+    # least-recently-used user, and a cache hit counts as a recent use.
+    calls: list[str] = []
+
+    class _Inner:
+        def list_models(self, user_id):
+            calls.append(user_id)
+            return [AvailableModel("gpt-4o", "OpenAI")]
+
+    caching = CachingUserAvailableModelsProvider(
+        _Inner(), ttl_seconds=300, clock=lambda: _NOW, max_entries=2
+    )
+
+    caching.list_models("u1")
+    caching.list_models("u2")
+    caching.list_models("u1")  # hit → u1 is now most-recently-used
+    caching.list_models("u3")  # over capacity → evicts the LRU user (u2)
+
+    caching.list_models("u1")  # survived → served from cache
+    caching.list_models("u2")  # was evicted → re-fetched
+
+    assert calls == ["u1", "u2", "u3", "u2"]

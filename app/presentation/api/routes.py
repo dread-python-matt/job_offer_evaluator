@@ -175,7 +175,14 @@ def list_offers(
         limit,
         offset,
         OfferBrowseFilters(
-            location, min_salary, tech, search, include_expired, level, sort_by, sort_order
+            location=location,
+            min_salary=min_salary,
+            tech=tech,
+            search=search,
+            include_expired=include_expired,
+            level=level,
+            sort_by=sort_by,
+            sort_order=sort_order,
         ),
     )
     return OffersPageSchema(

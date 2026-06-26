@@ -301,7 +301,7 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 | `COOKIE_SAMESITE` | `lax` | Set `none` for cross-site prod over HTTPS |
 | `CORS_ORIGINS` | `http://localhost:4200` | Comma-separated allowed origins |
 | `HOST` / `PORT` | `127.0.0.1` / `8000` | Bind address (use `0.0.0.0` in containers) |
-| `WORKERS` | `1` | Uvicorn worker processes (>1 is safe — state is persisted) |
+| `WORKERS` | `1` | Uvicorn worker processes. DB-backed state (profiles, models, usage, refresh tokens) is shared, but the **in-memory login/forgot throttle and the model/use-case caches are per-process**: `>1` weakens login throttling (the app logs a startup warning) until the `RateLimiter` is backed by a shared store (e.g. Redis) |
 | `DEFAULT_BUDGET_USD` | `5.0` | Seeds a user's budget limit on first use + the org backstop limit |
 | `AI_MATCH_CONCURRENCY` | `10` | Max offers scored by the LLM in parallel per request |
 | `LLM_TIMEOUT_SECONDS` | `60.0` | Timeout for outbound LLM/provider calls |

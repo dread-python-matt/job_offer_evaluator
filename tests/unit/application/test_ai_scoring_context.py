@@ -128,3 +128,55 @@ def test_configure_sdk_runs_before_build():
     context.select_model("alice", "gemini-2.0-flash")
 
     assert order == ["configure", "build"]
+
+
+def test_invalidate_drops_all_cached_use_cases_for_a_user():
+    # A user's keys can change (add/delete/rotate). A cached use case is bound to the key
+    # that was current when it was built, so invalidate must drop it — otherwise the user
+    # keeps replaying a stale (possibly deleted) key until eviction or restart.
+    builds: list[tuple[str, str]] = []
+    context = AiScoringContext(
+        repository=FakeSelectedModelRepository({"alice": "gpt-4o", "bob": "gpt-4o"}),
+        build_use_case=lambda user_id, model: builds.append((user_id, model)) or object(),
+        configure_sdk=lambda model: None,
+    )
+
+    context.use_case_for("alice")
+    context.use_case_for("bob")
+    context.invalidate("alice")
+    context.use_case_for("alice")  # rebuilds with the user's current key
+    context.use_case_for("bob")  # untouched — still cached
+
+    assert builds == [("alice", "gpt-4o"), ("bob", "gpt-4o"), ("alice", "gpt-4o")]
+
+
+def test_invalidate_an_uncached_user_is_harmless():
+    context = AiScoringContext(
+        repository=FakeSelectedModelRepository(),
+        build_use_case=lambda user_id, model: object(),
+        configure_sdk=lambda model: None,
+    )
+
+    context.invalidate("nobody")  # must not raise
+
+
+def test_cache_is_bounded_and_evicts_least_recently_used():
+    # The cache must not grow without bound as users/models accumulate; once full it evicts
+    # the least-recently-used entry, and a cache hit counts as a recent use.
+    builds: list[str] = []
+    context = AiScoringContext(
+        repository=FakeSelectedModelRepository({"alice": "m1", "bob": "m2", "carol": "m3"}),
+        build_use_case=lambda user_id, model: builds.append(user_id) or object(),
+        configure_sdk=lambda model: None,
+        max_entries=2,
+    )
+
+    context.use_case_for("alice")
+    context.use_case_for("bob")
+    context.use_case_for("alice")  # hit → alice is now most-recently-used
+    context.use_case_for("carol")  # over capacity → evicts the LRU entry (bob)
+
+    context.use_case_for("alice")  # survived → no rebuild
+    context.use_case_for("bob")  # was evicted → rebuilds
+
+    assert builds == ["alice", "bob", "carol", "bob"]

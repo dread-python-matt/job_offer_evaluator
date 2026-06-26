@@ -244,16 +244,25 @@ _user_available_models_provider = CachingUserAvailableModelsProvider(
     KeyedUserAvailableModelsProvider(_api_key_repository, _key_cipher, _models_provider_for_key),
     ttl_seconds=MODELS_CACHE_TTL_SECONDS,
 )
-# Adding/removing a key changes which providers the user can pick, so both invalidate that
-# user's cached model picker — otherwise a freshly added provider stays hidden until the TTL.
+# Adding/removing/rotating a key changes which providers the user can pick AND any cached AI
+# use case bound to a now-stale key, so a key change must invalidate both per-user caches:
+# the model picker (else a freshly added provider stays hidden until the TTL) and the AI
+# scoring context (else a rotated key keeps replaying the deleted credential until restart).
+# `_ai_scoring_context` is assigned later in this module; this only runs at request time, by
+# which point it is always defined (late binding).
+def _on_user_keys_changed(user_id: str) -> None:
+    _user_available_models_provider.invalidate(user_id)
+    _ai_scoring_context.invalidate(user_id)
+
+
 _add_api_key_use_case = AddApiKeyUseCase(
     _api_key_repository,
     _key_cipher,
     _api_key_validator,
-    on_change=_user_available_models_provider.invalidate,
+    on_change=_on_user_keys_changed,
 )
 _delete_api_key_use_case = DeleteApiKeyUseCase(
-    _api_key_repository, on_change=_user_available_models_provider.invalidate
+    _api_key_repository, on_change=_on_user_keys_changed
 )
 # AI matches are gated by the model's own provider key budget (per-key spend vs that key's
 # limit) plus a global org-spend backstop that protects the owner's actual provider bill
