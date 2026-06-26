@@ -12,6 +12,7 @@ from app.domain.errors import AiScoringError
 from app.domain.entities import Offer, UserProfile
 from app.domain.scoring import AiInsight, MatchScore, OfferScorer, ScoreComponent
 from app.infrastructure.llm_utils import company_from_model
+from app.infrastructure.rate_limiting import AsyncRateLimiter
 from app.infrastructure.scoring_strategies import SkillBasedScorer
 from app.infrastructure.token_estimation import estimate_tokens
 
@@ -57,6 +58,7 @@ class LLMScoringStrategy(OfferScorer):
         skills_scorer: OfferScorer | None = None,
         translator_agent: Agent | None = None,
         usage_tracker: ModelUsageTracker | None = None,
+        rate_limiter: AsyncRateLimiter | None = None,
     ) -> "LLMScoringStrategy":
         # `chat_model` (an OpenAIChatCompletionsModel with its own client) is used when
         # provided so model selection never mutates global SDK state; `model` (the name)
@@ -75,6 +77,7 @@ class LLMScoringStrategy(OfferScorer):
             skills_scorer=skills_scorer,
             translator_agent=translator_agent,
             usage_tracker=usage_tracker,
+            rate_limiter=rate_limiter,
         )
 
     def __init__(
@@ -86,6 +89,7 @@ class LLMScoringStrategy(OfferScorer):
         skills_scorer: OfferScorer | None = None,
         translator_agent: Agent | None = None,
         usage_tracker: ModelUsageTracker | None = None,
+        rate_limiter: AsyncRateLimiter | None = None,
         _sleep: Callable[[float], None] = time.sleep,
         _asleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
@@ -96,6 +100,7 @@ class LLMScoringStrategy(OfferScorer):
         self._skills_scorer = skills_scorer or SkillBasedScorer()
         self._translator_agent = translator_agent
         self._usage_tracker = usage_tracker
+        self._rate_limiter = rate_limiter
         self._sleep = _sleep
         self._asleep = _asleep
 
@@ -183,6 +188,8 @@ class LLMScoringStrategy(OfferScorer):
     async def _run_tracked_async(self, agent: Agent, prompt: str, label: str) -> Any:
         for attempt in range(_MAX_RETRIES + 1):
             try:
+                if self._rate_limiter is not None:
+                    await self._rate_limiter.acquire()  # pace to the provider's rate cap
                 result = await self._run_async(agent, prompt)
                 self._record_usage(result, label, prompt)
                 return result

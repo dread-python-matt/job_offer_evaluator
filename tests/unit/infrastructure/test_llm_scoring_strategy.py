@@ -528,6 +528,52 @@ def test_score_async_records_usage():
     assert scoring_record.output_tokens == 80
 
 
+class _RecordingLimiter:
+    def __init__(self) -> None:
+        self.acquired = 0
+
+    async def acquire(self) -> None:
+        self.acquired += 1
+
+
+def test_score_async_acquires_a_rate_limiter_token_before_calling():
+    limiter = _RecordingLimiter()
+    async_run, _ = _fake_async_run(rate=4)
+    strategy = LLMScoringStrategy(agent=object(), run_async=async_run, rate_limiter=limiter)
+
+    asyncio.run(strategy.score_async(_candidate(), _offer()))
+
+    assert limiter.acquired == 1  # one token spent for the one scoring call
+
+
+def test_score_async_acquires_a_token_for_every_attempt_including_retries():
+    limiter = _RecordingLimiter()
+    calls = []
+
+    async def fails_once(agent, prompt):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _status_error(429)
+        return SimpleNamespace(final_output=AgentScore(rate=3, pros=[], cons=[], rate_reason="ok"))
+
+    async def no_sleep(_):
+        return None
+
+    strategy = LLMScoringStrategy(
+        agent=object(), run_async=fails_once, rate_limiter=limiter, _asleep=no_sleep
+    )
+    asyncio.run(strategy.score_async(_candidate(), _offer()))
+
+    assert limiter.acquired == 2  # the throttled retry also consumes a token
+
+
+def test_score_async_works_without_a_rate_limiter():
+    async_run, _ = _fake_async_run(rate=4)
+    strategy = LLMScoringStrategy(agent=object(), run_async=async_run)
+
+    asyncio.run(strategy.score_async(_candidate(), _offer()))  # must not raise
+
+
 def test_score_async_retries_on_503_then_succeeds():
     calls = []
 

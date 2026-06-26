@@ -15,63 +15,15 @@
 }
 
 .filters {
-  display: flex;
-  align-items: flex-start;
-  gap: 24px;
-  flex-wrap: wrap;
-
-  button mat-icon {
-    margin-right: 4px;
-  }
-}
-
-.search-button {
-  margin-left: auto;
-  align-self: center;
+  @include m.filters-grid;
 }
 
 .spin {
   animation: spin 1s linear infinite;
 }
 
-.limit-field {
-  width: 140px;
-}
-
-.location-field {
-  width: 200px;
-}
-
-.salary-field {
-  width: 180px;
-}
-
-.level-field {
-  width: 200px;
-}
-
-.tech-field {
-  min-width: 220px;
-  flex: 1;
-}
-
-.sort-field {
-  width: 200px;
-}
-
 .result-levels {
   margin: 4px 0;
-}
-
-.score-slider {
-  display: flex;
-  flex-direction: column;
-  min-width: 240px;
-  flex: 1;
-
-  mat-slider {
-    width: 100%;
-  }
 }
 
 .results-count {

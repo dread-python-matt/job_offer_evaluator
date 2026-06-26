@@ -64,7 +64,7 @@
           </mat-select>
         </mat-form-field>
 
-        <div class="filter-actions">
+        <div class="filters-actions">
           <button mat-button type="button" (click)="clearFilters()">Clear</button>
           <button mat-raised-button color="primary" type="submit" [disabled]="filters.invalid">
             <mat-icon>filter_alt</mat-icon>
@@ -160,7 +160,9 @@
               [href]="offer.link"
               target="_blank"
               rel="noopener"
-              [attr.aria-label]="'Open ' + offer.title + ' at ' + offer.company + ' (opens in new tab)'"
+              [attr.aria-label]="
+                'Open ' + offer.title + ' at ' + offer.company + ' (opens in new tab)'
+              "
             >
               Open offer
               <mat-icon iconPositionEnd>open_in_new</mat-icon>

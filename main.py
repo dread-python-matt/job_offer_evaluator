@@ -49,6 +49,7 @@ from app.config import (
     DB_MAX_OVERFLOW,
     DB_POOL_SIZE,
     DEFAULT_BUDGET_USD,
+    GOOGLE_RPM_LIMIT,
     EMAIL_CHECK_DELIVERABILITY,
     EMAIL_FROM,
     EMAIL_VERIFICATION_TTL_HOURS,
@@ -82,6 +83,7 @@ from app.domain.errors import MissingProviderApiKeyError
 from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
 from app.infrastructure.llm_utils import company_from_model
+from app.infrastructure.rate_limiting import AsyncRateLimiter, TokenBucketRateLimiter
 from app.infrastructure.composite_budget_status_reader import CompositeBudgetStatusReader
 from app.infrastructure.db import build_engine
 from app.application.ports import RateLimiter
@@ -399,12 +401,31 @@ def _provider_for_model(model: str) -> str:
     return provider
 
 
+# One Google rate limiter per user: Gemini free-tier limits are per project (the user's own
+# key), so each user paces independently. Shared across that user's cached scorers so two
+# Google models don't each get a full RPM budget against the one project quota.
+_google_rate_limiters: dict[str, AsyncRateLimiter] = {}
+
+
+def _google_rate_limiter_for(user_id: str) -> AsyncRateLimiter | None:
+    """The user's Google pacing limiter, or None when pacing is disabled (GOOGLE_RPM_LIMIT=0).
+    OpenAI scoring is never paced — only Google's stricter free tier needs it."""
+    if GOOGLE_RPM_LIMIT <= 0:
+        return None
+    if user_id not in _google_rate_limiters:
+        _google_rate_limiters[user_id] = TokenBucketRateLimiter(GOOGLE_RPM_LIMIT)
+    return _google_rate_limiters[user_id]
+
+
 def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
+    rate_limiter: AsyncRateLimiter | None = None
     if model:
         provider = _provider_for_model(model)
         key = _api_key_resolver.key_for_provider(user_id, provider)  # require own key
         chat_model = build_chat_model_with_key(model, api_key=key, timeout=LLM_TIMEOUT_SECONDS)
         budget_gate = _build_budget_gate(provider)
+        if company_from_model(model) == "Google":
+            rate_limiter = _google_rate_limiter_for(user_id)  # pace under the free-tier RPM cap
     else:
         chat_model = None
         budget_gate = _build_budget_gate(None)
@@ -414,6 +435,7 @@ def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
             chat_model=chat_model,
             translator_agent=build_polish_to_english_agent(chat_model=chat_model),
             usage_tracker=_in_memory_tracker,
+            rate_limiter=rate_limiter,
         ),
         _ai_score_repository,
         model=model,

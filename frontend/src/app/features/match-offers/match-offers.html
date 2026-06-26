@@ -3,7 +3,9 @@
     <div class="page-header-icon"><mat-icon>travel_explore</mat-icon></div>
     <div>
       <h2>Find your best-matching offers</h2>
-      <p class="hint">Ranks saved job offers by how much their tech stack overlaps with your skills.</p>
+      <p class="hint">
+        Ranks saved job offers by how much their tech stack overlaps with your skills.
+      </p>
     </div>
   </div>
 
@@ -11,20 +13,28 @@
     <mat-card-header>
       <div mat-card-avatar class="section-avatar"><mat-icon>tune</mat-icon></div>
       <mat-card-title>Filters</mat-card-title>
-      <mat-card-subtitle>Narrow down how many offers to scan and how strict the match should be.</mat-card-subtitle>
+      <mat-card-subtitle
+        >Narrow down how many offers to scan and how strict the match should be.</mat-card-subtitle
+      >
     </mat-card-header>
     <mat-card-content>
       <form [formGroup]="filters" (ngSubmit)="search()" class="filters">
         <mat-form-field class="limit-field">
           <mat-label>Offers limit</mat-label>
-          <input matInput type="number" min="1" formControlName="offersLimit" aria-describedby="limit-hint" />
+          <input
+            matInput
+            type="number"
+            min="1"
+            formControlName="offersLimit"
+            aria-describedby="limit-hint"
+          />
           <mat-hint id="limit-hint">Leave blank to scan all offers</mat-hint>
           @if (filters.controls.offersLimit.invalid && filters.controls.offersLimit.touched) {
             <mat-error>Must be at least 1</mat-error>
           }
         </mat-form-field>
 
-        <div class="score-slider">
+        <div class="filter-slider">
           <label id="score-label">
             Minimum score: {{ filters.controls.minScore.value | percent }}
           </label>
@@ -35,7 +45,12 @@
 
         <mat-form-field class="location-field">
           <mat-label>Location</mat-label>
-          <input matInput formControlName="location" placeholder="e.g. Warsaw" aria-describedby="location-hint" />
+          <input
+            matInput
+            formControlName="location"
+            placeholder="e.g. Warsaw"
+            aria-describedby="location-hint"
+          />
           <mat-hint id="location-hint">Leave blank for any location</mat-hint>
         </mat-form-field>
 
@@ -101,20 +116,22 @@
           </mat-select>
         </mat-form-field>
 
-        <button
-          mat-raised-button
-          color="primary"
-          type="submit"
-          class="search-button"
-          [disabled]="loading() || filters.invalid"
-        >
-          @if (loading()) {
-            <mat-icon class="spin">progress_activity</mat-icon>
-          } @else {
-            <mat-icon>travel_explore</mat-icon>
-          }
-          Find Matching Offers
-        </button>
+        <div class="filters-actions">
+          <button
+            mat-raised-button
+            color="primary"
+            type="submit"
+            class="search-button"
+            [disabled]="loading() || filters.invalid"
+          >
+            @if (loading()) {
+              <mat-icon class="spin">progress_activity</mat-icon>
+            } @else {
+              <mat-icon>travel_explore</mat-icon>
+            }
+            Find Matching Offers
+          </button>
+        </div>
       </form>
     </mat-card-content>
   </mat-card>

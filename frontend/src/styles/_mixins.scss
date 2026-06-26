@@ -40,6 +40,54 @@
   }
 }
 
+// A filter form as an even, responsive grid: columns wrap cleanly into equal
+// tracks, form fields and sliders share one rhythm, and the action buttons get
+// their own full-width row. Replaces the ragged flex-wrap the match / ai-match /
+// browse filter cards used to share. Slider cells use `.filter-slider`, the
+// button row uses `.filters-actions`.
+@mixin filters-grid($min: 210px) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax($min, 1fr));
+  gap: var(--app-space-4);
+  align-items: start;
+
+  > mat-form-field {
+    width: 100%;
+    min-width: 0;
+  }
+
+  // Sliders read as deliberate cells, aligned to the field labels beside them.
+  > .filter-slider {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-1);
+    min-width: 0;
+    padding-top: 6px;
+
+    > label {
+      font-size: 0.8rem;
+      color: var(--mat-sys-on-surface-variant);
+    }
+
+    mat-slider {
+      width: 100%;
+    }
+  }
+
+  // Buttons live on their own full-width line, right-aligned.
+  > .filters-actions {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--app-space-2);
+    margin-top: var(--app-space-1);
+
+    button mat-icon {
+      margin-right: 4px;
+    }
+  }
+}
+
 // A pill-shaped status badge. Pass the semantic color; background is a soft tint.
 @mixin status-badge($color) {
   display: inline-flex;

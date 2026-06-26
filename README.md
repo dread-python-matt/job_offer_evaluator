@@ -20,8 +20,11 @@ talks to it over HTTP (CORS, cookie session) — there is no shared process. The
    match request.
 2. **Job offers** live in a Postgres `offers` table owned by a separate scraper project —
    this app only **reads** it (plus the scraper's `salaries` / `normalized_salary` tables).
-3. A **`FilterChain`** (composite of `OfferFilter`s, ANDed) drops offers that don't match the
-   request before the expensive scoring runs.
+3. Candidate offers are fetched with the request's **structural filters pushed into SQL**
+   (`OfferRepository.candidate_offers` — location, min net salary, level, expired), so the
+   whole table is never materialized. A **`FilterChain`** (composite of `OfferFilter`s, ANDed)
+   then applies exact filter semantics — including candidate skill overlap — before the
+   expensive scoring runs.
 4. Each surviving offer is scored by an **`OfferScorer`** that returns a **`MatchScore`** —
    named, weighted `ScoreComponent`s whose weighted average is `overall_score`.
    - **`SkillBasedScorer`** (deterministic): rating-weighted tech-stack overlap, no I/O.
@@ -102,7 +105,7 @@ app/
 │   └── ai_scoring_context.py #   AiScoringContext: resolves a user's model → AI use case (cached per model)
 │
 ├── infrastructure/           # Adapters implementing the ports (the only layer with I/O)
-│   ├── db.py, orm_models.py  #   Engine builder + SQLAlchemy ORM rows for app-owned + scraper tables
+│   ├── db.py, orm_models.py  #   Engine builder (tunable connection pool) + SQLAlchemy ORM rows for app-owned + scraper tables
 │   ├── postgres_*_repository.py   # user, user_profile, selected_model, model_usage, ai_score, budget, offer
 │   ├── markdown_profile_repository.py  # Legacy profile adapter (test-only; not wired in main.py)
 │   ├── scoring_strategies.py # SkillBasedScorer (deterministic); skill_utils.py = weighting math
@@ -119,7 +122,7 @@ app/
 │   ├── argon2_password_hasher.py, jwt_token_service.py        # Password hashing + access-token JWTs
 │   ├── jwt_verification_token_service.py, jwt_password_reset_token_service.py  # Purpose-scoped email/reset JWTs
 │   ├── smtp_email_sender.py, console_email_sender.py, email_validators.py      # EmailSender (SMTP/console) + deliverability
-│   ├── in_memory_rate_limiter.py, postgres_refresh_token_repository.py         # Login/forgot throttle; hashed refresh-token store
+│   ├── in_memory_rate_limiter.py, redis_rate_limiter.py, postgres_refresh_token_repository.py  # Login/forgot throttle (memory or Redis); hashed refresh-token store
 │   └── llm_logging.py, llm_utils.py                           # Debug logging; company_from_model, etc.
 │
 └── presentation/api/         # FastAPI entry points
@@ -140,7 +143,9 @@ app/
   consistent across workers because the selection is persisted.
 - **Scoring is a port.** Both scorers implement `OfferScorer.score`/`score_async`; the AI match
   use case scores the top-ranked candidates concurrently (`asyncio`, bounded by
-  `AI_MATCH_CONCURRENCY`) and is best-effort (a failed offer is dropped unless *all* fail).
+  `AI_MATCH_CONCURRENCY`) and is best-effort (a failed offer is dropped unless *all* fail). The
+  AI match route is **async** and awaits scoring (`execute_async`), so the slow LLM round-trips
+  don't pin a thread-pool worker for the whole request.
 
 ---
 
@@ -175,7 +180,9 @@ registration. `token_version` (in the JWT) gives instant revocation / logout-eve
   (`refresh_tokens`, migration `0011`).
 - **Brute-force throttle.** `login` is rate-limited per `(client IP, email)` — only wrong
   attempts count and a success clears the counter; over the limit → **429** + `Retry-After`.
-  `forgot-password` is throttled the same way.
+  `forgot-password` is throttled the same way. The `RateLimiter` is pluggable: in-memory
+  per-process by default (single-worker correct), or a shared **Redis** store for multi-worker
+  deployments (`RATE_LIMITER_BACKEND=redis`).
 - **Email delivery.** Confirmation/reset emails go through an `EmailSender` port. With no
   `SMTP_HOST` configured the app uses a **console fallback that only logs the link** — see
   [Email delivery](#email-delivery) for setup and the `app/scripts/verify_link.py` helper.
@@ -198,9 +205,10 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send r
   model is chosen per user** via the API and built with its own client, so selection never
   mutates global SDK state. Available models are listed from whichever provider keys are set
   (Gemini and/or OpenAI), then cached.
-- **Pipeline.** For an AI match: filter → rank with `SkillBasedScorer` → send the top
-  `offers_to_score` to the LLM → (optionally) translate the offer description to English →
-  score → cache the result (content-addressed by model+candidate+offer) → record token usage.
+- **Pipeline.** For an AI match: fetch candidates (filters pushed into SQL) → apply the
+  `FilterChain` → rank with `SkillBasedScorer` → send the top `offers_to_score` to the LLM →
+  (optionally) translate the offer description to English → score → cache the result
+  (content-addressed by model+candidate+offer) → record token usage.
 - **Budgets (per user, best-effort).** Before scoring, the AI match checks a budget gate
   (`CompositeBudgetStatusReader`) that combines:
   1. the user's **token-accounting budget** — their recorded usage priced by
@@ -218,15 +226,17 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send r
 
 **App-owned** (created/migrated by this project; per-user tables carry a `user_id` FK):
 `users`, `user_profile`, `selected_model`, `model_usage`, `budget`, `ai_score`,
-`refresh_tokens`. (`ai_score` is a global content-addressed cache; `refresh_tokens` holds
-SHA-256 hashes only — never raw tokens.)
+`refresh_tokens`, `user_api_key`. (`ai_score` is a global content-addressed cache;
+`refresh_tokens` holds SHA-256 hashes only; `user_api_key` holds encrypted provider keys —
+never raw tokens or plaintext keys.)
 
 **Scraper-owned, read-only** (do **not** migrate here): `offers`, `salaries`,
 `normalized_salary`.
 
-Migrations live in `alembic/versions/` (`0001`–`0011`): baseline → app tables (`user_profile`,
+Migrations live in `alembic/versions/` (`0001`–`0014`): baseline → app tables (`user_profile`,
 `ai_score`, `selected_model`, `users`) → per-user `user_id` FKs (`0006`–`0009`) →
-`users.email_verified` (`0010`) → `refresh_tokens` (`0011`).
+`users.email_verified` (`0010`) → `refresh_tokens` (`0011`) → `user_api_key` (`0012`) →
+`model_usage (user_id, created_at)` index (`0013`) → `model_usage.estimated` (`0014`).
 
 > ⚠️ **Schema caveat.** Each Postgres repo calls `create_all` for *its* table but does **not**
 > add columns to a table that already exists. On a pre-existing dev DB, apply migrations

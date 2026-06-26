@@ -54,6 +54,10 @@ CORS_ORIGINS = [
 # Defaults low to stay within free-tier provider limits (e.g. Gemini free tier allows
 # only ~5-10 requests/minute); raise it via the env var on a paid tier with higher RPM.
 AI_MATCH_CONCURRENCY = int(os.environ.get("AI_MATCH_CONCURRENCY", "3"))
+# Client-side pacing (requests/minute) for Google/Gemini scoring calls, to stay under the
+# free-tier per-minute cap (Gemini 2.5 Flash = 10 RPM, Flash-Lite = 30). Applied per user
+# (each brings their own key/project). 0 disables pacing. OpenAI calls are not paced.
+GOOGLE_RPM_LIMIT = int(os.environ.get("GOOGLE_RPM_LIMIT", "10"))
 
 # --- Authentication ---
 # Secret for signing session JWTs. MUST be overridden in production (a leaked or default
