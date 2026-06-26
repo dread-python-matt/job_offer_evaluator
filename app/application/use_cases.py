@@ -205,6 +205,40 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         ai_min_score: float = 0.0,
         user_id: str = "",
     ) -> AiMatchResult:
+        """Synchronous entry point (tests and sync callers). Runs the AI scoring in a
+        private event loop; prefer `execute_async` from an async route so the slow
+        round-trips don't pin a worker thread."""
+        ranked = self._prepare(criteria, offers_to_score, user_id)
+        scored = asyncio.run(self._score_concurrently(criteria.candidate, ranked))
+        return self._build_result(
+            scored, criteria, ai_min_score, sort_by, sort_order, offers_limit, user_id
+        )
+
+    async def execute_async(
+        self,
+        criteria: MatchCriteria,
+        offers_to_score: int,
+        offers_limit: int | None,
+        sort_by: MatchSortBy = "score",
+        sort_order: SortOrder = "desc",
+        ai_min_score: float = 0.0,
+        user_id: str = "",
+    ) -> AiMatchResult:
+        """Async entry point: awaits the AI scoring on the caller's event loop instead of
+        spinning up a private loop inside a worker thread, so many matches can be in flight
+        at once without exhausting the server's thread pool while each waits on its LLM
+        round-trips."""
+        ranked = self._prepare(criteria, offers_to_score, user_id)
+        scored = await self._score_concurrently(criteria.candidate, ranked)
+        return self._build_result(
+            scored, criteria, ai_min_score, sort_by, sort_order, offers_limit, user_id
+        )
+
+    def _prepare(
+        self, criteria: MatchCriteria, offers_to_score: int, user_id: str
+    ) -> list[Offer]:
+        """Shared pre-scoring steps for both entry points: the budget gate, opening a fresh
+        usage scope, and loading + ranking candidates down to the top `offers_to_score`."""
         if self._budget:
             status = self._budget.status(user_id)
             if status.exceeded:
@@ -225,7 +259,20 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
             key=lambda offer: self._ranking_scorer.score(criteria.candidate, offer).overall_score,
             reverse=True,
         )
-        scored = asyncio.run(self._score_concurrently(criteria.candidate, ranked[:offers_to_score]))
+        return ranked[:offers_to_score]
+
+    def _build_result(
+        self,
+        scored: list[tuple[Offer, MatchScore]],
+        criteria: MatchCriteria,
+        ai_min_score: float,
+        sort_by: MatchSortBy,
+        sort_order: SortOrder,
+        offers_limit: int | None,
+        user_id: str,
+    ) -> AiMatchResult:
+        """Shared post-scoring steps: build matched offers, persist this request's usage,
+        and finalize (min-score filter, sort, limit)."""
         matched = [
             self._make_matched(
                 offer, score.overall_score, criteria, ai_insight=score.metadata("ai_insight")
@@ -233,7 +280,10 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
             for offer, score in scored
         ]
         usage = self._persist_usage(user_id)
-        return AiMatchResult(matches=self._finalize(matched, ai_min_score, sort_by, sort_order, offers_limit), usage=usage)
+        return AiMatchResult(
+            matches=self._finalize(matched, ai_min_score, sort_by, sort_order, offers_limit),
+            usage=usage,
+        )
 
     def _persist_usage(self, user_id: str) -> list[ModelUsage]:
         """Drain this request's recorded token usage, stamp it with the calling user,

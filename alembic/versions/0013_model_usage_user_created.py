@@ -5,13 +5,13 @@ derived by summing usage since an anchor timestamp (filter on user_id AND create
 the composite also covers the user-only summary and FK cascade via its leftmost prefix, so
 the single-column index becomes redundant.
 
-Revision ID: 0013_model_usage_user_created_index
+Revision ID: 0013_model_usage_user_created
 Revises: 0012_user_api_key
 Create Date: 2026-06-26
 """
 from alembic import op
 
-revision = "0013_model_usage_user_created_index"
+revision = "0013_model_usage_user_created"
 down_revision = "0012_user_api_key"
 branch_labels = None
 depends_on = None

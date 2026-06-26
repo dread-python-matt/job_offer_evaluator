@@ -8,37 +8,77 @@
   top: 0;
   z-index: 10;
   gap: var(--app-space-3);
-  box-shadow: var(--app-shadow-1);
-  // `color="primary"` is a no-op under Material 3, which left the bar on the default
-  // surface with white brand text (invisible). Give it a soft, themed background via the
-  // toolbar's own tokens — a light primary tint that matches the page-header accents.
-  --mat-toolbar-container-background-color: var(--mat-sys-primary-container);
-  --mat-toolbar-container-text-color: var(--mat-sys-on-primary-container);
+  // A neutral surface bar lets the colored brand mark carry the accent (calm
+  // canvas, scarce accent) instead of flooding the whole header in violet.
+  border-bottom: 1px solid var(--mat-sys-outline-variant);
+  --mat-toolbar-container-background-color: var(--mat-sys-surface);
+  --mat-toolbar-container-text-color: var(--mat-sys-on-surface);
 }
 
-.brand-icon {
+// --- Brand lockup: gradient squircle mark + two-tone wordmark -----------------
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--app-radius-sm);
+  padding: 2px 4px 2px 2px;
+
+  &:hover .brand-mark {
+    transform: translateY(-1px);
+    box-shadow: var(--app-shadow-2);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--mat-sys-primary);
+    outline-offset: 2px;
+  }
+}
+
+.brand-mark {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--mat-sys-primary);
-  color: white;
-
-  mat-icon {
-    font-size: 26px;
-    width: 26px;
-    height: 26px;
-  }
+  width: 38px;
+  height: 38px;
+  border-radius: 11px; // squircle, not a circle — reads more like a product logo
+  color: #fff;
+  background: linear-gradient(
+    135deg,
+    var(--mat-sys-primary) 0%,
+    color-mix(in srgb, var(--mat-sys-primary), var(--mat-sys-tertiary) 60%) 100%
+  );
+  box-shadow: var(--app-shadow-1);
+  transition:
+    transform var(--app-duration) var(--app-ease),
+    box-shadow var(--app-duration) var(--app-ease);
 }
 
-.brand-title {
-  font-size: 1.3rem;
+.brand-svg {
+  width: 23px;
+  height: 23px;
+}
+
+.brand-name {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 1.28rem;
+  line-height: 1;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+
+.brand-name-lead {
   font-weight: 600;
-  letter-spacing: 0.2px;
-  color: var(--mat-sys-on-primary-container);
+  color: var(--mat-sys-on-surface);
+}
+
+.brand-name-accent {
+  font-weight: 800;
+  color: var(--mat-sys-primary);
 }
 
 .toolbar-spacer {
@@ -46,7 +86,7 @@
 }
 
 .user-email {
-  color: color-mix(in srgb, var(--mat-sys-on-primary-container) 80%, transparent);
+  color: var(--mat-sys-on-surface-variant);
   font-size: 0.9rem;
   margin-right: 4px;
 }

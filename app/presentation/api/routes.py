@@ -208,13 +208,16 @@ def match_offers(
 
 
 @router.post("/offers/match/ai", response_model=AiMatchResponseSchema)
-def match_offers_ai(
+async def match_offers_ai(
     match_request: MatchAiRequestSchema,
     user: User = Depends(get_current_user),
     use_case: MatchOffersWithAiUseCase = Depends(get_match_offers_ai_use_case),
 ) -> AiMatchResponseSchema:
+    # Async so the slow, I/O-bound LLM scoring is awaited on the event loop rather than
+    # pinning a thread-pool worker for the whole request (which would let a burst of AI
+    # matches starve every other endpoint).
     try:
-        result = use_case.execute(
+        result = await use_case.execute_async(
             criteria=match_request.to_criteria(),
             offers_to_score=match_request.offers_to_score,
             offers_limit=match_request.offers_limit,

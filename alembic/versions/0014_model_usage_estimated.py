@@ -5,14 +5,14 @@ measured, so estimated and measured usage stay distinguishable. Existing rows pr
 fallback and were all measured, so they default to false.
 
 Revision ID: 0014_model_usage_estimated
-Revises: 0013_model_usage_user_created_index
+Revises: 0013_model_usage_user_created
 Create Date: 2026-06-26
 """
 import sqlalchemy as sa
 from alembic import op
 
 revision = "0014_model_usage_estimated"
-down_revision = "0013_model_usage_user_created_index"
+down_revision = "0013_model_usage_user_created"
 branch_labels = None
 depends_on = None
 

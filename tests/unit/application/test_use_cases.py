@@ -865,6 +865,69 @@ def test_match_offers_with_ai_use_case_returns_usage_recorded_during_scoring():
     assert result.usage[0].output_tokens == 50
 
 
+def test_match_offers_with_ai_execute_async_can_be_awaited_inside_a_running_loop():
+    # The async entry point must await scoring on the caller's event loop. The sync execute
+    # uses asyncio.run, which raises inside a running loop and (in a sync route) would pin a
+    # worker thread for the whole AI round-trip. Awaiting it from within asyncio.run proves
+    # the async path doesn't fall back to asyncio.run.
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9}),
+        ScoreByLinkScorer({"a": 0.8}),
+    )
+
+    async def scenario():
+        return await use_case.execute_async(
+            criteria=MatchCriteria(candidate=candidate), offers_to_score=10, offers_limit=10
+        )
+
+    result = asyncio.run(scenario())
+
+    assert [m.offer.link for m in result.matches] == ["a"]
+    assert result.matches[0].score == pytest.approx(0.8)
+
+
+def test_match_offers_with_ai_execute_async_persists_usage_stamped_with_the_user():
+    # The async path must preserve per-request usage attribution (begin/record/flush over
+    # the contextvar-backed tracker) exactly as the sync path does.
+    class UsageRecordingScorer(OfferScorer):
+        def __init__(self, tracker: InMemoryModelUsageTracker) -> None:
+            self._tracker = tracker
+
+        def score(self, candidate, offer) -> MatchScore:
+            self._tracker.record(ModelUsage(label="scoring", input_tokens=100, output_tokens=50))
+            return MatchScore().with_component(ScoreComponent(name="fixed", value=0.8, weight=1.0))
+
+    tracker = InMemoryModelUsageTracker()
+    repo = FakeModelUsageRepository()
+    candidate = _profile("Python")
+    offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
+    use_case = MatchOffersWithAiUseCase(
+        FakeOfferRepository(offers),
+        FilterChain([]),
+        ScoreByLinkScorer({"a": 0.9}),
+        UsageRecordingScorer(tracker),
+        usage_tracker=tracker,
+        usage_repository=repo,
+    )
+
+    async def scenario():
+        return await use_case.execute_async(
+            criteria=MatchCriteria(candidate=candidate),
+            offers_to_score=10,
+            offers_limit=10,
+            user_id="alice",
+        )
+
+    result = asyncio.run(scenario())
+
+    assert [u.user_id for u in repo.saved] == ["alice"]
+    assert result.usage[0].input_tokens == 100
+
+
 def test_match_offers_use_case_includes_expired_offers_when_requested():
     candidate = _profile("Python")
     offers = [
