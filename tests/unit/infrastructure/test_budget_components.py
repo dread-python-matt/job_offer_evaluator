@@ -36,24 +36,21 @@ def test_pricing_returns_none_for_unknown_model():
     assert HardcodedModelPricingRegistry().get_price("llama-3-8b") is None
 
 
-# --- TokenAccountingSpendProvider ---
+# --- TokenAccountingSpendProvider (sums the cost snapshotted at write time) ---
 
 
-def test_token_accounting_prices_usage_per_model():
+def test_token_accounting_sums_stored_cost_across_models():
     repo = FakeModelUsageRepository([
-        ModelUsageSummary(company="OpenAI", model="gpt-4o", input_tokens=1_000_000, output_tokens=500_000),
+        ModelUsageSummary(company="OpenAI", model="gpt-4o", input_tokens=0, output_tokens=0, cost_usd=7.50),
+        ModelUsageSummary(company="Google", model="gemini-2.0", input_tokens=0, output_tokens=0, cost_usd=1.25),
     ])
-    provider = TokenAccountingSpendProvider(repo, HardcodedModelPricingRegistry())
+    provider = TokenAccountingSpendProvider(repo)
 
-    # 1M input * $2.50 + 0.5M output * $10.00 = 2.50 + 5.00
-    assert provider.spend_since("user-1", _NOW) == 7.50
+    assert provider.spend_since("user-1", _NOW) == 8.75
 
 
-def test_token_accounting_ignores_models_without_a_known_price():
-    repo = FakeModelUsageRepository([
-        ModelUsageSummary(company="X", model="mystery-model", input_tokens=1_000_000, output_tokens=1_000_000),
-    ])
-    provider = TokenAccountingSpendProvider(repo, HardcodedModelPricingRegistry())
+def test_token_accounting_is_zero_without_recorded_usage():
+    provider = TokenAccountingSpendProvider(FakeModelUsageRepository([]))
 
     assert provider.spend_since("user-1", _NOW) == 0.0
 

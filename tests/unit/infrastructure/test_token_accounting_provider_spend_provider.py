@@ -1,11 +1,6 @@
 from datetime import datetime, timezone
 
-from app.application.ports import (
-    ModelPrice,
-    ModelPricingRegistry,
-    ModelUsageRepository,
-    ModelUsageSummary,
-)
+from app.application.ports import ModelUsageRepository, ModelUsageSummary
 from app.infrastructure.token_accounting_provider_spend_provider import (
     TokenAccountingProviderSpendProvider,
 )
@@ -25,52 +20,40 @@ class _UsageRepo(ModelUsageRepository):
         return self._summaries
 
 
-class _Pricing(ModelPricingRegistry):
-    def __init__(self, prices):
-        self._prices = prices
-
-    def get_price(self, model):
-        return self._prices.get(model)
-
-
 _START = datetime(2026, 6, 25, tzinfo=timezone.utc)
 
 
-def test_sums_only_the_requested_companys_priced_usage():
+def test_sums_only_the_requested_companys_cost():
     repo = _UsageRepo(
         [
-            ModelUsageSummary("OpenAI", "gpt-4o", input_tokens=1_000_000, output_tokens=0),
-            ModelUsageSummary("Google", "gemini-2.0", input_tokens=2_000_000, output_tokens=0),
+            ModelUsageSummary("OpenAI", "gpt-4o", input_tokens=0, output_tokens=0, cost_usd=10.0),
+            ModelUsageSummary("Google", "gemini-2.0", input_tokens=0, output_tokens=0, cost_usd=2.0),
         ]
     )
-    pricing = _Pricing(
-        {
-            "gpt-4o": ModelPrice(input_per_million=10.0, output_per_million=30.0),
-            "gemini-2.0": ModelPrice(input_per_million=1.0, output_per_million=2.0),
-        }
-    )
 
-    spend = TokenAccountingProviderSpendProvider(repo, pricing)
+    spend = TokenAccountingProviderSpendProvider(repo)
 
     assert spend.spend_since("u1", "OpenAI", _START) == 10.0
 
 
-def test_unknown_priced_models_contribute_zero():
+def test_sums_multiple_models_for_the_same_company():
     repo = _UsageRepo(
-        [ModelUsageSummary("OpenAI", "mystery-model", input_tokens=5_000_000, output_tokens=0)]
+        [
+            ModelUsageSummary("OpenAI", "gpt-4o", input_tokens=0, output_tokens=0, cost_usd=10.0),
+            ModelUsageSummary("OpenAI", "gpt-4o-mini", input_tokens=0, output_tokens=0, cost_usd=0.5),
+        ]
     )
 
-    spend = TokenAccountingProviderSpendProvider(repo, _Pricing({}))
+    spend = TokenAccountingProviderSpendProvider(repo)
 
-    assert spend.spend_since("u1", "OpenAI", _START) == 0.0
+    assert spend.spend_since("u1", "OpenAI", _START) == 10.5
 
 
-def test_counts_both_input_and_output_tokens():
+def test_a_company_with_no_recorded_usage_is_zero():
     repo = _UsageRepo(
-        [ModelUsageSummary("OpenAI", "gpt-4o", input_tokens=1_000_000, output_tokens=1_000_000)]
+        [ModelUsageSummary("OpenAI", "gpt-4o", input_tokens=0, output_tokens=0, cost_usd=10.0)]
     )
-    pricing = _Pricing({"gpt-4o": ModelPrice(input_per_million=10.0, output_per_million=30.0)})
 
-    spend = TokenAccountingProviderSpendProvider(repo, pricing)
+    spend = TokenAccountingProviderSpendProvider(repo)
 
-    assert spend.spend_since("u1", "OpenAI", _START) == 40.0
+    assert spend.spend_since("u1", "Google", _START) == 0.0

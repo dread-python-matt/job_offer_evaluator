@@ -114,6 +114,7 @@ from app.infrastructure.offer_filters import (
 from app.infrastructure.postgres_ai_score_repository import PostgresAiScoreRepository
 from app.infrastructure.postgres_budget_repository import PostgresBudgetRepository
 from app.infrastructure.postgres_model_usage_repository import PostgresModelUsageRepository
+from app.infrastructure.pricing_model_usage_repository import PricingModelUsageRepository
 from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
 from app.infrastructure.postgres_selected_model_repository import PostgresSelectedModelRepository
 from app.infrastructure.postgres_user_profile_repository import PostgresUserProfileRepository
@@ -196,7 +197,11 @@ offer_repository = PostgresOfferRepository(_engine)
 filter_chain = FilterChain(
     [SkillFilter(), LocationFilter(), SalaryFilter(), ExpiredFilter(), LevelFilter()]
 )
-model_usage_repository = PostgresModelUsageRepository(_engine)
+# Pricing is applied once at write time and frozen onto each row's cost_usd, so a later price
+# change never rewrites historical spend and spend reads just sum the stored column.
+model_usage_repository = PricingModelUsageRepository(
+    PostgresModelUsageRepository(_engine), HardcodedModelPricingRegistry()
+)
 
 save_profile_use_case = SaveUserProfileUseCase(profile_repository)
 get_user_profile_use_case = GetUserProfileUseCase(profile_repository)
@@ -213,10 +218,9 @@ _in_memory_tracker = RequestScopedModelUsageTracker()
 _ai_score_repository = PostgresAiScoreRepository(_engine)
 _selected_model_repository = PostgresSelectedModelRepository(_engine)
 _budget_repository = PostgresBudgetRepository(_engine, default_limit_usd=DEFAULT_BUDGET_USD)
-# A user's budget is enforced from their own recorded token usage priced by the registry.
-_user_spend_provider = TokenAccountingSpendProvider(
-    model_usage_repository, HardcodedModelPricingRegistry()
-)
+# A user's budget is enforced from their own recorded token usage, summing the cost snapshotted
+# onto each row at write time.
+_user_spend_provider = TokenAccountingSpendProvider(model_usage_repository)
 _budget_service = BudgetService(
     _budget_repository,
     _user_spend_provider,
@@ -237,10 +241,9 @@ def _models_provider_for_key(provider: str, key: str):
 
 
 _api_key_validator = ModelListingApiKeyValidator(provider_factory=_models_provider_for_key)
-# Each key's usage is derived per provider from the user's recorded, priced token usage.
-_provider_spend_provider = TokenAccountingProviderSpendProvider(
-    model_usage_repository, HardcodedModelPricingRegistry()
-)
+# Each key's usage is derived per provider from the user's recorded usage, summing each row's
+# write-time cost snapshot for that provider's models.
+_provider_spend_provider = TokenAccountingProviderSpendProvider(model_usage_repository)
 _list_api_keys_use_case = ListApiKeysUseCase(_api_key_repository, _provider_spend_provider)
 _set_api_key_budget_use_case = SetApiKeyBudgetUseCase(_api_key_repository, _provider_spend_provider)
 # Scoring resolves the calling user's own key on demand (require own key — no env fallback).

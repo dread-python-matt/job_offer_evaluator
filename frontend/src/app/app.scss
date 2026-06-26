@@ -63,11 +63,18 @@
 
 .brand-name {
   display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.brand-wordline {
+  display: inline-flex;
   align-items: baseline;
   font-size: 1.34rem;
-  line-height: 1;
   letter-spacing: -0.02em;
-  white-space: nowrap;
 }
 
 // The colored mark carries the accent; the wordmark stays neutral and strong,
@@ -80,6 +87,20 @@
 .brand-dot {
   font-weight: 800;
   color: var(--mat-sys-primary);
+}
+
+// Descriptor that tells a first-time visitor what's being merged. Subtle, and
+// dropped on narrow screens where the toolbar has no room to spare.
+.brand-tagline {
+  margin-top: 3px;
+  font-size: 0.64rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--mat-sys-on-surface-variant);
+
+  @media (max-width: 600px) {
+    display: none;
+  }
 }
 
 .toolbar-spacer {

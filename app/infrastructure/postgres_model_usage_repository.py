@@ -23,6 +23,7 @@ class PostgresModelUsageRepository(ModelUsageRepository):
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens,
                 estimated=usage.estimated,
+                cost_usd=usage.cost_usd,
                 created_at=datetime.now(timezone.utc),
             ))
             session.commit()
@@ -40,6 +41,7 @@ class PostgresModelUsageRepository(ModelUsageRepository):
                 ModelUsageRow.model,
                 func.sum(ModelUsageRow.input_tokens).label("input_tokens"),
                 func.sum(ModelUsageRow.output_tokens).label("output_tokens"),
+                func.sum(ModelUsageRow.cost_usd).label("cost_usd"),
             )
             .where(ModelUsageRow.user_id == user_id)
             .group_by(ModelUsageRow.company, ModelUsageRow.model)
@@ -55,6 +57,7 @@ class PostgresModelUsageRepository(ModelUsageRepository):
                 model=row.model,
                 input_tokens=row.input_tokens,
                 output_tokens=row.output_tokens,
+                cost_usd=float(row.cost_usd or 0),
             )
             for row in rows
         ]

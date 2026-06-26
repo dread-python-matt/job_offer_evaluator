@@ -25,5 +25,8 @@ describe('App', () => {
     // The wordmark is "Merge" with an accent "merge node" dot.
     expect(brand?.querySelector('.brand-word')?.textContent?.trim()).toBe('Merge');
     expect(brand?.querySelector('.brand-dot')?.textContent?.trim()).toBe('.');
+    expect(brand?.querySelector('.brand-tagline')?.textContent?.trim()).toBe(
+      'your skills with the right role',
+    );
   });
 });

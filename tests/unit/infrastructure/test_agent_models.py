@@ -52,3 +52,17 @@ def test_with_key_routes_an_openai_model_to_the_default_endpoint():
     kwargs = client_cls.call_args.kwargs
     assert kwargs["api_key"] == "user-key"
     assert "base_url" not in kwargs
+
+
+def test_client_disables_sdk_level_retries_so_our_retry_layer_is_the_only_one():
+    # The SDK's built-in retries fire underneath our LLMScoringStrategy retry with a short
+    # backoff that ignores Retry-After, multiplying request volume into a 429 storm against
+    # rate-limited (e.g. free-tier) providers. We own retries; the client must not add its own.
+    for model in ("gemini-2.5-flash", "gpt-4o"):
+        with (
+            patch("app.infrastructure.agent_models.AsyncOpenAI") as client_cls,
+            patch("app.infrastructure.agent_models.OpenAIChatCompletionsModel"),
+        ):
+            build_chat_model_with_key(model, api_key="user-key")
+
+        assert client_cls.call_args.kwargs["max_retries"] == 0

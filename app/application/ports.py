@@ -50,6 +50,9 @@ class ModelUsage:
     # True when the provider didn't report usage and the counts were estimated from text
     # length (so spend isn't undercounted); kept distinguishable from measured usage.
     estimated: bool = False
+    # USD cost of these tokens, priced once at write time and frozen onto the row, so spend
+    # reads sum a stored number and a later price change never rewrites historical spend.
+    cost_usd: float = 0.0
 
 
 class ModelUsageTracker(ABC):
@@ -94,6 +97,8 @@ class ModelUsageSummary:
     model: str
     input_tokens: int
     output_tokens: int
+    # Summed USD cost for this (company, model) group, from each row's write-time snapshot.
+    cost_usd: float = 0.0
 
 
 @dataclass

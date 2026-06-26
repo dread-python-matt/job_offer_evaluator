@@ -141,6 +141,10 @@ class ModelUsageRow(Base):
     # True when the counts were estimated (provider reported no usage), so estimated and
     # measured usage stay distinguishable in the data.
     estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # USD cost of this row's tokens, priced once at write time (PricingModelUsageRepository)
+    # and frozen here, so spend reads sum this column and a later price change never rewrites
+    # historical spend.
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

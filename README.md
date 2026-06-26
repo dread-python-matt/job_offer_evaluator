@@ -279,6 +279,8 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 | Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | *(required)* | SQLAlchemy URL, e.g. `postgresql+psycopg://user:pass@host:5433/db` |
+| `DB_POOL_SIZE` | `5` | SQLAlchemy connection-pool size |
+| `DB_MAX_OVERFLOW` | `10` | Extra connections allowed beyond the pool under load. Keep `WORKERS * (DB_POOL_SIZE + DB_MAX_OVERFLOW)` under the DB's max connections |
 | `LLM_PROVIDER` | `gemini` | Org-level provider wiring: `gemini` or `openai` |
 | `GEMINI_API_KEY` | `""` | Required when `LLM_PROVIDER=gemini`; also enables Gemini model listing |
 | `OPENAI_API_KEY` | `""` | Required when `LLM_PROVIDER=openai`; also enables OpenAI model listing |
@@ -288,6 +290,8 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 | `REFRESH_TOKEN_TTL_DAYS` | `14` | Refresh-token lifetime + auth-cookie `max_age`; rotated on each `/auth/refresh` |
 | `LOGIN_RATE_LIMIT_ATTEMPTS` | `5` | Wrong-credential attempts per (IP, email) before **429** |
 | `LOGIN_RATE_LIMIT_WINDOW_MINUTES` | `15` | Window for the login / forgot-password throttle |
+| `RATE_LIMITER_BACKEND` | `memory` | `memory` (per-process, single-worker) or `redis` (shared across workers/instances). `redis` needs `REDIS_URL` + the optional redis package (`uv sync --extra redis`) |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection URL, used when `RATE_LIMITER_BACKEND=redis` |
 | `APP_BASE_URL` | `http://localhost:4200` | Frontend base used to build emailed confirm/reset links |
 | `SMTP_HOST` | `""` | SMTP server. **Empty → console fallback that only logs links** (dev) |
 | `SMTP_PORT` | `587` | SMTP port |
@@ -301,7 +305,7 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 | `COOKIE_SAMESITE` | `lax` | Set `none` for cross-site prod over HTTPS |
 | `CORS_ORIGINS` | `http://localhost:4200` | Comma-separated allowed origins |
 | `HOST` / `PORT` | `127.0.0.1` / `8000` | Bind address (use `0.0.0.0` in containers) |
-| `WORKERS` | `1` | Uvicorn worker processes. DB-backed state (profiles, models, usage, refresh tokens) is shared, but the **in-memory login/forgot throttle and the model/use-case caches are per-process**: `>1` weakens login throttling (the app logs a startup warning) until the `RateLimiter` is backed by a shared store (e.g. Redis) |
+| `WORKERS` | `1` | Uvicorn worker processes. DB-backed state (profiles, models, usage, refresh tokens) is shared, but the **in-memory login/forgot throttle and the model/use-case caches are per-process**: for `>1`, set `RATE_LIMITER_BACKEND=redis` so login throttling stays correct across workers (the app logs a startup warning otherwise) |
 | `DEFAULT_BUDGET_USD` | `5.0` | Seeds a user's budget limit on first use + the org backstop limit |
 | `AI_MATCH_CONCURRENCY` | `10` | Max offers scored by the LLM in parallel per request |
 | `LLM_TIMEOUT_SECONDS` | `60.0` | Timeout for outbound LLM/provider calls |

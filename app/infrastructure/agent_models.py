@@ -14,11 +14,18 @@ def build_chat_model_with_key(
     """Build a chat model bound to its own client using a single API key, routed to the
     right provider endpoint by the model name. Used for per-user scoring, where the key is
     the calling user's own provider key. Each agent carries its own client, so concurrent
-    matches across users/models stay isolated and never mutate global SDK state."""
+    matches across users/models stay isolated and never mutate global SDK state.
+
+    `max_retries=0` disables the SDK's own client-level retries: `LLMScoringStrategy` owns
+    retry/backoff (and honors the provider's `Retry-After`). Left at the SDK default, its
+    retries fire underneath ours with a short backoff that ignores `Retry-After`, multiplying
+    request volume into a 429 storm against rate-limited (e.g. free-tier) providers."""
     if company_from_model(model_name) == "Google":
-        client = AsyncOpenAI(api_key=api_key, base_url=GEMINI_BASE_URL, timeout=timeout)
+        client = AsyncOpenAI(
+            api_key=api_key, base_url=GEMINI_BASE_URL, timeout=timeout, max_retries=0
+        )
     else:
-        client = AsyncOpenAI(api_key=api_key, timeout=timeout)
+        client = AsyncOpenAI(api_key=api_key, timeout=timeout, max_retries=0)
     return OpenAIChatCompletionsModel(model=model_name, openai_client=client)
 
 
