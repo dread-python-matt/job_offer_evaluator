@@ -3,9 +3,11 @@ from collections.abc import Callable
 from app.application.ports import ApiKeyValidator, AvailableModelsProvider
 from app.domain.errors import InvalidApiKeyError
 
-# HTTP statuses a provider returns when the key itself is the problem (bad/revoked key,
-# or a key without the needed scope). Anything else is treated as transient and bubbles.
-_KEY_REJECTION_STATUSES = frozenset({401, 403})
+# HTTP statuses a provider returns when the key itself is the problem (bad/revoked key, a
+# key without the needed scope, or a malformed key). OpenAI returns 401/403; Gemini returns
+# 400 ("Please pass a valid API key") for a bad key. Anything else (e.g. 429/5xx/network) is
+# treated as transient and bubbles, so an outage isn't misreported as a bad key.
+_KEY_REJECTION_STATUSES = frozenset({400, 401, 403})
 
 ProviderFactory = Callable[[str, str], AvailableModelsProvider]
 

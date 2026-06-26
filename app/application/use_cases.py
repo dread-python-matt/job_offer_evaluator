@@ -1,7 +1,9 @@
 import asyncio
 import logging
 from abc import ABC
+from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 
 from app.application.ports import (
     AvailableModel,
@@ -12,10 +14,11 @@ from app.application.ports import (
     ModelUsageTracker,
     ModelUsageWithLimits,
     OfferRepository,
+    SpendProvider,
     UserAvailableModelsProvider,
     UserProfileRepository,
 )
-from app.domain.errors import AiScoringError, BudgetExceededError
+from app.domain.errors import AiScoringError, BudgetExceededError, CostUnavailableError
 from app.domain.entities import Offer, TaxSituation, UserProfile
 from app.domain.filters import FilterChain, MatchCriteria, OfferBrowseFilters
 from app.domain.salary_calculator import ContractType, NetSalaryBreakdown, SalaryCalculator
@@ -260,6 +263,44 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         if offers and not scored:
             raise failures[0]
         return scored
+
+
+@dataclass(frozen=True)
+class OrgSpend:
+    """The organization's actual provider spend (real money, from the admin usage API)
+    since `since`. Org-wide, not attributable per user."""
+
+    spend_usd: float
+    since: datetime
+
+
+def _start_of_utc_day(now: datetime) -> datetime:
+    return now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+class GetOrgSpendUseCase:
+    """Reads the organization's real provider spend for the current UTC day from the admin
+    usage API (e.g. OpenAI's costs endpoint, via the admin key). Returns None when no spend
+    provider is configured (no admin key) or the figure is currently unavailable, so the UI
+    can degrade gracefully rather than error."""
+
+    def __init__(
+        self,
+        spend_provider: SpendProvider | None,
+        clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    ) -> None:
+        self._spend_provider = spend_provider
+        self._clock = clock
+
+    def execute(self) -> OrgSpend | None:
+        if self._spend_provider is None:
+            return None
+        since = _start_of_utc_day(self._clock())
+        try:
+            spend = self._spend_provider.spend_since(since)
+        except CostUnavailableError:
+            return None
+        return OrgSpend(spend_usd=spend, since=since)
 
 
 class ListAvailableModelsUseCase:

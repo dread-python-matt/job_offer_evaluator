@@ -77,81 +77,24 @@
     </mat-card>
   }
 
-  <mat-card appearance="outlined" class="cost-card">
+  <app-api-keys (changed)="load()" />
+
+  <mat-card appearance="outlined" class="org-spend-card">
     <mat-card-header>
-      <div mat-card-avatar class="section-avatar"><mat-icon>payments</mat-icon></div>
-      <mat-card-title>API spend budget</mat-card-title>
-      <mat-card-subtitle>
-        Cumulative USD spend against your limit
-        @if (trackingSince(); as since) {
-          · since {{ since | date:'mediumDate' }}
-        }
-      </mat-card-subtitle>
+      <div mat-card-avatar class="section-avatar"><mat-icon>account_balance</mat-icon></div>
+      <mat-card-title>Organization spend (today)</mat-card-title>
+      <mat-card-subtitle>Actual USD billed by OpenAI org-wide, via the admin key.</mat-card-subtitle>
     </mat-card-header>
-    <mat-card-content class="cost-content">
-      @if (dailyCost(); as cost) {
-        <div class="cost-amounts">
-          <span class="cost-spent">${{ cost.cost_usd | number:'1.4-4' }}</span>
-          <span class="cost-limit">of ${{ cost.limit_usd | number:'1.2-2' }} budget</span>
-          <span class="cost-pct" [class]="costBarClass(cost)">{{ costPct(cost) | number:'1.0-1' }}%</span>
+    <mat-card-content class="org-spend-content">
+      @if (orgSpend(); as spend) {
+        <div class="org-spend-amounts">
+          <span class="org-spend-value">${{ spend.spend_usd | number:'1.2-2' }}</span>
+          <span class="org-spend-since">since {{ spend.since | date:'mediumDate' }} (UTC)</span>
         </div>
-        <div class="cost-bar-track">
-          <div class="cost-bar-fill" [class]="costBarClass(cost)" [style.width.%]="costPct(cost)"></div>
-        </div>
-
-        <div class="budget-controls">
-          <mat-form-field class="limit-field" subscriptSizing="dynamic">
-            <mat-label>Spend limit</mat-label>
-            <span matTextPrefix>$&nbsp;</span>
-            <input
-              matInput
-              type="number"
-              min="0"
-              step="0.5"
-              [formControl]="limitControl"
-              (keydown.enter)="saveLimit()"
-            />
-            @if (limitControl.invalid && limitControl.touched) {
-              <mat-error>Enter a limit of 0 or more</mat-error>
-            }
-          </mat-form-field>
-
-          <button
-            mat-stroked-button
-            class="budget-save"
-            (click)="saveLimit()"
-            [disabled]="budgetBusy() || limitControl.invalid"
-          >
-            <mat-icon>save</mat-icon>
-            Save limit
-          </button>
-
-          <button
-            mat-stroked-button
-            class="budget-reset"
-            (click)="resetUsage()"
-            [disabled]="budgetBusy()"
-            matTooltip="Reset spend tracking to start from now"
-          >
-            <mat-icon>restart_alt</mat-icon>
-            Reset usage
-          </button>
-
-          @if (budgetBusy()) {
-            <mat-spinner diameter="20" />
-          }
-        </div>
-
-        @if (budgetError(); as err) {
-          <p class="select-error">
-            <mat-icon>error_outline</mat-icon>
-            {{ err }}
-          </p>
-        }
       } @else {
-        <p class="cost-unavailable">
+        <p class="org-spend-unavailable">
           <mat-icon>info_outline</mat-icon>
-          Cost tracking requires <code>OPENAI_ADMIN_KEY</code> in <code>.env</code>.
+          Real-spend tracking requires <code>OPENAI_ADMIN_KEY</code> (with <code>api.usage.read</code>) and <code>LLM_PROVIDER=openai</code>.
         </p>
       }
     </mat-card-content>

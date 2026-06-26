@@ -17,16 +17,24 @@ def _database_reachable() -> bool:
 
 pytestmark = pytest.mark.skipif(not _database_reachable(), reason="database is not reachable")
 
+# All keys this suite writes are prefixed, so cleanup can target only its own rows and never
+# wipe the real AI-score cache (the ai_score table has no user FK to scope by otherwise).
+_KEY_PREFIX = "itest:"
+
+
+def _key(name: str) -> str:
+    return f"{_KEY_PREFIX}{name}"
+
 
 @pytest.fixture(autouse=True)
 def clean_table():
     PostgresAiScoreRepository(DATABASE_URL)  # ensure table exists
     engine = create_engine(DATABASE_URL)
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM ai_score"))
+        conn.execute(text("DELETE FROM ai_score WHERE key LIKE :pat"), {"pat": f"{_KEY_PREFIX}%"})
     yield
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM ai_score"))
+        conn.execute(text("DELETE FROM ai_score WHERE key LIKE :pat"), {"pat": f"{_KEY_PREFIX}%"})
 
 
 def _score() -> MatchScore:
@@ -39,14 +47,14 @@ def _score() -> MatchScore:
 def test_get_returns_none_on_miss():
     repo = PostgresAiScoreRepository(DATABASE_URL)
 
-    assert repo.get("missing") is None
+    assert repo.get(_key("missing")) is None
 
 
 def test_put_then_get_round_trips_the_score_and_insight():
     repo = PostgresAiScoreRepository(DATABASE_URL)
-    repo.put("k1", _score())
+    repo.put(_key("k1"), _score())
 
-    restored = repo.get("k1")
+    restored = repo.get(_key("k1"))
 
     assert restored is not None
     assert restored.overall_score == _score().overall_score

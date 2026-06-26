@@ -41,7 +41,9 @@ def _seed_user(conn, user_id: str) -> None:
 def clean_schema():
     engine = create_engine(DATABASE_URL)
     PostgresUserRepository(DATABASE_URL)  # ensure the FK target (users) table exists
-    UserApiKeyRow.__table__.drop(engine, checkfirst=True)
+    # Ensure the table exists WITHOUT dropping it (dropping would wipe every user's API keys).
+    # Cleanup is scoped to this suite's fixed test users below; deleting them cascades to
+    # their user_api_key rows, so no other user's data is ever touched.
     Base.metadata.create_all(engine, tables=[UserApiKeyRow.__table__])
     with engine.begin() as conn:
         conn.execute(

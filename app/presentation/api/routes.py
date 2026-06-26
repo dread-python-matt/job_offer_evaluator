@@ -12,6 +12,7 @@ from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     CountOffersUseCase,
     GetModelUsageSummaryUseCase,
+    GetOrgSpendUseCase,
     GetUserProfileUseCase,
     ListAvailableModelsUseCase,
     ListOffersUseCase,
@@ -49,6 +50,7 @@ from app.presentation.api.schemas import (
     MatchRequestSchema,
     ModelUsageSummaryItemSchema,
     OffersCountSchema,
+    OrgSpendSchema,
     OffersPageSchema,
     OfferSchema,
     SalaryCalculationRequestSchema,
@@ -104,6 +106,10 @@ def get_ai_scoring_context() -> AiScoringContext:
 
 def get_budget_service() -> BudgetService:
     raise NotImplementedError("override with a configured service")
+
+
+def get_org_spend_use_case() -> GetOrgSpendUseCase:
+    raise NotImplementedError("override with a configured use case")
 
 
 def get_add_api_key_use_case() -> AddApiKeyUseCase:
@@ -306,6 +312,17 @@ def reset_usage(
     service: BudgetService = Depends(get_budget_service),
 ) -> BudgetSchema:
     return BudgetSchema.from_domain(service.reset_usage(user.id))
+
+
+@router.get("/usage/org-spend", response_model=OrgSpendSchema | None)
+def get_org_spend(
+    user: User = Depends(get_current_user),
+    use_case: GetOrgSpendUseCase = Depends(get_org_spend_use_case),
+) -> OrgSpendSchema | None:
+    """The organization's actual provider spend today (real money, from the admin usage
+    API). Null when no admin key is configured or the figure is unavailable."""
+    spend = use_case.execute()
+    return OrgSpendSchema.from_domain(spend) if spend is not None else None
 
 
 @router.get("/usage/summary", response_model=list[ModelUsageSummaryItemSchema])

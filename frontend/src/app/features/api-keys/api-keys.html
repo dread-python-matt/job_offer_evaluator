@@ -1,0 +1,137 @@
+<mat-card appearance="outlined" class="keys-card">
+  <mat-card-header>
+    <div mat-card-avatar class="section-avatar"><mat-icon>vpn_key</mat-icon></div>
+    <mat-card-title>Provider API keys</mat-card-title>
+    <mat-card-subtitle>Add your own provider keys to enable AI matching. Each key has its own spend budget.</mat-card-subtitle>
+  </mat-card-header>
+
+  <mat-card-content class="keys-content">
+    @if (loading()) {
+      <div class="status-block">
+        <mat-spinner diameter="28" />
+        <p>Loading keys…</p>
+      </div>
+    } @else if (error()) {
+      <div class="status-block error-block">
+        <mat-icon class="status-icon">error_outline</mat-icon>
+        <p>Failed to load API keys.</p>
+        <button mat-stroked-button (click)="load()">Try again</button>
+      </div>
+    } @else {
+      @if (keys().length === 0) {
+        <p class="empty-hint">
+          <mat-icon>info_outline</mat-icon>
+          No keys yet. Add one below to choose a model and run AI matches.
+        </p>
+      }
+
+      @for (key of keys(); track key.api_provider) {
+        <div class="key-row">
+          <div class="key-head">
+            <div class="key-id">
+              <span class="key-company">{{ companyFor(key.api_provider) }}</span>
+              <code class="key-hint">{{ key.key_hint }}</code>
+            </div>
+            <button
+              mat-icon-button
+              class="key-delete"
+              (click)="removeKey(key)"
+              [disabled]="busyProvider() !== null"
+              [attr.aria-label]="'Delete ' + companyFor(key.api_provider) + ' key'"
+              matTooltip="Delete this key"
+            >
+              <mat-icon>delete_outline</mat-icon>
+            </button>
+          </div>
+
+          <div class="key-budget">
+            <div class="budget-amounts">
+              <span class="budget-spent">${{ key.used_usd | number:'1.4-4' }}</span>
+              <span class="budget-limit">of ${{ key.limit_usd | number:'1.2-2' }}</span>
+              <span class="budget-pct" [class]="barClass(key)">{{ usedPct(key) | number:'1.0-1' }}%</span>
+            </div>
+            <div class="budget-bar-track">
+              <div class="budget-bar-fill" [class]="barClass(key)" [style.width.%]="usedPct(key)"></div>
+            </div>
+          </div>
+
+          <div class="budget-edit">
+            <mat-form-field class="budget-field" subscriptSizing="dynamic">
+              <mat-label>Budget</mat-label>
+              <span matTextPrefix>$&nbsp;</span>
+              <input
+                #limitInput
+                matInput
+                type="number"
+                min="0"
+                step="0.5"
+                [value]="key.limit_usd"
+                (keydown.enter)="saveBudget(key, +limitInput.value)"
+              />
+            </mat-form-field>
+            <button
+              mat-stroked-button
+              (click)="saveBudget(key, +limitInput.value)"
+              [disabled]="busyProvider() !== null"
+            >
+              <mat-icon>save</mat-icon>
+              Save
+            </button>
+            @if (busyProvider() === key.api_provider) {
+              <mat-spinner diameter="20" />
+            }
+          </div>
+        </div>
+      }
+
+      @if (rowError(); as err) {
+        <p class="row-error">
+          <mat-icon>error_outline</mat-icon>
+          {{ err }}
+        </p>
+      }
+
+      @if (availableProviders().length) {
+        <form class="add-form" [formGroup]="addForm" (ngSubmit)="addKey()">
+          <h4 class="add-title">Add a key</h4>
+          <div class="add-fields">
+            <mat-form-field class="provider-field">
+              <mat-label>Provider</mat-label>
+              <mat-select formControlName="provider">
+                @for (p of availableProviders(); track p.provider) {
+                  <mat-option [value]="p.provider">{{ p.company }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
+
+            <mat-form-field class="key-field">
+              <mat-label>API key</mat-label>
+              <input matInput type="password" autocomplete="off" formControlName="key" placeholder="Paste your key" />
+            </mat-form-field>
+
+            <mat-form-field class="add-budget-field">
+              <mat-label>Budget</mat-label>
+              <span matTextPrefix>$&nbsp;</span>
+              <input matInput type="number" min="0" step="0.5" formControlName="limit" />
+            </mat-form-field>
+
+            <button mat-flat-button color="primary" type="submit" [disabled]="adding()">
+              <mat-icon>add</mat-icon>
+              Add key
+            </button>
+            @if (adding()) {
+              <mat-spinner diameter="20" />
+            }
+          </div>
+
+          @if (addError(); as err) {
+            <p class="add-error">
+              <mat-icon>error_outline</mat-icon>
+              {{ err }}
+            </p>
+          }
+        </form>
+      }
+    }
+  </mat-card-content>
+</mat-card>

@@ -27,6 +27,7 @@ from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     CountOffersUseCase,
     GetModelUsageSummaryUseCase,
+    GetOrgSpendUseCase,
     GetUserProfileUseCase,
     ListAvailableModelsUseCase,
     ListOffersUseCase,
@@ -81,6 +82,7 @@ from app.infrastructure.composite_budget_status_reader import CompositeBudgetSta
 from app.infrastructure.db import build_engine
 from app.infrastructure.in_memory_rate_limiter import InMemoryRateLimiter
 from app.infrastructure.agent_models import build_chat_model_with_key
+from app.infrastructure.api_key_budget_status_reader import ApiKeyBudgetStatusReader
 from app.infrastructure.caching_ai_scorer import CachingAiScorer
 from app.infrastructure.keyed_user_available_models_provider import (
     CachingUserAvailableModelsProvider,
@@ -133,6 +135,7 @@ from app.presentation.api.routes import (
     get_budget_service,
     get_delete_api_key_use_case,
     get_list_api_keys_use_case,
+    get_org_spend_use_case,
     get_set_api_key_budget_use_case,
     get_count_offers_use_case,
     get_list_available_models_use_case,
@@ -243,12 +246,24 @@ _user_available_models_provider = CachingUserAvailableModelsProvider(
     KeyedUserAvailableModelsProvider(_api_key_repository, _key_cipher, _models_provider_for_key),
     ttl_seconds=MODELS_CACHE_TTL_SECONDS,
 )
-# AI matches are gated by the user's token budget plus a global org-spend backstop that
-# protects the owner's actual provider bill (active only when an admin key is configured).
-_budget_gate = CompositeBudgetStatusReader([
-    _budget_service,
-    OrgSpendBackstop(_llm_factory.build_spend_provider(), DEFAULT_BUDGET_USD),
-])
+# AI matches are gated by the model's own provider key budget (per-key spend vs that key's
+# limit) plus a global org-spend backstop that protects the owner's actual provider bill
+# (active only when an admin key is configured). The per-key reader is bound per build (it
+# depends on the scored model's provider); the org backstop is user-independent, built once.
+_org_spend_provider = _llm_factory.build_spend_provider()
+_org_spend_backstop = OrgSpendBackstop(_org_spend_provider, DEFAULT_BUDGET_USD)
+# Org-level real-$ spend readout (admin key); None provider → endpoint returns null.
+_get_org_spend_use_case = GetOrgSpendUseCase(_org_spend_provider)
+
+
+def _build_budget_gate(api_provider: str | None) -> CompositeBudgetStatusReader:
+    readers: list = []
+    if api_provider is not None:
+        readers.append(
+            ApiKeyBudgetStatusReader(_api_key_repository, _provider_spend_provider, api_provider)
+        )
+    readers.append(_org_spend_backstop)
+    return CompositeBudgetStatusReader(readers)
 
 _user_repository = PostgresUserRepository(_engine)
 _password_hasher = Argon2PasswordHasher()
@@ -337,19 +352,24 @@ def _disable_tracing(_model: str) -> None:
     set_tracing_disabled(True)
 
 
-def _build_user_chat_model(user_id: str, model: str):
-    """Build the scoring client bound to the calling user's own key for the model's
-    provider. Raises MissingProviderApiKeyError if they have no key for it (require own
-    key) — handled as a 400 so the user is told to add one."""
+def _provider_for_model(model: str) -> str:
+    """The provider id for a model, or raise MissingProviderApiKeyError when the model is
+    from a company the user can't key (so it's reported as 'add a key')."""
     provider = provider_for_company(company_from_model(model))
     if provider is None:
         raise MissingProviderApiKeyError(company_from_model(model))
-    key = _api_key_resolver.key_for_provider(user_id, provider)
-    return build_chat_model_with_key(model, api_key=key, timeout=LLM_TIMEOUT_SECONDS)
+    return provider
 
 
 def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
-    chat_model = _build_user_chat_model(user_id, model) if model else None
+    if model:
+        provider = _provider_for_model(model)
+        key = _api_key_resolver.key_for_provider(user_id, provider)  # require own key
+        chat_model = build_chat_model_with_key(model, api_key=key, timeout=LLM_TIMEOUT_SECONDS)
+        budget_gate = _build_budget_gate(provider)
+    else:
+        chat_model = None
+        budget_gate = _build_budget_gate(None)
     ai_scorer = CachingAiScorer(
         LLMScoringStrategy.create(
             model=model,
@@ -367,7 +387,7 @@ def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
         ai_scorer,
         usage_tracker=_in_memory_tracker,
         usage_repository=model_usage_repository,
-        budget=_budget_gate,
+        budget=budget_gate,
         max_concurrency=AI_MATCH_CONCURRENCY,
         fail_closed=BUDGET_FAIL_CLOSED,
     )
@@ -434,6 +454,7 @@ app.dependency_overrides[get_list_offers_use_case] = lambda: list_offers_use_cas
 app.dependency_overrides[get_calculate_salary_use_case] = lambda: calculate_salary_use_case
 app.dependency_overrides[get_model_usage_summary_use_case] = lambda: get_model_usage_summary_use_case_instance
 app.dependency_overrides[get_budget_service] = lambda: _budget_service
+app.dependency_overrides[get_org_spend_use_case] = lambda: _get_org_spend_use_case
 app.dependency_overrides[get_add_api_key_use_case] = lambda: _add_api_key_use_case
 app.dependency_overrides[get_list_api_keys_use_case] = lambda: _list_api_keys_use_case
 app.dependency_overrides[get_set_api_key_budget_use_case] = lambda: _set_api_key_budget_use_case

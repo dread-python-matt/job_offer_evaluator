@@ -158,3 +158,20 @@ export interface AiMatchResult {
   matches: MatchedOffer[];
   usage: ModelUsage | null;
 }
+
+export interface ApiProvider {
+  provider: string;
+  company: string;
+}
+
+export interface ApiKey {
+  api_provider: string;
+  key_hint: string;
+  limit_usd: number;
+  used_usd: number;
+}
+
+export interface OrgSpend {
+  spend_usd: number;
+  since: string;
+}

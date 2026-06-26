@@ -5,6 +5,8 @@ import { Observable, map } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import {
   AiMatchResult,
+  ApiKey,
+  ApiProvider,
   AvailableModels,
   Budget,
   CurrentModelConfig,
@@ -14,6 +16,7 @@ import {
   ModelUsageSummaryItem,
   OfferFilters,
   OffersPage,
+  OrgSpend,
   SortOrder,
   UserProfile,
 } from '../models/profile.model';
@@ -124,6 +127,36 @@ export class ApiService {
 
   getUsageSummary(): Observable<ModelUsageSummaryItem[]> {
     return this.http.get<ModelUsageSummaryItem[]>(`${this.baseUrl}/usage/summary`);
+  }
+
+  getOrgSpend(): Observable<OrgSpend | null> {
+    return this.http.get<OrgSpend | null>(`${this.baseUrl}/usage/org-spend`);
+  }
+
+  getApiKeyProviders(): Observable<ApiProvider[]> {
+    return this.http.get<ApiProvider[]>(`${this.baseUrl}/api-keys/providers`);
+  }
+
+  getApiKeys(): Observable<ApiKey[]> {
+    return this.http.get<ApiKey[]>(`${this.baseUrl}/api-keys`);
+  }
+
+  addApiKey(apiProvider: string, key: string, limitUsd: number): Observable<ApiKey> {
+    return this.http.post<ApiKey>(`${this.baseUrl}/api-keys`, {
+      api_provider: apiProvider,
+      key,
+      limit_usd: limitUsd,
+    });
+  }
+
+  updateApiKeyBudget(apiProvider: string, limitUsd: number): Observable<ApiKey> {
+    return this.http.patch<ApiKey>(`${this.baseUrl}/api-keys/${apiProvider}`, {
+      limit_usd: limitUsd,
+    });
+  }
+
+  deleteApiKey(apiProvider: string): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/api-keys/${apiProvider}`);
   }
 
   getOffers(limit: number, offset: number, filters: OfferFilters): Observable<OffersPage> {

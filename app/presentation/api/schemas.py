@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from app.application.api_key_use_cases import ApiKeyView
 from app.application.ports import ModelUsageWithLimits
+from app.application.use_cases import OrgSpend
 from app.domain.auth import User
 from app.domain.budget import BudgetStatus
 from app.domain.entities import (
@@ -388,6 +389,18 @@ class BudgetSchema(BaseModel):
 
 class SetBudgetLimitRequestSchema(BaseModel):
     limit_usd: float = Field(ge=0)
+
+
+class OrgSpendSchema(BaseModel):
+    """The organization's actual provider spend (real money, from the admin usage API) for
+    the current UTC day. Returned as null when no admin key is configured."""
+
+    spend_usd: float
+    since: datetime
+
+    @classmethod
+    def from_domain(cls, spend: "OrgSpend") -> "OrgSpendSchema":
+        return cls(spend_usd=spend.spend_usd, since=spend.since)
 
 
 class ApiProviderSchema(BaseModel):

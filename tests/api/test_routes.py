@@ -1202,6 +1202,54 @@ def test_match_offers_ai_returns_400_when_user_has_no_key_for_the_model():
     assert "openai" in response.json()["detail"]
 
 
+# --- GET /usage/org-spend ---
+
+
+def _org_spend_client(use_case) -> TestClient:
+    from app.presentation.api.routes import get_org_spend_use_case
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id="user-1", email="dev@example.com", password_hash="x"
+    )
+    app.dependency_overrides[get_org_spend_use_case] = lambda: use_case
+    return TestClient(app)
+
+
+def test_org_spend_returns_the_real_spend_when_available():
+    from datetime import datetime, timezone
+
+    from app.application.use_cases import GetOrgSpendUseCase
+    from app.application.ports import SpendProvider
+
+    class _Spend(SpendProvider):
+        def spend_since(self, start):
+            return 4.2
+
+    client = _org_spend_client(
+        GetOrgSpendUseCase(_Spend(), clock=lambda: datetime(2026, 6, 25, 12, tzinfo=timezone.utc))
+    )
+
+    response = client.get("/usage/org-spend")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["spend_usd"] == 4.2
+    assert body["since"].startswith("2026-06-25T00:00:00")
+
+
+def test_org_spend_returns_null_without_an_admin_key():
+    from app.application.use_cases import GetOrgSpendUseCase
+
+    client = _org_spend_client(GetOrgSpendUseCase(None))
+
+    response = client.get("/usage/org-spend")
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
 # --- GET /usage/summary ---
 
 

@@ -48,6 +48,14 @@ def test_validate_rejects_a_key_the_provider_returns_403_for():
         validator.validate("openai", "sk-bad")
 
 
+def test_validate_rejects_a_key_the_provider_returns_400_for():
+    # Gemini returns 400 ("Please pass a valid API key") for a bad key, not 401/403.
+    validator = _validator(lambda p, k: _StubProvider(error=_StatusError(400)))
+
+    with pytest.raises(InvalidApiKeyError):
+        validator.validate("google", "AIza-bad")
+
+
 def test_validate_does_not_swallow_a_transient_provider_error():
     # A 500 (or any non-auth failure) must not be misreported as an invalid key.
     validator = _validator(lambda p, k: _StubProvider(error=_StatusError(500)))
