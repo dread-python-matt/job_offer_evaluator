@@ -15,7 +15,7 @@
 }
 
 .filters {
-  @include m.filters-grid;
+  @include m.filters-layout;
 }
 
 .spin {
@@ -92,6 +92,7 @@
   display: flex;
   flex-direction: column;
   @include m.accent-card;
+  @include m.hover-lift;
 
   .mat-mdc-card-content {
     display: flex;

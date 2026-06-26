@@ -88,6 +88,90 @@
   }
 }
 
+// A grouped filter form: run-controls boxed into a tinted "scope" panel, the
+// offer filters in their own labeled group, action buttons on a full-width row.
+// Each group lays its controls out with `filters-grid`. Structure expected:
+//   form.filters
+//     .scope-panel  > .group-label + .scope-grid   (optional; omit if no scope)
+//     .filter-group > .group-label + .filter-grid
+//     .filters-actions > button…
+@mixin filters-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-5);
+
+  .scope-panel {
+    border-radius: var(--app-radius-md);
+    border: 1px solid var(--mat-sys-outline-variant);
+    background: var(--mat-sys-surface-container-low);
+    padding: var(--app-space-4);
+  }
+
+  .scope-panel,
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-3);
+  }
+
+  .group-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--mat-sys-on-surface-variant);
+
+    mat-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  .scope-grid,
+  .filter-grid {
+    @include filters-grid;
+  }
+
+  // The filter grid fills edge to edge; the scope grid usually holds only a few
+  // run-controls, so keep them compact and left-packed instead of ballooning.
+  .scope-grid {
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  }
+
+  .filters-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--app-space-2);
+
+    button mat-icon {
+      margin-right: 4px;
+    }
+  }
+}
+
+// A subtle interaction cue for list/result cards: lift + deepen shadow on hover.
+@mixin hover-lift {
+  transition:
+    box-shadow var(--app-duration) var(--app-ease),
+    transform var(--app-duration) var(--app-ease);
+
+  &:hover {
+    box-shadow: var(--app-shadow-2);
+    transform: translateY(-2px);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+    &:hover {
+      transform: none;
+    }
+  }
+}
+
 // A pill-shaped status badge. Pass the semantic color; background is a soft tint.
 @mixin status-badge($color) {
   display: inline-flex;

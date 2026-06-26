@@ -19,102 +19,112 @@
     </mat-card-header>
     <mat-card-content>
       <form [formGroup]="filters" (ngSubmit)="search()" class="filters">
-        <mat-form-field class="limit-field">
-          <mat-label>Offers limit</mat-label>
-          <input
-            matInput
-            type="number"
-            min="1"
-            formControlName="offersLimit"
-            aria-describedby="limit-hint"
-          />
-          <mat-hint id="limit-hint">Leave blank to scan all offers</mat-hint>
-          @if (filters.controls.offersLimit.invalid && filters.controls.offersLimit.touched) {
-            <mat-error>Must be at least 1</mat-error>
-          }
-        </mat-form-field>
+        <div class="scope-panel">
+          <span class="group-label"><mat-icon>tune</mat-icon> Search scope</span>
+          <div class="scope-grid">
+            <mat-form-field class="limit-field">
+              <mat-label>Offers limit</mat-label>
+              <input
+                matInput
+                type="number"
+                min="1"
+                formControlName="offersLimit"
+                aria-describedby="limit-hint"
+              />
+              <mat-hint id="limit-hint">Leave blank to scan all offers</mat-hint>
+              @if (filters.controls.offersLimit.invalid && filters.controls.offersLimit.touched) {
+                <mat-error>Must be at least 1</mat-error>
+              }
+            </mat-form-field>
 
-        <div class="filter-slider">
-          <label id="score-label">
-            Minimum score: {{ filters.controls.minScore.value | percent }}
-          </label>
-          <mat-slider min="0" max="1" step="0.05" discrete aria-labelledby="score-label">
-            <input matSliderThumb formControlName="minScore" />
-          </mat-slider>
+            <div class="filter-slider">
+              <label id="score-label">
+                Minimum score: {{ filters.controls.minScore.value | percent }}
+              </label>
+              <mat-slider min="0" max="1" step="0.05" discrete aria-labelledby="score-label">
+                <input matSliderThumb formControlName="minScore" />
+              </mat-slider>
+            </div>
+          </div>
         </div>
 
-        <mat-form-field class="location-field">
-          <mat-label>Location</mat-label>
-          <input
-            matInput
-            formControlName="location"
-            placeholder="e.g. Warsaw"
-            aria-describedby="location-hint"
-          />
-          <mat-hint id="location-hint">Leave blank for any location</mat-hint>
-        </mat-form-field>
+        <div class="filter-group">
+          <span class="group-label"><mat-icon>filter_alt</mat-icon> Filter by</span>
+          <div class="filter-grid">
+            <mat-form-field class="location-field">
+              <mat-label>Location</mat-label>
+              <input
+                matInput
+                formControlName="location"
+                placeholder="e.g. Warsaw"
+                aria-describedby="location-hint"
+              />
+              <mat-hint id="location-hint">Leave blank for any location</mat-hint>
+            </mat-form-field>
 
-        <mat-form-field class="salary-field">
-          <mat-label>Min salary</mat-label>
-          <input
-            matInput
-            type="number"
-            min="0"
-            formControlName="minSalary"
-            aria-describedby="salary-hint"
-          />
-          <span matTextSuffix>PLN/mo</span>
-          <mat-hint id="salary-hint">Leave blank for any salary</mat-hint>
-          @if (filters.controls.minSalary.invalid && filters.controls.minSalary.touched) {
-            <mat-error>Must be 0 or more</mat-error>
-          }
-        </mat-form-field>
+            <mat-form-field class="salary-field">
+              <mat-label>Min salary</mat-label>
+              <input
+                matInput
+                type="number"
+                min="0"
+                formControlName="minSalary"
+                aria-describedby="salary-hint"
+              />
+              <span matTextSuffix>PLN/mo</span>
+              <mat-hint id="salary-hint">Leave blank for any salary</mat-hint>
+              @if (filters.controls.minSalary.invalid && filters.controls.minSalary.touched) {
+                <mat-error>Must be 0 or more</mat-error>
+              }
+            </mat-form-field>
 
-        <mat-form-field class="level-field">
-          <mat-label>Level</mat-label>
-          <mat-select formControlName="level" multiple>
-            @for (level of levelOptions; track level) {
-              <mat-option [value]="level">{{ level }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
+            <mat-form-field class="level-field">
+              <mat-label>Level</mat-label>
+              <mat-select formControlName="level" multiple>
+                @for (level of levelOptions; track level) {
+                  <mat-option [value]="level">{{ level }}</mat-option>
+                }
+              </mat-select>
+            </mat-form-field>
 
-        <mat-form-field class="tech-field">
-          <mat-label>Tech stack</mat-label>
-          <mat-chip-grid #techChipGrid>
-            @for (tech of techFilter(); track tech) {
-              <mat-chip removable (removed)="removeTech(tech)">
-                {{ tech }}
-                <button matChipRemove [attr.aria-label]="'Remove ' + tech">
-                  <mat-icon>cancel</mat-icon>
-                </button>
-              </mat-chip>
-            }
-            <input
-              placeholder="e.g. Python"
-              [matChipInputFor]="techChipGrid"
-              [matChipInputSeparatorKeyCodes]="separatorKeyCodes"
-              (matChipInputTokenEnd)="addTech($event)"
-            />
-          </mat-chip-grid>
-          <mat-hint>Enter or comma to add</mat-hint>
-        </mat-form-field>
+            <mat-form-field class="tech-field">
+              <mat-label>Tech stack</mat-label>
+              <mat-chip-grid #techChipGrid>
+                @for (tech of techFilter(); track tech) {
+                  <mat-chip removable (removed)="removeTech(tech)">
+                    {{ tech }}
+                    <button matChipRemove [attr.aria-label]="'Remove ' + tech">
+                      <mat-icon>cancel</mat-icon>
+                    </button>
+                  </mat-chip>
+                }
+                <input
+                  placeholder="e.g. Python"
+                  [matChipInputFor]="techChipGrid"
+                  [matChipInputSeparatorKeyCodes]="separatorKeyCodes"
+                  (matChipInputTokenEnd)="addTech($event)"
+                />
+              </mat-chip-grid>
+              <mat-hint>Enter or comma to add</mat-hint>
+            </mat-form-field>
 
-        <mat-form-field class="sort-field">
-          <mat-label>Sort by</mat-label>
-          <mat-select formControlName="sort">
-            <mat-option value="score">Best match</mat-option>
-            <mat-option value="score-recent">Best match + most recent</mat-option>
-            <mat-option value="salary_max-desc">Net upper: high to low</mat-option>
-            <mat-option value="salary_max-asc">Net upper: low to high</mat-option>
-            <mat-option value="salary_mid-desc">Net midpoint: high to low</mat-option>
-            <mat-option value="salary_mid-asc">Net midpoint: low to high</mat-option>
-            <mat-option value="salary_min-desc">Net lower: high to low</mat-option>
-            <mat-option value="salary_min-asc">Net lower: low to high</mat-option>
-            <mat-option value="recent-desc">Most recent</mat-option>
-            <mat-option value="recent-asc">Oldest first</mat-option>
-          </mat-select>
-        </mat-form-field>
+            <mat-form-field class="sort-field">
+              <mat-label>Sort by</mat-label>
+              <mat-select formControlName="sort">
+                <mat-option value="score">Best match</mat-option>
+                <mat-option value="score-recent">Best match + most recent</mat-option>
+                <mat-option value="salary_max-desc">Net upper: high to low</mat-option>
+                <mat-option value="salary_max-asc">Net upper: low to high</mat-option>
+                <mat-option value="salary_mid-desc">Net midpoint: high to low</mat-option>
+                <mat-option value="salary_mid-asc">Net midpoint: low to high</mat-option>
+                <mat-option value="salary_min-desc">Net lower: high to low</mat-option>
+                <mat-option value="salary_min-asc">Net lower: low to high</mat-option>
+                <mat-option value="recent-desc">Most recent</mat-option>
+                <mat-option value="recent-asc">Oldest first</mat-option>
+              </mat-select>
+            </mat-form-field>
+          </div>
+        </div>
 
         <div class="filters-actions">
           <button
