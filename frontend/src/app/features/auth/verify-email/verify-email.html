@@ -1,0 +1,23 @@
+<div class="auth-page">
+  <mat-card class="auth-card">
+    <mat-card-header>
+      <mat-card-title>Confirming your email</mat-card-title>
+      <mat-card-subtitle>Job Offer Matcher</mat-card-subtitle>
+    </mat-card-header>
+
+    <mat-card-content>
+      @if (status() === 'verifying') {
+        <div class="verifying">
+          <mat-progress-spinner diameter="32" mode="indeterminate" />
+          <span>Confirming your email…</span>
+        </div>
+      } @else {
+        <p class="auth-error">{{ error() }}</p>
+      }
+    </mat-card-content>
+
+    <mat-card-actions class="auth-actions">
+      <span>Go to <a routerLink="/login">sign in</a>.</span>
+    </mat-card-actions>
+  </mat-card>
+</div>

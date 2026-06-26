@@ -103,6 +103,30 @@ def test_add_rejects_a_duplicate_provider():
         _add_use_case(repo, cipher).execute(_USER, "openai", "sk-two", 5.0)
 
 
+def test_add_signals_a_key_change_for_the_user_after_storing():
+    # Lets derived per-user state (e.g. the cached model picker) refresh immediately.
+    repo, cipher = InMemoryApiKeyRepository(), _cipher()
+    changed = []
+
+    AddApiKeyUseCase(
+        repo, cipher, _AcceptingValidator(), clock=lambda: _NOW, on_change=changed.append
+    ).execute(_USER, "openai", "sk-good", 5.0)
+
+    assert changed == [_USER]
+
+
+def test_add_does_not_signal_a_change_when_the_key_is_rejected():
+    repo, cipher = InMemoryApiKeyRepository(), _cipher()
+    changed = []
+
+    with pytest.raises(InvalidApiKeyError):
+        AddApiKeyUseCase(
+            repo, cipher, _RejectingValidator(), clock=lambda: _NOW, on_change=changed.append
+        ).execute(_USER, "openai", "sk-bad", 5.0)
+
+    assert changed == []
+
+
 # --- ListApiKeysUseCase ---
 
 def test_list_returns_each_key_with_derived_usage():
@@ -161,3 +185,24 @@ def test_delete_removes_the_key():
 def test_delete_a_missing_key_raises():
     with pytest.raises(ApiKeyNotFoundError):
         DeleteApiKeyUseCase(InMemoryApiKeyRepository()).execute(_USER, "openai")
+
+
+def test_delete_signals_a_key_change_for_the_user():
+    repo, cipher = InMemoryApiKeyRepository(), _cipher()
+    _add_use_case(repo, cipher).execute(_USER, "openai", "sk-openai-key-1234", 10.0)
+    changed = []
+
+    DeleteApiKeyUseCase(repo, on_change=changed.append).execute(_USER, "openai")
+
+    assert changed == [_USER]
+
+
+def test_delete_a_missing_key_does_not_signal_a_change():
+    changed = []
+
+    with pytest.raises(ApiKeyNotFoundError):
+        DeleteApiKeyUseCase(InMemoryApiKeyRepository(), on_change=changed.append).execute(
+            _USER, "openai"
+        )
+
+    assert changed == []

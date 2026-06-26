@@ -14,6 +14,13 @@ export interface RegisterRequest {
   confirm_password: string;
 }
 
+/** Returned by registration: the account exists but is unverified and a confirmation email
+ * has been sent. No session is issued until the emailed link is followed. */
+export interface RegistrationPending {
+  email: string;
+  message: string;
+}
+
 export interface ChangePasswordRequest {
   current_password: string;
   new_password: string;

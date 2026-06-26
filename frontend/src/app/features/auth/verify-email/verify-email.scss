@@ -12,25 +12,15 @@
   max-width: 400px;
 }
 
-.full-width {
-  width: 100%;
-}
-
-.submit-button {
-  margin-top: 8px;
+.verifying {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 12px;
+  font-size: 0.875rem;
 }
 
 .auth-error {
   color: var(--mat-sys-error, #b3261e);
-  margin: 0 0 12px;
-  font-size: 0.875rem;
-}
-
-.auth-success {
-  color: #2e7d32;
   margin: 0 0 12px;
   font-size: 0.875rem;
 }

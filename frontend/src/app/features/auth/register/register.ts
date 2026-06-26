@@ -6,7 +6,7 @@ import {
   ValidationErrors,
   Validators,
 } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { RouterLink } from '@angular/router';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -47,10 +47,10 @@ function passwordsMatch(group: AbstractControl): ValidationErrors | null {
 export class Register {
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
-  private readonly router = inject(Router);
 
   readonly minPasswordLength = MIN_PASSWORD_LENGTH;
   readonly submitting = signal(false);
+  readonly submitted = signal(false);
   readonly error = signal<string | null>(null);
 
   readonly form = this.fb.group(
@@ -80,7 +80,12 @@ export class Register {
     this.error.set(null);
     const { email, password, confirmPassword } = this.form.getRawValue();
     this.auth.register({ email, password, confirm_password: confirmPassword }).subscribe({
-      next: () => this.router.navigateByUrl('/profile'),
+      // Registration issues no session — the account is unverified until the emailed link is
+      // followed (see VerifyEmail). Show a "check your email" prompt rather than signing in.
+      next: () => {
+        this.submitting.set(false);
+        this.submitted.set(true);
+      },
       error: (err) => {
         this.submitting.set(false);
         this.error.set(

@@ -123,3 +123,38 @@ def test_caching_is_isolated_per_user():
     caching.list_models("u2")
 
     assert inner_calls == ["u1", "u2"]
+
+
+def test_invalidate_drops_a_users_cache_so_the_next_call_refetches():
+    # A user's keys can change (add/delete) within the TTL; invalidate lets the picker
+    # reflect the new key set immediately instead of waiting for the cache to expire.
+    inner_calls = {"u1": 0}
+
+    class _Inner:
+        def list_models(self, user_id):
+            inner_calls[user_id] += 1
+            return [AvailableModel("gpt-4o", "OpenAI")]
+
+    caching = CachingUserAvailableModelsProvider(_Inner(), ttl_seconds=300, clock=lambda: _NOW)
+
+    caching.list_models("u1")
+    caching.list_models("u1")
+    assert inner_calls["u1"] == 1  # served from cache
+
+    caching.invalidate("u1")
+    caching.list_models("u1")
+    assert inner_calls["u1"] == 2  # re-fetched after invalidation
+
+
+def test_invalidate_an_uncached_user_is_harmless():
+    caching = CachingUserAvailableModelsProvider(
+        KeyedUserAvailableModelsProvider(
+            InMemoryApiKeyRepository(),
+            FernetKeyCipher(Fernet.generate_key().decode()),
+            lambda p, k: _StubProvider(),
+        ),
+        ttl_seconds=300,
+        clock=lambda: _NOW,
+    )
+
+    caching.invalidate("never-cached")  # must not raise

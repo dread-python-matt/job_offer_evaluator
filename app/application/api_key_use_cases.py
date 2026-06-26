@@ -59,11 +59,13 @@ class AddApiKeyUseCase:
         cipher: KeyCipher,
         validator: ApiKeyValidator,
         clock: Callable[[], datetime] = _utc_now,
+        on_change: Callable[[str], None] = lambda _user_id: None,
     ) -> None:
         self._repository = repository
         self._cipher = cipher
         self._validator = validator
         self._clock = clock
+        self._on_change = on_change
 
     def execute(
         self, user_id: str, api_provider: str, key: str, limit_usd: float
@@ -84,6 +86,9 @@ class AddApiKeyUseCase:
             created_at=now,
         )
         self._repository.add(record)
+        # The user's available providers changed — let derived per-user state (e.g. the
+        # cached model picker) refresh instead of serving a stale list.
+        self._on_change(user_id)
         return ApiKeyView(
             api_provider=api_provider, key_hint=record.key_hint, limit_usd=limit_usd, used_usd=0.0
         )
@@ -126,9 +131,16 @@ class SetApiKeyBudgetUseCase:
 class DeleteApiKeyUseCase:
     """Removes a user's key for a provider. Raises if there was nothing to delete."""
 
-    def __init__(self, repository: ApiKeyRepository) -> None:
+    def __init__(
+        self,
+        repository: ApiKeyRepository,
+        on_change: Callable[[str], None] = lambda _user_id: None,
+    ) -> None:
         self._repository = repository
+        self._on_change = on_change
 
     def execute(self, user_id: str, api_provider: str) -> None:
         if not self._repository.delete(user_id, api_provider):
             raise ApiKeyNotFoundError(api_provider)
+        # The user's available providers changed — refresh derived per-user state.
+        self._on_change(user_id)

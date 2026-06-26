@@ -8,6 +8,7 @@ import {
   ChangePasswordRequest,
   Credentials,
   RegisterRequest,
+  RegistrationPending,
   ResetPasswordRequest,
 } from '../models/auth.model';
 
@@ -24,9 +25,17 @@ export class AuthService {
   // rotation instead of racing each other.
   private refresh$: Observable<AuthUser> | null = null;
 
-  register(payload: RegisterRequest): Observable<AuthUser> {
+  /** Create an account. The server returns 202 with no session — the account is unverified
+   * until the emailed confirmation link is followed — so this does not sign the user in. */
+  register(payload: RegisterRequest): Observable<RegistrationPending> {
+    return this.http.post<RegistrationPending>(`${this.baseUrl}/auth/register`, payload);
+  }
+
+  /** Confirm a newly-registered email from the emailed token. The server verifies the
+   * account and issues a session, so the user lands signed in. */
+  verifyEmail(token: string): Observable<AuthUser> {
     return this.http
-      .post<AuthUser>(`${this.baseUrl}/auth/register`, payload)
+      .post<AuthUser>(`${this.baseUrl}/auth/verify-email`, { token })
       .pipe(tap((user) => this._currentUser.set(user)));
   }
 

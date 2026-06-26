@@ -235,16 +235,25 @@ _api_key_validator = ModelListingApiKeyValidator(provider_factory=_models_provid
 _provider_spend_provider = TokenAccountingProviderSpendProvider(
     model_usage_repository, HardcodedModelPricingRegistry()
 )
-_add_api_key_use_case = AddApiKeyUseCase(_api_key_repository, _key_cipher, _api_key_validator)
 _list_api_keys_use_case = ListApiKeysUseCase(_api_key_repository, _provider_spend_provider)
 _set_api_key_budget_use_case = SetApiKeyBudgetUseCase(_api_key_repository, _provider_spend_provider)
-_delete_api_key_use_case = DeleteApiKeyUseCase(_api_key_repository)
 # Scoring resolves the calling user's own key on demand (require own key — no env fallback).
 _api_key_resolver = UserApiKeyResolver(_api_key_repository, _key_cipher)
 # The model picker is per-user: discovered from the user's own keys, cached per user.
 _user_available_models_provider = CachingUserAvailableModelsProvider(
     KeyedUserAvailableModelsProvider(_api_key_repository, _key_cipher, _models_provider_for_key),
     ttl_seconds=MODELS_CACHE_TTL_SECONDS,
+)
+# Adding/removing a key changes which providers the user can pick, so both invalidate that
+# user's cached model picker — otherwise a freshly added provider stays hidden until the TTL.
+_add_api_key_use_case = AddApiKeyUseCase(
+    _api_key_repository,
+    _key_cipher,
+    _api_key_validator,
+    on_change=_user_available_models_provider.invalidate,
+)
+_delete_api_key_use_case = DeleteApiKeyUseCase(
+    _api_key_repository, on_change=_user_available_models_provider.invalidate
 )
 # AI matches are gated by the model's own provider key budget (per-key spend vs that key's
 # limit) plus a global org-spend backstop that protects the owner's actual provider bill

@@ -72,3 +72,9 @@ class CachingUserAvailableModelsProvider(UserAvailableModelsProvider):
         models = self._inner.list_models(user_id)
         self._cache[user_id] = (models, self._clock())
         return models
+
+    def invalidate(self, user_id: str) -> None:
+        """Drop this user's cached list so the next call re-discovers their models. Called
+        when their keys change (add/delete) so the picker reflects the new set at once
+        instead of waiting out the TTL."""
+        self._cache.pop(user_id, None)
