@@ -27,6 +27,28 @@ def test_sums_spend_across_all_buckets():
         assert provider.spend_since(START) == 2.50
 
 
+def test_requests_daily_buckets():
+    with patch("app.infrastructure.openai_spend_provider.OpenAI") as mock_cls:
+        costs = mock_cls.return_value.admin.organization.usage.costs
+        costs.return_value = SimpleNamespace(data=[])
+        OpenAISpendProvider(api_key="test-key").spend_since(START)
+
+    assert costs.call_args.kwargs["bucket_width"] == "1d"
+
+
+def test_paginates_until_no_more_pages():
+    page1 = SimpleNamespace(data=[_bucket([1.50])], has_more=True, next_page="cursor-2")
+    page2 = SimpleNamespace(data=[_bucket([0.25])], has_more=False, next_page=None)
+    with patch("app.infrastructure.openai_spend_provider.OpenAI") as mock_cls:
+        costs = mock_cls.return_value.admin.organization.usage.costs
+        costs.side_effect = [page1, page2]
+        provider = OpenAISpendProvider(api_key="test-key")
+
+        assert provider.spend_since(START) == 1.75
+
+    assert costs.call_args_list[1].kwargs["page"] == "cursor-2"
+
+
 def test_returns_zero_when_no_usage():
     with patch("app.infrastructure.openai_spend_provider.OpenAI") as mock_cls:
         mock_cls.return_value.admin.organization.usage.costs.return_value = SimpleNamespace(data=[])

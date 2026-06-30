@@ -13,6 +13,14 @@ DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "10"))
 # Deployment environment. "production" turns on fail-fast config validation (see
 # app/config_validation.py): the app refuses to boot with insecure defaults.
 APP_ENV = os.environ.get("APP_ENV", "development").strip().lower()
+# --- Logging / observability ---
+# Root log level (standard names: DEBUG, INFO, WARNING, ERROR, CRITICAL). Keep at INFO/WARNING
+# in production; drop to DEBUG only for temporary troubleshooting.
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+# Log output format: "json" (one structured object per line, for log aggregators like Loki /
+# ELK / Datadog) or "console" (human-readable, for local dev). Defaults to JSON in production
+# and console elsewhere; override explicitly with LOG_FORMAT.
+LOG_FORMAT = os.environ.get("LOG_FORMAT", "json" if APP_ENV == "production" else "console").strip().lower()
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "gemini")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -54,9 +62,11 @@ CORS_ORIGINS = [
 # Defaults low to stay within free-tier provider limits (e.g. Gemini free tier allows
 # only ~5-10 requests/minute); raise it via the env var on a paid tier with higher RPM.
 AI_MATCH_CONCURRENCY = int(os.environ.get("AI_MATCH_CONCURRENCY", "3"))
-# Client-side pacing (requests/minute) for Google/Gemini scoring calls, to stay under the
-# free-tier per-minute cap (Gemini 2.5 Flash = 10 RPM, Flash-Lite = 30). Applied per user
-# (each brings their own key/project). 0 disables pacing. OpenAI calls are not paced.
+# Client-side pacing for Google/Gemini calls, to stay under the free-tier per-minute cap.
+# Each known model is paced to its own RPM (gemini-2.5-pro=5, 2.5-flash=10, flash-lite=30,
+# 1.5-pro=2; from the model-limits registry); this value is the fallback RPM for a model the
+# registry doesn't know, and the kill-switch — 0 disables Google pacing entirely. Applied per
+# (user, model), since the cap is per project+model. OpenAI calls are not paced.
 GOOGLE_RPM_LIMIT = int(os.environ.get("GOOGLE_RPM_LIMIT", "10"))
 
 # --- Authentication ---

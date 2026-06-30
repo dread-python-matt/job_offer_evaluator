@@ -259,6 +259,42 @@ def test_usage_tracker_records_scoring_call_with_token_counts():
     assert scoring_record.output_tokens == 80
 
 
+def test_usage_tracker_records_cached_input_tokens_when_reported():
+    def run(agent, prompt):
+        return SimpleNamespace(
+            final_output=AgentScore(rate=4, pros=[], cons=[], rate_reason="ok"),
+            context_wrapper=SimpleNamespace(
+                usage=SimpleNamespace(
+                    input_tokens=200,
+                    output_tokens=80,
+                    input_tokens_details=SimpleNamespace(cached_tokens=120),
+                )
+            ),
+        )
+
+    tracker = FakeModelUsageTracker()
+    strategy = LLMScoringStrategy(agent=object(), model="gpt-4o", run=run, usage_tracker=tracker)
+
+    strategy.score(_candidate(), _offer())
+
+    scoring_record = next(r for r in tracker.recorded if r.label == "scoring")
+    assert scoring_record.input_tokens == 200
+    assert scoring_record.cached_input_tokens == 120
+
+
+def test_usage_tracker_defaults_cached_input_to_zero_when_not_reported():
+    # The fake usage object (and providers like Gemini) may not carry input_tokens_details —
+    # cached tokens must default to 0 rather than raising.
+    run, _ = _fake_run_with_usage(rate=4, input_tokens=200, output_tokens=80)
+    tracker = FakeModelUsageTracker()
+    strategy = LLMScoringStrategy(agent=object(), model="gpt-4o", run=run, usage_tracker=tracker)
+
+    strategy.score(_candidate(), _offer())
+
+    scoring_record = next(r for r in tracker.recorded if r.label == "scoring")
+    assert scoring_record.cached_input_tokens == 0
+
+
 def test_usage_tracker_records_model_and_company_for_gemini():
     run, _ = _fake_run_with_usage(rate=4, input_tokens=100, output_tokens=50)
     tracker = FakeModelUsageTracker()

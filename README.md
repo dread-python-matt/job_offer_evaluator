@@ -84,6 +84,7 @@ that knows every concrete type.
 ```
 app/
 ├── config.py                 # Reads env (.env) into module constants — see Configuration
+├── observability/            # Cross-cutting: structured logging setup + request-id contextvar
 │
 ├── domain/                   # Pure: entities, value objects, ports, algorithms (no frameworks)
 │   ├── entities.py           #   Skill, Project, Experience, UserProfile, Offer, Salary
@@ -129,6 +130,8 @@ app/
     ├── routes.py             #   App router (profile, offers, match, salary, config/model, usage)
     ├── auth.py               #   public_router + private_router, get_current_user/verify_csrf guards, cookies
     ├── schemas.py            #   ALL Pydantic request/response models (the wire contract)
+    ├── request_logging.py    #   ASGI middleware: per-request correlation id + structured access log
+    ├── security_headers.py   #   ASGI middleware: defense-in-depth response headers
     └── error_handlers.py     #   Catch-all → generic 500 (never leak internals)
 ```
 
@@ -208,7 +211,14 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send r
 - **Pipeline.** For an AI match: fetch candidates (filters pushed into SQL) → apply the
   `FilterChain` → rank with `SkillBasedScorer` → send the top `offers_to_score` to the LLM →
   (optionally) translate the offer description to English → score → cache the result
-  (content-addressed by model+candidate+offer) → record token usage.
+  (content-addressed by model+candidate+offer) → record token usage. Note each scored offer is
+  **two** model calls when translation runs (translate + score), so a match issues up to
+  `2 × offers_to_score` requests.
+- **Rate limiting (Gemini).** Google's free tier is RPM/RPD-capped **per project + model**, so a
+  burst of scoring calls easily trips `429`. Google calls are paced client-side to the selected
+  model's real RPM (from the model-limits registry; `GOOGLE_RPM_LIMIT` is the fallback/kill-switch)
+  with no initial over-burst, and the scorer honors a `429`/`503` `Retry-After`. OpenAI is not
+  paced. A daily-RPD exhaustion still surfaces as `429` until it resets (midnight Pacific).
 - **Budgets (per user, best-effort).** Before scoring, the AI match checks a budget gate
   (`CompositeBudgetStatusReader`) that combines:
   1. the user's **token-accounting budget** — their recorded usage priced by
@@ -317,15 +327,46 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 | `HOST` / `PORT` | `127.0.0.1` / `8000` | Bind address (use `0.0.0.0` in containers) |
 | `WORKERS` | `1` | Uvicorn worker processes. DB-backed state (profiles, models, usage, refresh tokens) is shared, but the **in-memory login/forgot throttle and the model/use-case caches are per-process**: for `>1`, set `RATE_LIMITER_BACKEND=redis` so login throttling stays correct across workers (the app logs a startup warning otherwise) |
 | `DEFAULT_BUDGET_USD` | `5.0` | Seeds a user's budget limit on first use + the org backstop limit |
-| `AI_MATCH_CONCURRENCY` | `10` | Max offers scored by the LLM in parallel per request |
+| `AI_MATCH_CONCURRENCY` | `3` | Max offers scored by the LLM in parallel per request (low by default to respect free-tier provider limits) |
+| `GOOGLE_RPM_LIMIT` | `10` | Client-side pacing for Google/Gemini calls. Known models are paced to their own free-tier RPM (from the model-limits registry); this is the fallback RPM for unknown models and the kill-switch (`0` disables Google pacing). OpenAI is never paced |
 | `LLM_TIMEOUT_SECONDS` | `60.0` | Timeout for outbound LLM/provider calls |
 | `BUDGET_SPEND_CACHE_TTL_SECONDS` | `60.0` | Cache TTL for the per-user spend figure |
 | `BUDGET_FAIL_CLOSED` | `false` | If `true`, block AI match when spend can't be read |
 | `MODELS_CACHE_TTL_SECONDS` | `300.0` | Cache TTL for the available-models list |
-| `LLM_DEBUG` | `false` | Verbose LLM request/response logging |
+| `LOG_LEVEL` | `INFO` | Root log level: `DEBUG` / `INFO` / `WARNING` / `ERROR` / `CRITICAL` |
+| `LOG_FORMAT` | `json` (prod) / `console` (dev) | `json` = one structured object per line for log aggregators; `console` = human-readable. Default depends on `APP_ENV` |
+| `LLM_DEBUG` | `false` | Verbose LLM request/response logging (raises `httpx`/`httpcore`/`openai` to DEBUG; logs full prompts/PII — never enable in production) |
 
 Postgres credentials (`POSTGRES_USER/PASSWORD/DB/HOST/PORT`) are also read by
 `docker-compose.yml` and typically composed into `DATABASE_URL`.
+
+---
+
+## Logging & observability
+
+Logs are **structured and written to stdout** (12-factor: the platform ships them — the
+`Dockerfile` / compose already capture stdout). Setup is centralized in
+`app/observability/logging_config.py` and wired once from `main.py`, so every module that already
+does `logging.getLogger(__name__)` is upgraded with no call-site changes and **no new dependency**
+(stdlib `logging` + a JSON formatter).
+
+- **Format / level.** `LOG_FORMAT=json` (default in production) emits one JSON object per line for
+  aggregators (Loki / ELK / Datadog / CloudWatch); `LOG_FORMAT=console` (default in dev) is
+  human-readable. `LOG_LEVEL` sets the root level.
+- **Correlation id.** Each request adopts an inbound `X-Request-ID` header or mints a UUID, binds
+  it in a `contextvar` (so it follows `await` hops and the AI match's concurrent scoring tasks),
+  and echoes it in the `X-Request-ID` response header. **Every** log line emitted while handling
+  the request carries it as `request_id`, so a request's app logs and its access log can be queried
+  together (`app/observability/request_context.py`).
+- **Access log.** `RequestLoggingMiddleware` (outermost middleware) logs one line per request:
+  method, path (query string omitted, so tokens never land in logs), status, and `duration_ms`.
+  `/health` is logged at DEBUG (orchestration probes hit it constantly); failures / 5xx at ERROR.
+- **Unified server + app.** `uvicorn.run(..., log_config=None, access_log=False)` lets uvicorn's
+  own loggers propagate into the same handler (one format for server + app) while the middleware
+  owns the richer access log.
+- **Adding fields.** Attach structured context with `extra={...}`
+  (e.g. `log.info("scored offer", extra={"offer_id": 7})`) — it becomes JSON keys. Never log
+  secrets, credentials, request bodies, or PII.
 
 ---
 

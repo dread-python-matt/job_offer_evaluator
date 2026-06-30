@@ -27,6 +27,45 @@
       "Bash(uv run --directory * pyright *)",
 
 
+      "Bash(npx --prefix frontend prettier *)",
+      "Bash(npx --prefix frontend prettier --check *)",
+      "Bash(npx --prefix frontend prettier --write *)",
+
+      "Bash(npx --prefix frontend tsc *)",
+      "Bash(npx --prefix frontend ng *)",
+
+      "Bash(npm --prefix frontend run lint)",
+      "Bash(npm --prefix frontend run lint *)",
+      "Bash(npm --prefix frontend run format)",
+      "Bash(npm --prefix frontend run format *)",
+      "Bash(npm --prefix frontend run format:check)",
+      "Bash(npm --prefix frontend run format:check *)",
+
+
+      "Bash(npx prettier --check *)",
+      "Bash(npx prettier --write *)",
+
+      "PowerShell(npx --prefix frontend prettier *)",
+      "PowerShell(npx --prefix frontend prettier --check *)",
+      "PowerShell(npx --prefix frontend prettier --write *)",
+
+      "PowerShell(npx --prefix frontend tsc *)",
+      "PowerShell(npx --prefix frontend ng *)",
+
+      "PowerShell(npm --prefix frontend run build)",
+      "PowerShell(npm --prefix frontend run build *)",
+      "PowerShell(npm --prefix frontend test)",
+      "PowerShell(npm --prefix frontend test *)",
+      "PowerShell(npm --prefix frontend run test)",
+      "PowerShell(npm --prefix frontend run test *)",
+      "PowerShell(npm --prefix frontend run lint)",
+      "PowerShell(npm --prefix frontend run lint *)",
+      "PowerShell(npm --prefix frontend run format)",
+      "PowerShell(npm --prefix frontend run format *)",
+      "PowerShell(npm --prefix frontend run format:check)",
+      "PowerShell(npm --prefix frontend run format:check *)",
+
+
 
       "Bash(git diff)",
       "Bash(git diff *)",

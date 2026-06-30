@@ -59,6 +59,8 @@ from app.config import (
     LLM_DEBUG,
     LLM_PROVIDER,
     LLM_TIMEOUT_SECONDS,
+    LOG_FORMAT,
+    LOG_LEVEL,
     LOGIN_RATE_LIMIT_ATTEMPTS,
     LOGIN_RATE_LIMIT_WINDOW_MINUTES,
     MODELS_CACHE_TTL_SECONDS,
@@ -83,7 +85,7 @@ from app.domain.errors import MissingProviderApiKeyError
 from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
 from app.infrastructure.llm_utils import company_from_model
-from app.infrastructure.rate_limiting import AsyncRateLimiter, TokenBucketRateLimiter
+from app.infrastructure.rate_limiting import AsyncRateLimiter, build_google_pace_limiter
 from app.infrastructure.composite_budget_status_reader import CompositeBudgetStatusReader
 from app.infrastructure.db import build_engine
 from app.application.ports import RateLimiter
@@ -137,6 +139,7 @@ from app.infrastructure.jwt_verification_token_service import JwtVerificationTok
 from app.infrastructure.smtp_email_sender import SmtpEmailSender
 from app.infrastructure.scoring_strategies import SkillBasedScorer
 from app.infrastructure.translation_agents import build_polish_to_english_agent
+from app.observability.logging_config import configure_logging
 from app.presentation.api.routes import (
     get_add_api_key_use_case,
     get_ai_scoring_context,
@@ -158,6 +161,7 @@ from app.presentation.api.routes import (
 )
 from app.presentation.api.error_handlers import register_exception_handlers
 from app.presentation.api.security_headers import SecurityHeadersMiddleware
+from app.presentation.api.request_logging import RequestLoggingMiddleware
 from app.presentation.api.auth import (
     CookieSettings,
     get_authenticate_use_case,
@@ -177,8 +181,10 @@ from app.presentation.api.auth import (
     verify_csrf,
 )
 
-if not logging.getLogger().handlers:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+# Structured logging is configured first — before anything below logs and before any request —
+# so config validation, LLM-debug wiring, and every access line emit through the one stdout
+# handler in the chosen format. See README "Logging" and app/observability/logging_config.py.
+configure_logging(level=LOG_LEVEL, fmt=LOG_FORMAT)
 _logger = logging.getLogger(__name__)
 
 configure_llm_logging(LLM_DEBUG)
@@ -401,20 +407,26 @@ def _provider_for_model(model: str) -> str:
     return provider
 
 
-# One Google rate limiter per user: Gemini free-tier limits are per project (the user's own
-# key), so each user paces independently. Shared across that user's cached scorers so two
-# Google models don't each get a full RPM budget against the one project quota.
-_google_rate_limiters: dict[str, AsyncRateLimiter] = {}
+# One Google rate limiter per (user, model): Gemini free-tier RPM is capped per project AND
+# per model (each model has its own bucket), and each user brings their own key/project — so
+# each (user, model) paces independently, sized to that model's real RPM (a flat rate would
+# over-pace the slow models, e.g. 2.5-pro=5 / 1.5-pro=2 RPM, straight into 429s).
+_model_limits_registry = HardcodedModelLimitsRegistry()
+_google_rate_limiters: dict[tuple[str, str], AsyncRateLimiter] = {}
 
 
-def _google_rate_limiter_for(user_id: str) -> AsyncRateLimiter | None:
-    """The user's Google pacing limiter, or None when pacing is disabled (GOOGLE_RPM_LIMIT=0).
-    OpenAI scoring is never paced — only Google's stricter free tier needs it."""
+def _google_rate_limiter_for(user_id: str, model: str) -> AsyncRateLimiter | None:
+    """The user's Google pacing limiter for `model`, sized to that model's real free-tier RPM,
+    or None when pacing is disabled (GOOGLE_RPM_LIMIT=0). OpenAI scoring is never paced — only
+    Google's stricter free tier needs it."""
     if GOOGLE_RPM_LIMIT <= 0:
         return None
-    if user_id not in _google_rate_limiters:
-        _google_rate_limiters[user_id] = TokenBucketRateLimiter(GOOGLE_RPM_LIMIT)
-    return _google_rate_limiters[user_id]
+    cache_key = (user_id, model)
+    if cache_key not in _google_rate_limiters:
+        limiter = build_google_pace_limiter(model, _model_limits_registry, GOOGLE_RPM_LIMIT)
+        assert limiter is not None  # GOOGLE_RPM_LIMIT > 0 here, so pacing is enabled
+        _google_rate_limiters[cache_key] = limiter
+    return _google_rate_limiters[cache_key]
 
 
 def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
@@ -425,7 +437,8 @@ def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
         chat_model = build_chat_model_with_key(model, api_key=key, timeout=LLM_TIMEOUT_SECONDS)
         budget_gate = _build_budget_gate(provider)
         if company_from_model(model) == "Google":
-            rate_limiter = _google_rate_limiter_for(user_id)  # pace under the free-tier RPM cap
+            # pace under this model's free-tier RPM cap
+            rate_limiter = _google_rate_limiter_for(user_id, model)
     else:
         chat_model = None
         budget_gate = _build_budget_gate(None)
@@ -471,7 +484,7 @@ def _ai_use_case_for_request(user: User = Depends(get_current_user)) -> MatchOff
 
 calculate_salary_use_case = CalculateNetSalaryUseCase(SalaryCalculator())
 get_model_usage_summary_use_case_instance = GetModelUsageSummaryUseCase(
-    model_usage_repository, HardcodedModelLimitsRegistry()
+    model_usage_repository, _model_limits_registry
 )
 
 app = FastAPI(title="Job Offer Matcher")
@@ -484,6 +497,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Outermost middleware: bind a correlation id to every request and emit one structured access
+# line, timing the whole stack (CORS + security headers included). Added last so it wraps them.
+app.add_middleware(RequestLoggingMiddleware)
 # Public endpoints (health, register, login) carry no auth guard. Everything else —
 # the app's API plus the authenticated auth endpoints (logout, me) — is gated by a
 # valid session cookie and (for unsafe methods) a matching CSRF token.
@@ -524,11 +540,22 @@ app.dependency_overrides[get_delete_api_key_use_case] = lambda: _delete_api_key_
 def main() -> None:
     import uvicorn
 
+    # log_config=None: keep uvicorn from installing its own logging — configure_logging() owns
+    # the root handler and uvicorn's loggers propagate into it, so server and app logs share
+    # one JSON format. access_log=False: RequestLoggingMiddleware emits richer access lines
+    # (correlation id + duration), so uvicorn's plain access log would only duplicate them.
     if WORKERS > 1:
         # Multiple workers require an import string so uvicorn can spawn processes.
-        uvicorn.run("main:app", host=HOST, port=PORT, workers=WORKERS)
+        uvicorn.run(
+            "main:app",
+            host=HOST,
+            port=PORT,
+            workers=WORKERS,
+            log_config=None,
+            access_log=False,
+        )
     else:
-        uvicorn.run(app, host=HOST, port=PORT)
+        uvicorn.run(app, host=HOST, port=PORT, log_config=None, access_log=False)
 
 
 if __name__ == "__main__":

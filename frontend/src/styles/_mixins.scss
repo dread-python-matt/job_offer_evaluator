@@ -153,6 +153,108 @@
   }
 }
 
+// The auth screens (sign in / register / the password flows): one focused card
+// centered on a soft branded backdrop. This was copy-pasted verbatim across five
+// components; it now lives here once. The key fix over the old version is real
+// vertical rhythm between stacked form fields — they used to butt together with
+// only Material's thin subscript between them, which read as cramped.
+@mixin auth-layout {
+  .auth-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: var(--app-space-5);
+    box-sizing: border-box;
+    // A faint wash of brand color from the top so the card reads as a lifted,
+    // focused surface rather than floating on a flat background.
+    background:
+      radial-gradient(
+        1100px 520px at 50% -15%,
+        color-mix(in srgb, var(--mat-sys-primary) 14%, transparent),
+        transparent 70%
+      ),
+      var(--mat-sys-surface-container-low);
+  }
+
+  .auth-card {
+    width: 100%;
+    max-width: 420px;
+    border-radius: var(--app-radius-lg);
+    box-shadow: var(--app-shadow-2);
+  }
+
+  // Centered header with the brand name as a small uppercase eyebrow above the
+  // page title, and breathing room before the form.
+  mat-card-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: var(--app-space-5);
+  }
+
+  mat-card-title {
+    font: var(--mat-sys-headline-small);
+    font-weight: 600;
+  }
+
+  mat-card-subtitle {
+    margin-top: var(--app-space-1);
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--mat-sys-primary);
+  }
+
+  // The core fix: stacked fields share one consistent gap instead of touching.
+  form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-2);
+  }
+
+  .full-width {
+    width: 100%;
+  }
+
+  .submit-button {
+    margin-top: var(--app-space-3);
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  // Error / success live as flex children, so the surrounding gap spaces them —
+  // no bespoke bottom margin needed.
+  .auth-error {
+    margin: 0;
+    color: var(--mat-sys-error);
+    font-size: 0.875rem;
+  }
+
+  .auth-success {
+    margin: 0;
+    color: var(--app-success);
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  // A quiet divided footer for the secondary links.
+  .auth-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--app-space-1);
+    margin-top: var(--app-space-5);
+    padding-top: var(--app-space-4);
+    border-top: 1px solid var(--mat-sys-outline-variant);
+    font-size: 0.875rem;
+  }
+}
+
 // A subtle interaction cue for list/result cards: lift + deepen shadow on hover.
 @mixin hover-lift {
   transition:

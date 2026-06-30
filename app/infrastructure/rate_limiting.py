@@ -63,3 +63,43 @@ class TokenBucketRateLimiter:
         elapsed = now - self._updated_at
         self._updated_at = now
         self._tokens = min(self._capacity, self._tokens + elapsed * self._refill_per_second)
+
+
+# Pace slightly under the provider's cap so a boundary tick or clock jitter can't trip it.
+_RPM_SAFETY_MARGIN = 0.9
+
+
+def effective_google_rpm(
+    model: str,
+    limits_registry: ModelLimitsRegistry,
+    configured_rpm: int,
+) -> int | None:
+    """Requests-per-minute a Google/Gemini model should be paced at, or None when pacing is
+    disabled (`configured_rpm <= 0`).
+
+    Gemini free-tier RPM is per (project, model) and varies widely — gemini-1.5-pro is 2 RPM,
+    gemini-2.5-pro 5, gemini-2.5-flash 10, flash-lite 30 — so one flat rate over-paces the slow
+    models straight into 429s. The per-model cap comes from `limits_registry`; an unknown model
+    falls back to `configured_rpm` (the GOOGLE_RPM_LIMIT knob, which also disables pacing at 0).
+    A ~10% safety margin absorbs boundary effects against the provider's hard cap."""
+    if configured_rpm <= 0:
+        return None
+    limits = limits_registry.get_limits(model)
+    rpm = limits.rpm if limits is not None else configured_rpm
+    return max(1, int(rpm * _RPM_SAFETY_MARGIN))
+
+
+def build_google_pace_limiter(
+    model: str,
+    limits_registry: ModelLimitsRegistry,
+    configured_rpm: int,
+) -> AsyncRateLimiter | None:
+    """Client-side pacer for a Google/Gemini model, sized to that model's real free-tier RPM
+    (see `effective_google_rpm`) so a burst of scoring/translation calls can't trip a 429.
+    Returns None when pacing is disabled. Built with `max_burst=1` so calls stay evenly spaced
+    and the per-minute cap holds from the first call (a full-capacity bucket would otherwise let
+    ~2x the cap through in the first 60s)."""
+    rpm = effective_google_rpm(model, limits_registry, configured_rpm)
+    if rpm is None:
+        return None
+    return TokenBucketRateLimiter(rpm, max_burst=1)

@@ -37,11 +37,17 @@ class _Pricing(ModelPricingRegistry):
 
 
 _PRICING = _Pricing(
-    {"gpt-4o": ModelPrice(input_per_million=2.50, output_per_million=10.0)}
+    {
+        "gpt-4o": ModelPrice(
+            input_per_million=2.50, output_per_million=10.0, cached_input_per_million=1.25
+        )
+    }
 )
 
 
-def _usage(model: str, input_tokens: int, output_tokens: int) -> ModelUsage:
+def _usage(
+    model: str, input_tokens: int, output_tokens: int, cached_input_tokens: int = 0
+) -> ModelUsage:
     return ModelUsage(
         label="scoring",
         input_tokens=input_tokens,
@@ -49,6 +55,7 @@ def _usage(model: str, input_tokens: int, output_tokens: int) -> ModelUsage:
         model=model,
         company="OpenAI",
         user_id="u1",
+        cached_input_tokens=cached_input_tokens,
     )
 
 
@@ -60,6 +67,19 @@ def test_save_snapshots_the_priced_cost_onto_the_row():
 
     # 1M input * $2.50 + 0.5M output * $10.00 = 2.50 + 5.00
     assert inner.saved[0].cost_usd == 7.50
+
+
+def test_save_prices_cached_input_tokens_at_the_cached_rate():
+    inner = _RecordingRepo()
+    repo = PricingModelUsageRepository(inner, _PRICING)
+
+    # 1M input, 0.5M of it cached, no output:
+    # 0.5M @ $2.50 (normal) + 0.5M @ $1.25 (cached) = 1.25 + 0.625
+    repo.save(
+        _usage("gpt-4o", input_tokens=1_000_000, output_tokens=0, cached_input_tokens=500_000)
+    )
+
+    assert inner.saved[0].cost_usd == 1.875
 
 
 def test_save_preserves_every_other_field():

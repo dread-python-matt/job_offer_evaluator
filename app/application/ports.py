@@ -50,6 +50,10 @@ class ModelUsage:
     # True when the provider didn't report usage and the counts were estimated from text
     # length (so spend isn't undercounted); kept distinguishable from measured usage.
     estimated: bool = False
+    # Subset of `input_tokens` served from the provider's prompt cache, billed at a lower
+    # rate (OpenAI). Used only to price the row more accurately at write time — `input_tokens`
+    # still holds the full count. 0 when the provider reports no cache hits (e.g. Gemini).
+    cached_input_tokens: int = 0
     # USD cost of these tokens, priced once at write time and frozen onto the row, so spend
     # reads sum a stored number and a later price change never rewrites historical spend.
     cost_usd: float = 0.0
@@ -129,10 +133,15 @@ class ModelLimitsRegistry(ABC):
 
 @dataclass(frozen=True)
 class ModelPrice:
-    """USD price per 1,000,000 tokens, split by input vs output."""
+    """USD price per 1,000,000 tokens, split by input vs output.
+
+    `cached_input_per_million` is the (lower) rate for input tokens served from the
+    provider's prompt cache; `None` means no cached rate is known, so cached tokens are
+    priced at the normal input rate (never an underestimate)."""
 
     input_per_million: float
     output_per_million: float
+    cached_input_per_million: float | None = None
 
 
 class ModelPricingRegistry(ABC):

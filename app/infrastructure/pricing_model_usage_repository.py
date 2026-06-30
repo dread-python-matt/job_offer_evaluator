@@ -22,7 +22,12 @@ class PricingModelUsageRepository(ModelUsageRepository):
         self._pricer = UsagePricer(pricing)
 
     def save(self, usage: ModelUsage) -> None:
-        cost = self._pricer.cost_of(usage.model, usage.input_tokens, usage.output_tokens)
+        cost = self._pricer.cost_of(
+            usage.model,
+            usage.input_tokens,
+            usage.output_tokens,
+            cached_input_tokens=usage.cached_input_tokens,
+        )
         self._inner.save(replace(usage, cost_usd=cost))
 
     def get_summary(self, user_id: str) -> list[ModelUsageSummary]:

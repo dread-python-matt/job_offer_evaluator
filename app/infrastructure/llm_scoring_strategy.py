@@ -205,12 +205,14 @@ class LLMScoringStrategy(OfferScorer):
         if not self._usage_tracker:
             return
         sdk_usage = result.context_wrapper.usage
+        cached_input_tokens = 0
         if sdk_usage is not None:
             input_tokens, output_tokens, estimated = (
                 sdk_usage.input_tokens,
                 sdk_usage.output_tokens,
                 False,
             )
+            cached_input_tokens = self._cached_input_tokens(sdk_usage)
         else:
             # The provider didn't report usage — estimate from the prompt + output so the
             # call isn't silently dropped (which would undercount spend). Flagged estimated.
@@ -225,8 +227,18 @@ class LLMScoringStrategy(OfferScorer):
                 model=self._model,
                 company=company_from_model(self._model),
                 estimated=estimated,
+                cached_input_tokens=cached_input_tokens,
             )
         )
+
+    @staticmethod
+    def _cached_input_tokens(sdk_usage: Any) -> int:
+        """Prompt-cache hits reported by the provider (a subset of input tokens, billed
+        cheaper by OpenAI). Defaults to 0 when the provider omits the detail (e.g. Gemini)
+        so cached pricing only ever lowers, never inflates, the recorded cost."""
+        details = getattr(sdk_usage, "input_tokens_details", None)
+        cached = getattr(details, "cached_tokens", 0) if details is not None else 0
+        return cached or 0
 
     @staticmethod
     def _output_text(output: Any) -> str:

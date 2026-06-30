@@ -18,12 +18,28 @@ class OpenAISpendProvider(SpendProvider):
 
     def spend_since(self, start: datetime) -> float:
         client = OpenAI(api_key=self._api_key, timeout=self._timeout)
+        start_time = int(start.timestamp())
+        total = 0.0
+        page: str | None = None
         try:
-            response = client.admin.organization.usage.costs(start_time=int(start.timestamp()))
+            # The costs endpoint only supports daily buckets. A single day is usually one
+            # bucket on one page, but follow `next_page` until exhausted so a multi-page
+            # result (e.g. grouped line items) is never silently truncated.
+            while True:
+                extra = {"page": page} if page else {}
+                response = client.admin.organization.usage.costs(
+                    start_time=start_time, bucket_width="1d", **extra
+                )
+                total += sum(
+                    result.amount.value
+                    for bucket in response.data
+                    for result in bucket.results
+                )
+                if not getattr(response, "has_more", False):
+                    break
+                page = getattr(response, "next_page", None)
+                if not page:
+                    break
         except openai.OpenAIError as exc:
             raise CostUnavailableError(str(exc)) from exc
-        return sum(
-            result.amount.value
-            for bucket in response.data
-            for result in bucket.results
-        )
+        return total

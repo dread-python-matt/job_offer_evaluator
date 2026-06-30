@@ -1,18 +1,21 @@
 from abc import ABC, abstractmethod
 
 from app.application.ports import ExternalUsageProvider, SpendProvider
-from app.infrastructure.no_external_usage_provider import NoExternalUsageProvider
 
 
 class LLMProviderFactory(ABC):
     """Encapsulates all LLM-provider-specific wiring so that main.py branches only
-    once (to pick a factory) rather than branching on provider throughout setup."""
+    once (to pick a factory) rather than branching on provider throughout setup.
+
+    The org-level usage/cost providers are admin-key features and OpenAI-only, so both
+    builders return `None` when the figure can't be sourced (no admin key, or Gemini);
+    callers treat `None` as "org-level data unavailable" and degrade gracefully."""
 
     @abstractmethod
     def configure_sdk(self) -> None: ...
 
     @abstractmethod
-    def build_external_usage_provider(self) -> ExternalUsageProvider: ...
+    def build_external_usage_provider(self) -> ExternalUsageProvider | None: ...
 
     @abstractmethod
     def build_spend_provider(self) -> SpendProvider | None: ...
@@ -27,12 +30,12 @@ class OpenAIProviderFactory(LLMProviderFactory):
         from app.infrastructure.openai_client import configure_openai
         configure_openai(self._api_key)
 
-    def build_external_usage_provider(self) -> ExternalUsageProvider:
-        if self._admin_key:
-            from openai import OpenAI
-            from app.infrastructure.openai_usage_provider import OpenAIExternalUsageProvider
-            return OpenAIExternalUsageProvider(OpenAI(api_key=self._admin_key))
-        return NoExternalUsageProvider()
+    def build_external_usage_provider(self) -> ExternalUsageProvider | None:
+        if not self._admin_key:
+            return None
+        from openai import OpenAI
+        from app.infrastructure.openai_usage_provider import OpenAIExternalUsageProvider
+        return OpenAIExternalUsageProvider(OpenAI(api_key=self._admin_key))
 
     def build_spend_provider(self) -> SpendProvider | None:
         if not self._admin_key:
@@ -49,8 +52,8 @@ class GeminiProviderFactory(LLMProviderFactory):
         from app.infrastructure.gemini_client import configure_gemini
         configure_gemini(self._api_key)
 
-    def build_external_usage_provider(self) -> ExternalUsageProvider:
-        return NoExternalUsageProvider()
+    def build_external_usage_provider(self) -> ExternalUsageProvider | None:
+        return None
 
     def build_spend_provider(self) -> SpendProvider | None:
         return None

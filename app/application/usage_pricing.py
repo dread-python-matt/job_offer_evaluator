@@ -17,7 +17,13 @@ class UsagePricer:
         self._pricing = pricing
         self._unpriced_seen: set[str] = set()
 
-    def cost_of(self, model: str, input_tokens: int, output_tokens: int) -> float:
+    def cost_of(
+        self,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        cached_input_tokens: int = 0,
+    ) -> float:
         price = self._pricing.get_price(model)
         if price is None:
             if model not in self._unpriced_seen:
@@ -28,7 +34,18 @@ class UsagePricer:
                     model,
                 )
             return 0.0
+        # Cached input is billed at a lower rate (OpenAI); the rest of the input at the normal
+        # rate. With no cached rate known, cached tokens cost the normal input rate (so this is
+        # never an underestimate). cached_input_tokens is a subset of input_tokens.
+        cached = min(cached_input_tokens, input_tokens)
+        uncached = input_tokens - cached
+        cached_rate = (
+            price.cached_input_per_million
+            if price.cached_input_per_million is not None
+            else price.input_per_million
+        )
         return (
-            input_tokens / 1_000_000 * price.input_per_million
+            uncached / 1_000_000 * price.input_per_million
+            + cached / 1_000_000 * cached_rate
             + output_tokens / 1_000_000 * price.output_per_million
         )
