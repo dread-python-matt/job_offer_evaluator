@@ -9,6 +9,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 import { AuthService } from '../../../core/services/auth.service';
+import { AuthShell } from '../auth-shell/auth-shell';
+import { AuthLogo } from '../auth-logo/auth-logo';
 
 function loginErrorMessage(status: number): string {
   switch (status) {
@@ -33,6 +35,8 @@ function loginErrorMessage(status: number): string {
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
+    AuthShell,
+    AuthLogo,
   ],
   templateUrl: './login.html',
   styleUrl: './login.scss',
@@ -44,6 +48,7 @@ export class Login {
 
   readonly submitting = signal(false);
   readonly error = signal<string | null>(null);
+  readonly showPassword = signal(false);
 
   readonly form = this.fb.group({
     email: this.fb.control('', {
@@ -52,6 +57,10 @@ export class Login {
     }),
     password: this.fb.control('', { nonNullable: true, validators: Validators.required }),
   });
+
+  togglePassword(): void {
+    this.showPassword.update((shown) => !shown);
+  }
 
   submit(): void {
     if (this.form.invalid) {

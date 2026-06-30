@@ -41,6 +41,16 @@
       "Bash(npm --prefix frontend run format:check)",
       "Bash(npm --prefix frontend run format:check *)",
 
+      "Bash(uv run python *scratchpad/*.py)",
+      "Bash(uv run python *scratchpad*/*.py)",
+      "Bash(uv run python \"*scratchpad*/*.py\")",
+      "Bash(uv run python \"*scratchpad*\\*.py\")",
+
+      "Bash(uv run --directory * python *scratchpad/*.py)",
+      "Bash(uv run --directory * python *scratchpad*/*.py)",
+      "Bash(uv run --directory * python \"*scratchpad*/*.py\")",
+      "Bash(uv run --directory * python \"*scratchpad*\\*.py\")",
+
 
       "Bash(npx prettier --check *)",
       "Bash(npx prettier --write *)",

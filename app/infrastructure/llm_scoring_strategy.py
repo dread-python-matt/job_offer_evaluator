@@ -162,6 +162,9 @@ class LLMScoringStrategy(OfferScorer):
                 self._record_usage(result, label, prompt)
                 return result
             except openai.APIStatusError as exc:
+                wall = self._quota_wall_message(exc)
+                if wall is not None:
+                    raise AiScoringError(wall) from exc
                 if exc.status_code not in _RETRYABLE_STATUS_CODES or attempt == _MAX_RETRIES:
                     raise AiScoringError(f"AI service error ({exc.status_code}). Please try again.") from exc
                 self._sleep(self._retry_delay(exc, attempt))
@@ -185,6 +188,30 @@ class LLMScoringStrategy(OfferScorer):
                 pass  # HTTP-date form — fall back to the exponential backoff
         return min(backoff, _MAX_BACKOFF)
 
+    def _quota_wall_message(self, exc: openai.APIStatusError) -> str | None:
+        """An actionable message for a 429 that retrying can never clear (and a signal to stop
+        retrying), or None for a transient 429 we should retry.
+
+        Gemini answers a model with **no** free-tier quota — e.g. one retired from the free tier,
+        like gemini-2.0-flash-lite — with a `limit: 0` quota body: every call 429s no matter how
+        few, so retrying (and waiting out its `Retry-After`) only stalls then fails opaquely.
+        Returns None for a transient per-minute 429 (non-zero limit) and for providers whose 429
+        bodies don't carry this marker (e.g. OpenAI), leaving their behaviour unchanged."""
+        if exc.status_code != 429:
+            return None
+        try:
+            body = exc.response.text or ""
+        except Exception:  # pragma: no cover - response body unexpectedly unreadable
+            return None
+        if "limit: 0" not in body:
+            return None
+        model = self._model or "the selected model"
+        return (
+            f"Gemini grants no free-tier quota for '{model}' (limit 0) on your API key's project "
+            f"— it appears to be retired from the free tier. Select a model that still has quota "
+            f"(e.g. gemini-2.5-flash) or enable billing on the key; retrying won't help."
+        )
+
     async def _run_tracked_async(self, agent: Agent, prompt: str, label: str) -> Any:
         for attempt in range(_MAX_RETRIES + 1):
             try:
@@ -194,6 +221,9 @@ class LLMScoringStrategy(OfferScorer):
                 self._record_usage(result, label, prompt)
                 return result
             except openai.APIStatusError as exc:
+                wall = self._quota_wall_message(exc)
+                if wall is not None:
+                    raise AiScoringError(wall) from exc
                 if exc.status_code not in _RETRYABLE_STATUS_CODES or attempt == _MAX_RETRIES:
                     raise AiScoringError(f"AI service error ({exc.status_code}). Please try again.") from exc
                 await self._asleep(self._retry_delay(exc, attempt))

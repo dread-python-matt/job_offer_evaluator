@@ -1250,6 +1250,56 @@ def test_org_spend_returns_null_without_an_admin_key():
     assert response.json() is None
 
 
+# --- GET /usage/org-usage ---
+
+
+def _org_usage_client(use_case) -> TestClient:
+    from app.presentation.api.routes import get_org_usage_use_case
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id="user-1", email="dev@example.com", password_hash="x"
+    )
+    app.dependency_overrides[get_org_usage_use_case] = lambda: use_case
+    return TestClient(app)
+
+
+def test_org_usage_returns_per_model_usage_when_available():
+    from datetime import datetime, timezone
+
+    from app.application.use_cases import GetOrgUsageUseCase
+    from app.application.ports import ExternalUsageProvider, ModelUsageSummary
+
+    class _Usage(ExternalUsageProvider):
+        def get_today_usage(self):
+            return [ModelUsageSummary("OpenAI", "gpt-4o", 1500, 300)]
+
+    client = _org_usage_client(
+        GetOrgUsageUseCase(_Usage(), clock=lambda: datetime(2026, 6, 25, 12, tzinfo=timezone.utc))
+    )
+
+    response = client.get("/usage/org-usage")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["since"].startswith("2026-06-25T00:00:00")
+    assert body["models"] == [
+        {"company": "OpenAI", "model": "gpt-4o", "input_tokens": 1500, "output_tokens": 300}
+    ]
+
+
+def test_org_usage_returns_null_without_an_admin_key():
+    from app.application.use_cases import GetOrgUsageUseCase
+
+    client = _org_usage_client(GetOrgUsageUseCase(None))
+
+    response = client.get("/usage/org-usage")
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
 # --- GET /usage/summary ---
 
 

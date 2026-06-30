@@ -229,6 +229,14 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send r
   the match proceeds (fail-open) unless `BUDGET_FAIL_CLOSED=true`, which raises **503**.
   Caveats: usage attribution can drift under concurrent same-process matches; unknown-model
   pricing counts as $0 (spend is a lower bound).
+- **Usage accuracy (OpenAI).** Local accounting prices each call's reported `usage`; for OpenAI
+  it reads `input_tokens_details.cached_tokens` and prices prompt-cache hits at the model's
+  discounted cached rate (the scoring prompt's constant instructions + candidate profile repeat
+  across offers, so cache hits are common and full-input pricing would overstate cost). Gemini is
+  unchanged (no cached rate → priced at the normal input rate). When an **`OPENAI_ADMIN_KEY`** is
+  set, `/usage/org-spend` and `/usage/org-usage` expose the provider's *authoritative* org-wide
+  real-$ cost and per-model token usage from OpenAI's admin Usage/Costs API — queried per-model
+  (`group_by=["model"]`), in daily buckets, and paginated to completion.
 
 ---
 
@@ -286,6 +294,8 @@ the `X-CSRF-Token` header.
 | PUT  | `/usage/limit` | ✓ | Set the caller's budget limit |
 | POST | `/usage/reset` | ✓ | Reset the caller's usage tracking anchor to now |
 | GET  | `/usage/summary` | ✓ | Per-model token totals for the caller (+ rate limits) |
+| GET  | `/usage/org-spend` | ✓ | Org-wide real-$ provider spend today, from the OpenAI admin usage API (`null` without an admin key) |
+| GET  | `/usage/org-usage` | ✓ | Org-wide authoritative per-model token usage today, from the OpenAI admin usage API (`null` without an admin key) |
 
 Interactive docs at `http://localhost:8000/docs`. CORS allows `CORS_ORIGINS`
 (default `http://localhost:4200`) with credentials, so the SPA can send cookies.
@@ -304,7 +314,7 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 | `LLM_PROVIDER` | `gemini` | Org-level provider wiring: `gemini` or `openai` |
 | `GEMINI_API_KEY` | `""` | Required when `LLM_PROVIDER=gemini`; also enables Gemini model listing |
 | `OPENAI_API_KEY` | `""` | Required when `LLM_PROVIDER=openai`; also enables OpenAI model listing |
-| `OPENAI_ADMIN_KEY` | `""` | Enables the org-spend backstop + external usage (OpenAI only) |
+| `OPENAI_ADMIN_KEY` | `""` | **Optional, OpenAI only.** An admin key (scope `api.usage.read`) unlocks the provider's *authoritative* org-wide figures: the real-$ **org-spend backstop**/readout (`/usage/org-spend`) and per-model **org token usage** (`/usage/org-usage`), both for the current UTC day. Without it those endpoints return `null` and per-request local accounting is used instead. Org-wide — not attributable per user |
 | `JWT_SECRET` | dev default | **Override in prod.** Signs session JWTs |
 | `ACCESS_TOKEN_TTL_MINUTES` | `15` | Access-token (JWT cookie) lifetime; refresh keeps the session alive |
 | `REFRESH_TOKEN_TTL_DAYS` | `14` | Refresh-token lifetime + auth-cookie `max_age`; rotated on each `/auth/refresh` |

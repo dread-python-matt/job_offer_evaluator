@@ -8,9 +8,11 @@ from datetime import datetime, timezone
 from app.application.ports import (
     AvailableModel,
     BudgetStatusReader,
+    ExternalUsageProvider,
     ModelLimitsRegistry,
     ModelUsage,
     ModelUsageRepository,
+    ModelUsageSummary,
     ModelUsageTracker,
     ModelUsageWithLimits,
     OfferRepository,
@@ -354,6 +356,44 @@ class GetOrgSpendUseCase:
         except CostUnavailableError:
             return None
         return OrgSpend(spend_usd=spend, since=since)
+
+
+@dataclass(frozen=True)
+class OrgUsage:
+    """The organization's actual per-model token usage (from the admin usage API) since
+    `since`. Org-wide, not attributable per user."""
+
+    models: list[ModelUsageSummary]
+    since: datetime
+
+
+class GetOrgUsageUseCase:
+    """Reads the organization's real per-model token usage for the current UTC day from the
+    admin usage API (OpenAI's completions-usage endpoint, via the admin key). These are the
+    provider's authoritative counts, unlike the app's own per-request accounting. Returns
+    None when no usage provider is configured (no admin key, or a non-OpenAI provider) or the
+    figure is currently unavailable, so the UI can degrade gracefully rather than error.
+
+    The result is org-wide and cannot be attributed per user — it is an owner/admin readout,
+    distinct from the per-user `/usage/summary`."""
+
+    def __init__(
+        self,
+        usage_provider: ExternalUsageProvider | None,
+        clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    ) -> None:
+        self._usage_provider = usage_provider
+        self._clock = clock
+
+    def execute(self) -> OrgUsage | None:
+        if self._usage_provider is None:
+            return None
+        since = _start_of_utc_day(self._clock())
+        try:
+            models = self._usage_provider.get_today_usage()
+        except CostUnavailableError:
+            return None
+        return OrgUsage(models=models, since=since)
 
 
 class ListAvailableModelsUseCase:

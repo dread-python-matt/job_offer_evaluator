@@ -5,8 +5,8 @@ from datetime import datetime
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from app.application.api_key_use_cases import ApiKeyView
-from app.application.ports import ModelUsageWithLimits
-from app.application.use_cases import OrgSpend
+from app.application.ports import ModelUsageSummary, ModelUsageWithLimits
+from app.application.use_cases import OrgSpend, OrgUsage
 from app.domain.auth import User
 from app.domain.budget import BudgetStatus
 from app.domain.entities import (
@@ -401,6 +401,40 @@ class OrgSpendSchema(BaseModel):
     @classmethod
     def from_domain(cls, spend: "OrgSpend") -> "OrgSpendSchema":
         return cls(spend_usd=spend.spend_usd, since=spend.since)
+
+
+class OrgUsageModelSchema(BaseModel):
+    """One model's org-wide token usage for the current UTC day (admin usage API)."""
+
+    company: str
+    model: str
+    input_tokens: int
+    output_tokens: int
+
+    @classmethod
+    def from_domain(cls, item: "ModelUsageSummary") -> "OrgUsageModelSchema":
+        return cls(
+            company=item.company,
+            model=item.model,
+            input_tokens=item.input_tokens,
+            output_tokens=item.output_tokens,
+        )
+
+
+class OrgUsageSchema(BaseModel):
+    """The organization's actual per-model token usage (provider-authoritative, from the
+    admin usage API) for the current UTC day. Returned as null when no admin key is
+    configured. Org-wide — not attributable per user, unlike `/usage/summary`."""
+
+    models: list[OrgUsageModelSchema]
+    since: datetime
+
+    @classmethod
+    def from_domain(cls, usage: "OrgUsage") -> "OrgUsageSchema":
+        return cls(
+            models=[OrgUsageModelSchema.from_domain(m) for m in usage.models],
+            since=usage.since,
+        )
 
 
 class ApiProviderSchema(BaseModel):

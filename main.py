@@ -28,6 +28,7 @@ from app.application.use_cases import (
     CountOffersUseCase,
     GetModelUsageSummaryUseCase,
     GetOrgSpendUseCase,
+    GetOrgUsageUseCase,
     GetUserProfileUseCase,
     ListAvailableModelsUseCase,
     ListOffersUseCase,
@@ -148,6 +149,7 @@ from app.presentation.api.routes import (
     get_delete_api_key_use_case,
     get_list_api_keys_use_case,
     get_org_spend_use_case,
+    get_org_usage_use_case,
     get_set_api_key_budget_use_case,
     get_count_offers_use_case,
     get_list_available_models_use_case,
@@ -289,6 +291,10 @@ _org_spend_provider = _llm_factory.build_spend_provider()
 _org_spend_backstop = OrgSpendBackstop(_org_spend_provider, DEFAULT_BUDGET_USD)
 # Org-level real-$ spend readout (admin key); None provider → endpoint returns null.
 _get_org_spend_use_case = GetOrgSpendUseCase(_org_spend_provider)
+# Org-level provider-authoritative token-usage readout from the admin usage API (OpenAI
+# only; None when no admin key → endpoint returns null). Org-wide, not per-user.
+_org_external_usage_provider = _llm_factory.build_external_usage_provider()
+_get_org_usage_use_case = GetOrgUsageUseCase(_org_external_usage_provider)
 
 
 def _build_budget_gate(api_provider: str | None) -> CompositeBudgetStatusReader:
@@ -531,6 +537,7 @@ app.dependency_overrides[get_calculate_salary_use_case] = lambda: calculate_sala
 app.dependency_overrides[get_model_usage_summary_use_case] = lambda: get_model_usage_summary_use_case_instance
 app.dependency_overrides[get_budget_service] = lambda: _budget_service
 app.dependency_overrides[get_org_spend_use_case] = lambda: _get_org_spend_use_case
+app.dependency_overrides[get_org_usage_use_case] = lambda: _get_org_usage_use_case
 app.dependency_overrides[get_add_api_key_use_case] = lambda: _add_api_key_use_case
 app.dependency_overrides[get_list_api_keys_use_case] = lambda: _list_api_keys_use_case
 app.dependency_overrides[get_set_api_key_budget_use_case] = lambda: _set_api_key_budget_use_case

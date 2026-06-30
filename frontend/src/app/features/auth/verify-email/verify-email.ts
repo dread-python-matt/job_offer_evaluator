@@ -4,11 +4,13 @@ import { MatCardModule } from '@angular/material/card';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 import { AuthService } from '../../../core/services/auth.service';
+import { AuthShell } from '../auth-shell/auth-shell';
+import { AuthLogo } from '../auth-logo/auth-logo';
 
 @Component({
   selector: 'app-verify-email',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, MatCardModule, MatProgressSpinnerModule],
+  imports: [RouterLink, MatCardModule, MatProgressSpinnerModule, AuthShell, AuthLogo],
   templateUrl: './verify-email.html',
   styleUrl: './verify-email.scss',
 })

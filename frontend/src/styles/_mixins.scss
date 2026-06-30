@@ -153,45 +153,36 @@
   }
 }
 
-// The auth screens (sign in / register / the password flows): one focused card
-// centered on a soft branded backdrop. This was copy-pasted verbatim across five
-// components; it now lives here once. The key fix over the old version is real
-// vertical rhythm between stacked form fields — they used to butt together with
-// only Material's thin subscript between them, which read as cramped.
+// The card body of an auth screen (sign in / register / the password flows). The
+// surrounding page chrome — backdrop, centering, brand panel — lives in the
+// AuthShell component; this styles the projected `<mat-card>`, which stays under
+// the feature component's encapsulation. Was copy-pasted verbatim across the auth
+// features; it now lives here once. The key fix over the original is real vertical
+// rhythm between stacked fields, which used to butt together with only Material's
+// thin subscript between them and read as cramped.
 @mixin auth-layout {
-  .auth-page {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    padding: var(--app-space-5);
-    box-sizing: border-box;
-    // A faint wash of brand color from the top so the card reads as a lifted,
-    // focused surface rather than floating on a flat background.
-    background:
-      radial-gradient(
-        1100px 520px at 50% -15%,
-        color-mix(in srgb, var(--mat-sys-primary) 14%, transparent),
-        transparent 70%
-      ),
-      var(--mat-sys-surface-container-low);
-  }
-
   .auth-card {
     width: 100%;
-    max-width: 420px;
+    max-width: 440px;
     border-radius: var(--app-radius-lg);
     box-shadow: var(--app-shadow-2);
   }
 
-  // Centered header with the brand name as a small uppercase eyebrow above the
-  // page title, and breathing room before the form.
+  // Centered header: the brand badge, the page title, then the brand name as a
+  // small uppercase eyebrow, with breathing room before the form.
   mat-card-header {
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
-    margin-bottom: var(--app-space-5);
+    margin-bottom: var(--app-space-4);
+  }
+
+  // Material projects unrecognised header content (our logo) after the title/
+  // subtitle text block; `order: -1` lifts the badge back to the top.
+  mat-card-header app-auth-logo {
+    order: -1;
+    margin-bottom: var(--app-space-3);
   }
 
   mat-card-title {
@@ -225,6 +216,26 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    transition:
+      box-shadow var(--app-duration) var(--app-ease),
+      transform var(--app-duration) var(--app-ease);
+
+    &:not(:disabled):hover {
+      box-shadow: var(--app-shadow-2);
+      transform: translateY(-1px);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      transition: none;
+      &:hover {
+        transform: none;
+      }
+    }
+  }
+
+  // The reveal toggle sits flush in the field's suffix; keep it visually quiet.
+  .reveal-toggle {
+    color: var(--mat-sys-on-surface-variant);
   }
 
   // Error / success live as flex children, so the surrounding gap spaces them —

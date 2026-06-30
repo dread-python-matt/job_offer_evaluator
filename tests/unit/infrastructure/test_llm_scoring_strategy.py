@@ -387,15 +387,81 @@ def test_score_raises_ai_scoring_error_when_api_call_fails():
         strategy.score(_candidate(), _offer())
 
 
-def _status_error(status_code: int, retry_after: str | None = None) -> openai.APIStatusError:
+def _status_error(
+    status_code: int, retry_after: str | None = None, body: str | None = None
+) -> openai.APIStatusError:
     headers = {"retry-after": retry_after} if retry_after is not None else None
-    return openai.APIStatusError(
-        "error",
-        response=httpx.Response(
-            status_code, headers=headers, request=httpx.Request("POST", "https://api.example.com")
-        ),
-        body=None,
+    kwargs: dict = {"headers": headers, "request": httpx.Request("POST", "https://api.example.com")}
+    if body is not None:
+        kwargs["text"] = body  # provider error payload (e.g. Gemini quota details)
+    return openai.APIStatusError("error", response=httpx.Response(status_code, **kwargs), body=None)
+
+
+# Gemini's 429 body when a model has no free-tier quota at all (e.g. retired from the free tier):
+# every metric is `limit: 0`, so the call 429s no matter how few requests are made.
+_ZERO_QUOTA_BODY = (
+    '{"error":{"message":"You exceeded your current quota. '
+    "* Quota exceeded for metric: generativelanguage.googleapis.com/"
+    'generate_content_free_tier_requests, limit: 0, model: gemini-2.0-flash-lite",'
+    '"status":"RESOURCE_EXHAUSTED"}}'
+)
+
+
+def test_zero_quota_429_fails_fast_without_retrying():
+    calls = []
+
+    def run(agent, prompt):
+        calls.append(1)
+        raise _status_error(429, retry_after="26", body=_ZERO_QUOTA_BODY)
+
+    strategy = LLMScoringStrategy(
+        agent=object(), model="gemini-2.0-flash-lite", run=run, _sleep=lambda _: None
     )
+
+    with pytest.raises(AiScoringError) as exc_info:
+        strategy.score(_candidate(), _offer())
+
+    assert len(calls) == 1  # no retry: a limit-0 quota wall can never clear
+    message = str(exc_info.value)
+    assert "gemini-2.0-flash-lite" in message  # names the dead model
+    assert "gemini-2.5-flash" in message  # suggests a model that still has quota
+
+
+def test_transient_429_with_a_nonzero_limit_still_retries():
+    # Only `limit: 0` is treated as a permanent wall; an ordinary rate-limit 429 (non-zero
+    # limit) must still be retried, so a momentary per-minute spike doesn't fail the match.
+    calls = []
+
+    def run(agent, prompt):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _status_error(429, body='{"error":{"message":"rate limited, limit: 10"}}')
+        return SimpleNamespace(final_output=AgentScore(rate=3, pros=[], cons=[], rate_reason="ok"))
+
+    strategy = LLMScoringStrategy(agent=object(), run=run, _sleep=lambda _: None)
+    strategy.score(_candidate(), _offer())
+
+    assert len(calls) == 2
+
+
+def test_score_async_zero_quota_429_fails_fast():
+    calls = []
+
+    async def run(agent, prompt):
+        calls.append(1)
+        raise _status_error(429, retry_after="26", body=_ZERO_QUOTA_BODY)
+
+    async def no_sleep(_):
+        return None
+
+    strategy = LLMScoringStrategy(
+        agent=object(), model="gemini-2.0-flash-lite", run_async=run, _asleep=no_sleep
+    )
+
+    with pytest.raises(AiScoringError):
+        asyncio.run(strategy.score_async(_candidate(), _offer()))
+
+    assert len(calls) == 1  # no retry on the async path either
 
 
 def test_retries_on_503_and_succeeds_on_second_attempt():

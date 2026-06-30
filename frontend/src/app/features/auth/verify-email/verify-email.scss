@@ -1,31 +1,11 @@
-.auth-page {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100vh;
-  padding: 24px;
-  box-sizing: border-box;
-}
+@use 'mixins' as m;
 
-.auth-card {
-  width: 100%;
-  max-width: 400px;
-}
+@include m.auth-layout;
 
 .verifying {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 0.875rem;
-}
-
-.auth-error {
-  color: var(--mat-sys-error, #b3261e);
-  margin: 0 0 12px;
-  font-size: 0.875rem;
-}
-
-.auth-actions {
   justify-content: center;
+  gap: var(--app-space-3);
   font-size: 0.875rem;
 }

@@ -15,6 +15,8 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 import { AuthService } from '../../../core/services/auth.service';
+import { AuthShell } from '../auth-shell/auth-shell';
+import { AuthLogo } from '../auth-logo/auth-logo';
 
 // Mirrors the backend's minimum so the user gets immediate feedback; the server
 // enforces it regardless.
@@ -40,6 +42,8 @@ function passwordsMatch(group: AbstractControl): ValidationErrors | null {
     MatIconModule,
     MatInputModule,
     MatProgressSpinnerModule,
+    AuthShell,
+    AuthLogo,
   ],
   templateUrl: './register.html',
   styleUrl: './register.scss',
@@ -52,6 +56,24 @@ export class Register {
   readonly submitting = signal(false);
   readonly submitted = signal(false);
   readonly error = signal<string | null>(null);
+  // Tracks which password fields are currently shown as plain text.
+  private readonly revealed = signal<ReadonlySet<string>>(new Set());
+
+  isRevealed(field: string): boolean {
+    return this.revealed().has(field);
+  }
+
+  toggleReveal(field: string): void {
+    this.revealed.update((shown) => {
+      const next = new Set(shown);
+      if (next.has(field)) {
+        next.delete(field);
+      } else {
+        next.add(field);
+      }
+      return next;
+    });
+  }
 
   readonly form = this.fb.group(
     {

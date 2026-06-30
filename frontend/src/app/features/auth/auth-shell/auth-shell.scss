@@ -1,0 +1,17 @@
+.auth-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: var(--app-space-5);
+  box-sizing: border-box;
+  // A faint wash of brand color from the top so the card reads as a lifted,
+  // focused surface rather than floating on a flat background.
+  background:
+    radial-gradient(
+      1100px 520px at 50% -15%,
+      color-mix(in srgb, var(--mat-sys-primary) 14%, transparent),
+      transparent 70%
+    ),
+    var(--mat-sys-surface-container-low);
+}

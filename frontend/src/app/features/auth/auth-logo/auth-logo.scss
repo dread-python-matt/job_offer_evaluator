@@ -1,0 +1,25 @@
+:host {
+  display: inline-flex;
+}
+
+.auth-logo {
+  --size: var(--auth-logo-size, 40px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--size);
+  height: var(--size);
+  border-radius: calc(var(--size) * 0.28);
+  color: #fff;
+  background: linear-gradient(
+    135deg,
+    var(--mat-sys-primary),
+    color-mix(in srgb, var(--mat-sys-primary) 60%, var(--mat-sys-tertiary))
+  );
+  box-shadow: var(--app-shadow-1);
+}
+
+.auth-logo-svg {
+  width: 58%;
+  height: 58%;
+}

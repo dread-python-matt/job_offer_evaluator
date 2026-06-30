@@ -13,6 +13,7 @@ from app.application.use_cases import (
     CountOffersUseCase,
     GetModelUsageSummaryUseCase,
     GetOrgSpendUseCase,
+    GetOrgUsageUseCase,
     GetUserProfileUseCase,
     ListAvailableModelsUseCase,
     ListOffersUseCase,
@@ -51,6 +52,7 @@ from app.presentation.api.schemas import (
     ModelUsageSummaryItemSchema,
     OffersCountSchema,
     OrgSpendSchema,
+    OrgUsageSchema,
     OffersPageSchema,
     OfferSchema,
     SalaryCalculationRequestSchema,
@@ -109,6 +111,10 @@ def get_budget_service() -> BudgetService:
 
 
 def get_org_spend_use_case() -> GetOrgSpendUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_org_usage_use_case() -> GetOrgUsageUseCase:
     raise NotImplementedError("override with a configured use case")
 
 
@@ -333,6 +339,18 @@ def get_org_spend(
     API). Null when no admin key is configured or the figure is unavailable."""
     spend = use_case.execute()
     return OrgSpendSchema.from_domain(spend) if spend is not None else None
+
+
+@router.get("/usage/org-usage", response_model=OrgUsageSchema | None)
+def get_org_usage(
+    user: User = Depends(get_current_user),
+    use_case: GetOrgUsageUseCase = Depends(get_org_usage_use_case),
+) -> OrgUsageSchema | None:
+    """The organization's actual per-model token usage today (provider-authoritative, from
+    the admin usage API). Null when no admin key is configured or the figure is unavailable.
+    Org-wide — not attributable per user, unlike `/usage/summary`."""
+    usage = use_case.execute()
+    return OrgUsageSchema.from_domain(usage) if usage is not None else None
 
 
 @router.get("/usage/summary", response_model=list[ModelUsageSummaryItemSchema])
