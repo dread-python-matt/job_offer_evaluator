@@ -9,6 +9,7 @@ import {
   signal,
 } from '@angular/core';
 import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin } from 'rxjs';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
@@ -59,6 +60,15 @@ export class ApiKeys implements OnInit {
   readonly busyProvider = signal<string | null>(null);
   readonly rowError = signal<string | null>(null);
 
+  /** Providers capped by the per-day request budget instead of a USD budget (Google's free
+   * tier is requests/day, not dollars). Their key rows hide the dollar budget and adding one
+   * doesn't ask for a USD limit. */
+  private static readonly REQUEST_BUDGETED = new Set(['google']);
+
+  /** The provider chosen in the add-key form, mirrored as a signal so the template can show or
+   * hide the USD budget field under OnPush. */
+  readonly selectedAddProvider = signal<string | null>(null);
+
   readonly providerControl = new FormControl<string | null>(null, {
     validators: [Validators.required],
   });
@@ -84,6 +94,25 @@ export class ApiKeys implements OnInit {
     const taken = new Set(this.keys().map((k) => k.api_provider));
     return this.providers().filter((p) => !taken.has(p.provider));
   });
+
+  constructor() {
+    // Mirror the chosen provider into a signal, and require a USD limit only for USD-budgeted
+    // providers — request-budgeted ones (Google) don't carry a dollar budget.
+    this.providerControl.valueChanges.pipe(takeUntilDestroyed()).subscribe((provider) => {
+      this.selectedAddProvider.set(provider);
+      this.limitControl.setValidators(
+        provider != null && this.isRequestBudgeted(provider)
+          ? []
+          : [Validators.required, Validators.min(0)],
+      );
+      this.limitControl.updateValueAndValidity();
+    });
+  }
+
+  /** True when a provider is capped by the per-day request budget rather than a USD budget. */
+  isRequestBudgeted(provider: string): boolean {
+    return ApiKeys.REQUEST_BUDGETED.has(provider);
+  }
 
   ngOnInit(): void {
     this.load();
@@ -132,7 +161,11 @@ export class ApiKeys implements OnInit {
     }
     const provider = this.providerControl.value as string;
     const key = this.keyControl.value.trim();
-    const limit = this.limitControl.value as number;
+    // Request-budgeted providers (Google) carry no USD limit — omit it so the backend defaults
+    // it to 0 and the key is capped by the per-day request budget instead.
+    const limit = this.isRequestBudgeted(provider)
+      ? undefined
+      : (this.limitControl.value as number);
 
     this.adding.set(true);
     this.addError.set(null);

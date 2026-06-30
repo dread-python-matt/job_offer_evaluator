@@ -13,6 +13,64 @@ talks to it over HTTP (CORS, cookie session) — there is no shared process. The
 
 ---
 
+## Quickstart
+
+Get the app running **with sample data and no API keys** in a few commands. Browsing offers,
+deterministic matching and the salary calculator need no provider key; AI matching uses a
+per-user key you add later in the UI.
+
+### A. Docker (recommended)
+
+Starts Postgres + the API (migrations run on boot). Needs only Docker.
+
+```bash
+cp .env.example .env              # defaults work as-is for the demo
+docker compose up -d --build      # start Postgres + API
+docker compose run --rm seed      # load ~50 diverse demo offers (idempotent)
+```
+
+* API + interactive docs → http://localhost:8000/docs
+* Frontend (optional): `npm --prefix frontend install` then `npm --prefix frontend start` → http://localhost:4200
+
+### B. Local (Postgres in Docker, app on your machine)
+
+Needs Python 3.13, [uv](https://docs.astral.sh/uv/), and Docker (for Postgres only).
+
+```bash
+uv sync                                     # backend deps
+cp .env.example .env                        # defaults point at the Docker Postgres below
+docker compose up -d db                     # just Postgres
+uv run alembic upgrade head                 # create app-owned tables
+uv run python -m app.scripts.seed_offers    # load ~50 diverse demo offers
+uv run python main.py                       # API → http://localhost:8000/docs
+```
+
+Frontend (optional, separate terminal): `npm --prefix frontend install` then
+`npm --prefix frontend start` → http://localhost:4200.
+
+### Demo data (fixtures)
+
+The seed script (`app/scripts/seed_offers.py`) fills the scraper-owned
+`offers` / `salaries` / `normalized_salary` tables — which Alembic does **not** create (they
+belong to the scraper) — with ~50 recent, diverse offers: many tech stacks, **7 job portals**,
+**every seniority** (Intern → Expert) and **all three contract types** (B2B / permanent /
+civil), each with NET salaries computed by the app's own calculator. It is **idempotent**
+(re-running replaces only the `seed-*` rows and never touches real scraper data). Preview
+without writing anything:
+
+```bash
+uv run python -m app.scripts.seed_offers --dry-run
+```
+
+### Try AI matching (optional)
+
+Register an account, then add a provider API key (OpenAI or Google) on the **Model & usage**
+page — AI matching requires *your own* key (there is no shared key). With no SMTP configured,
+the email-confirmation link is printed to the API console; you can also mint one with
+`uv run python -m app.scripts.verify_link you@example.com`.
+
+---
+
 ## What it does
 
 1. A **user profile** (summary, skills with 1–5 ratings, projects, experience) is saved per
@@ -157,8 +215,12 @@ app/
   map + case/diacritic/separator folding) at the matching boundary, on scoring-only copies — so
   "JS"/"JavaScript", "k8s"/"Kubernetes" and PL/EN variants match while the originals stay intact
   for display. Unknown tokens are logged on `app.skills` to grow the map, and scoring weights
-  **evidenced** skills (used in a real project/experience) above self-claimed ratings. See
-  `docs/skills-normalization.md`.
+  **evidenced** skills (used in a real project/experience) above self-claimed ratings. The same
+  canonical map also powers **browsing's tech filter**: an `offer_skill` index (one row per
+  offer×concept, rebuilt by `uv run python -m app.scripts.index_offer_skills`) lets the offers
+  list filter by concept in SQL, so a `k8s` filter finds `Kubernetes` offers. Run the indexer
+  after a scrape or whenever the alias map changes (until it's built, the tech filter matches
+  nothing). See `docs/skills-normalization.md`.
 
 ---
 
@@ -175,8 +237,9 @@ registration. `token_version` (in the JWT) gives instant revocation / logout-eve
 - **Guards:** `get_current_user` resolves the user from the access cookie (401 if missing/
   invalid/expired/revoked); `verify_csrf` enforces the header match on unsafe methods. Both are
   applied app-wide in `main.py` via `include_router(..., dependencies=[...])`.
-- **Public routes** (no guard): `GET /health` and the `/auth` entry points `register`,
-  `verify-email`, `login`, `forgot-password`, `reset-password`, `refresh`. Everything else is gated.
+- **Public routes** (no guard): `GET /health`, `GET /health/ready`, and the `/auth` entry points
+  `register`, `verify-email`, `login`, `forgot-password`, `reset-password`, `refresh`. Everything
+  else is gated.
 - **Registration is email-confirmed.** `register` creates an *unverified* account, emails a
   confirmation link, and issues **no** session (202). `login` returns **403** until the account
   is verified; following the emailed link (`verify-email`) marks it verified and logs the user
@@ -231,8 +294,8 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send r
   model's real RPM (from the model-limits registry; `GOOGLE_RPM_LIMIT` is the fallback/kill-switch)
   with no initial over-burst, and the scorer honors a `429`/`503` `Retry-After`. OpenAI is not
   paced. A daily-RPD exhaustion still surfaces as `429` until it resets (midnight Pacific).
-- **Budgets (per user, best-effort).** Before scoring, the AI match checks a budget gate
-  (`CompositeBudgetStatusReader`) that combines:
+- **USD budgets (dollar-priced providers, e.g. OpenAI).** Before scoring, an AI match against a
+  USD-budgeted provider checks a budget gate (`CompositeBudgetStatusReader`) that combines:
   1. the user's **token-accounting budget** — their recorded usage priced by
      `HardcodedModelPricingRegistry` (`TokenAccountingSpendProvider` + `BudgetService`), and
   2. a global **org-spend backstop** (`OrgSpendBackstop`) protecting the owner's real provider
@@ -240,7 +303,17 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send r
   If any budget is exceeded → `BudgetExceededError` → **HTTP 402**. If spend can't be read,
   the match proceeds (fail-open) unless `BUDGET_FAIL_CLOSED=true`, which raises **503**.
   Caveats: usage attribution can drift under concurrent same-process matches; unknown-model
-  pricing counts as $0 (spend is a lower bound).
+  pricing counts as $0 (spend is a lower bound). **Gemini/Google matches skip this USD gate** —
+  their free tier is budgeted by requests/day, not dollars (see below).
+- **Per-day request budget (Gemini free tier).** The budget for Gemini matches — it **replaces**
+  the USD gate for Google (a Google key carries no dollar budget). Gated in `main.py` by passing
+  `budget=None` for Google models, leaving `TokenAccountingDailyRequestUsageReader` as the sole
+  gate: it counts the user's recorded requests for the model's provider since the daily reset
+  (midnight US/Pacific) against a cap — the user's override on their key
+  (`user_api_key.daily_request_limit`), else the model's free-tier requests-per-day from the limits
+  registry. When today's requests reach the cap the AI match raises `DailyRequestLimitExceededError`
+  → **HTTP 402**. Applies only to keyable Gemini models with a stored key; anything else is ungated
+  (fail-open). Read/adjust via `GET`/`PUT /usage/daily-requests`.
 - **Usage accuracy (OpenAI).** Local accounting prices each call's reported `usage`; for OpenAI
   it reads `input_tokens_details.cached_tokens` and prices prompt-cache hits at the model's
   discounted cached rate (the scoring prompt's constant instructions + candidate profile repeat
@@ -256,22 +329,33 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send r
 
 **App-owned** (created/migrated by this project; per-user tables carry a `user_id` FK):
 `users`, `user_profile`, `selected_model`, `model_usage`, `budget`, `ai_score`,
-`refresh_tokens`, `user_api_key`. (`ai_score` is a global content-addressed cache;
-`refresh_tokens` holds SHA-256 hashes only; `user_api_key` holds encrypted provider keys —
-never raw tokens or plaintext keys.)
+`refresh_tokens`, `user_api_key`, `openai_admin_key`. (`ai_score` is a global
+content-addressed cache; `refresh_tokens` holds SHA-256 hashes only; `user_api_key` holds
+encrypted provider keys and `openai_admin_key` the user's encrypted OpenAI admin key
+(one per user) — never raw tokens or plaintext keys.)
 
 **Scraper-owned, read-only** (do **not** migrate here): `offers`, `salaries`,
-`normalized_salary`.
+`normalized_salary`. On a database without the scraper, populate them with demo data via
+`uv run python -m app.scripts.seed_offers` (see [Quickstart → Demo data](#demo-data-fixtures)).
 
-Migrations live in `alembic/versions/` (`0001`–`0014`): baseline → app tables (`user_profile`,
+Migrations live in `alembic/versions/` (`0001`–`0018`): baseline → app tables (`user_profile`,
 `ai_score`, `selected_model`, `users`) → per-user `user_id` FKs (`0006`–`0009`) →
 `users.email_verified` (`0010`) → `refresh_tokens` (`0011`) → `user_api_key` (`0012`) →
-`model_usage (user_id, created_at)` index (`0013`) → `model_usage.estimated` (`0014`).
+`model_usage (user_id, created_at)` index (`0013`) → `model_usage.estimated` (`0014`) →
+`model_usage.cost` (`0015`) → `openai_admin_key` (`0016`) →
+`user_api_key.daily_request_limit` (`0017`, the optional per-day request cap) →
+`offer_skill` (`0018`, the app-owned canonical skill index for concept-based browse filtering).
 
-> ⚠️ **Schema caveat.** Each Postgres repo calls `create_all` for *its* table but does **not**
-> add columns to a table that already exists. On a pre-existing dev DB, apply migrations
-> (`uv run alembic upgrade head`) or drop the stale table so `create_all` rebuilds it. On a
-> fresh DB, **migrations are the source of truth** — don't mix create_all with Alembic.
+> **Alembic is the single source of truth for the app-owned schema.** Repositories no longer
+> create their tables at construction (`create_all` was removed), so the app can start and serve
+> `/health` even when the database is temporarily down. Always run `uv run alembic upgrade head`
+> against a fresh database before starting the app; the Docker image does this automatically (see
+> the `Dockerfile` `CMD`). Integration tests build the schema themselves via a fixture in
+> `tests/integration/conftest.py`.
+>
+> The engine (`app/infrastructure/db.py`) sets a 10s libpq `connect_timeout`, so an
+> unreachable database fails fast with a clear error instead of hanging for the OS TCP timeout
+> (~2 minutes), and uses `pool_pre_ping` to transparently recycle stale/dropped connections.
 
 ---
 
@@ -282,7 +366,8 @@ the `X-CSRF-Token` header.
 
 | Method | Path | Auth | Description |
 |---|---|:--:|---|
-| GET  | `/health` | – | Liveness probe (`{"status":"ok"}`) |
+| GET  | `/health` | – | Liveness probe (`{"status":"ok"}`); dependency-free, stays green even if the DB/providers are degraded |
+| GET  | `/health/ready` | – | Readiness probe: `SELECT 1` against the DB → `{"status":"ready"}` (200), or **503** when the DB is unreachable. Point orchestrator/load-balancer readiness checks here |
 | POST | `/auth/register` | – | Create an **unverified** account + email a confirmation link; no session (202; 409 if email taken; 422 if undeliverable) |
 | POST | `/auth/verify-email` | – | Confirm the email from the emailed token → verify + log in (200; 400 if invalid/expired) |
 | POST | `/auth/login` | – | Log in, set session + refresh cookies (401 bad creds; 403 unverified; 429 throttled) |
@@ -306,8 +391,13 @@ the `X-CSRF-Token` header.
 | PUT  | `/usage/limit` | ✓ | Set the caller's budget limit |
 | POST | `/usage/reset` | ✓ | Reset the caller's usage tracking anchor to now |
 | GET  | `/usage/summary` | ✓ | Per-model token totals for the caller (+ rate limits) |
-| GET  | `/usage/org-spend` | ✓ | Org-wide real-$ provider spend today, from the OpenAI admin usage API (`null` without an admin key) |
-| GET  | `/usage/org-usage` | ✓ | Org-wide authoritative per-model token usage today, from the OpenAI admin usage API (`null` without an admin key) |
+| GET  | `/usage/daily-requests` | ✓ | Per-day request budget for the caller's selected model: requests used today vs the cap (the user's override, else the model's free-tier requests-per-day default). `null` when there's no cap to show (e.g. an OpenAI model, or a Gemini model with no stored key) |
+| PUT  | `/usage/daily-requests` | ✓ | Set (a number) or clear (`limit: null` → revert to the free-tier default) the per-day request cap on the key backing the selected model (404 if no keyable model is selected or no key exists) |
+| GET  | `/usage/org-spend` | ✓ | Org-wide real-$ provider spend today, from the OpenAI admin usage API. Uses the caller's saved admin key, else the env `OPENAI_ADMIN_KEY` (`null` when neither is set) |
+| GET  | `/usage/org-usage` | ✓ | Org-wide authoritative per-model token usage today, from the OpenAI admin usage API. Uses the caller's saved admin key, else the env `OPENAI_ADMIN_KEY` (`null` when neither is set) |
+| GET  | `/admin-key` | ✓ | The caller's saved OpenAI admin key as a masked hint (`null` when none is set) |
+| PUT  | `/admin-key` | ✓ | Save/rotate the caller's OpenAI admin key (verified against the org costs API; 400 if rejected) |
+| DELETE | `/admin-key` | ✓ | Remove the caller's saved admin key (idempotent, 204) |
 
 Interactive docs at `http://localhost:8000/docs`. CORS allows `CORS_ORIGINS`
 (default `http://localhost:4200`) with credentials, so the SPA can send cookies.
@@ -324,9 +414,9 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 | `DB_POOL_SIZE` | `5` | SQLAlchemy connection-pool size |
 | `DB_MAX_OVERFLOW` | `10` | Extra connections allowed beyond the pool under load. Keep `WORKERS * (DB_POOL_SIZE + DB_MAX_OVERFLOW)` under the DB's max connections |
 | `LLM_PROVIDER` | `gemini` | Org-level provider wiring: `gemini` or `openai` |
-| `GEMINI_API_KEY` | `""` | Required when `LLM_PROVIDER=gemini`; also enables Gemini model listing |
-| `OPENAI_API_KEY` | `""` | Required when `LLM_PROVIDER=openai`; also enables OpenAI model listing |
-| `OPENAI_ADMIN_KEY` | `""` | **Optional, OpenAI only.** An admin key (scope `api.usage.read`) unlocks the provider's *authoritative* org-wide figures: the real-$ **org-spend backstop**/readout (`/usage/org-spend`) and per-model **org token usage** (`/usage/org-usage`), both for the current UTC day. Without it those endpoints return `null` and per-request local accounting is used instead. Org-wide — not attributable per user |
+| `GEMINI_API_KEY` | `""` | **Optional.** Org-level Gemini wiring only; the app boots without it and AI scoring uses each user's own key. Leave unset for the no-AI demo |
+| `OPENAI_API_KEY` | `""` | **Optional.** Org-level OpenAI wiring only; the app boots without it and AI scoring uses each user's own key. Leave unset for the no-AI demo |
+| `OPENAI_ADMIN_KEY` | `""` | **Optional, OpenAI only.** A fallback admin key (scope `api.usage.read`) unlocking the provider's *authoritative* org-wide figures: the real-$ **org-spend backstop**/readout (`/usage/org-spend`) and per-model **org token usage** (`/usage/org-usage`), both for the current UTC day. Users can also save their own admin key in-app (`PUT /admin-key`), which takes precedence over this for the readouts; this env key remains the backstop's source. Without either, those readouts return `null` and per-request local accounting is used instead. Org-wide — not attributable per user |
 | `JWT_SECRET` | dev default | **Override in prod.** Signs session JWTs |
 | `ACCESS_TOKEN_TTL_MINUTES` | `15` | Access-token (JWT cookie) lifetime; refresh keeps the session alive |
 | `REFRESH_TOKEN_TTL_DAYS` | `14` | Refresh-token lifetime + auth-cookie `max_age`; rotated on each `/auth/refresh` |
@@ -382,7 +472,8 @@ does `logging.getLogger(__name__)` is upgraded with no call-site changes and **n
   together (`app/observability/request_context.py`).
 - **Access log.** `RequestLoggingMiddleware` (outermost middleware) logs one line per request:
   method, path (query string omitted, so tokens never land in logs), status, and `duration_ms`.
-  `/health` is logged at DEBUG (orchestration probes hit it constantly); failures / 5xx at ERROR.
+  The probe paths `/health` and `/health/ready` are logged at DEBUG (orchestration hits them
+  constantly); failures / 5xx (including a 503 from a failed readiness check) at ERROR.
 - **Unified server + app.** `uvicorn.run(..., log_config=None, access_log=False)` lets uvicorn's
   own loggers propagate into the same handler (one format for server + app) while the middleware
   owns the richer access log.
@@ -417,26 +508,20 @@ uv run python -m app.scripts.verify_link you@example.com
 ## Setup
 
 Requires Python 3.13, [uv](https://docs.astral.sh/uv/), Node.js, and Docker (for Postgres).
+For the fastest path see the [Quickstart](#quickstart); the steps below are the full reference.
 
 ```bash
-uv sync                       # backend deps (incl. dev group)
-docker-compose up -d db       # start Postgres
-uv run alembic upgrade head   # create app-owned tables on a fresh DB
-cd frontend && npm install    # frontend deps
+uv sync                                     # backend deps (incl. dev group)
+cp .env.example .env                        # config — working local defaults
+docker compose up -d db                     # start Postgres
+uv run alembic upgrade head                 # create app-owned tables on a fresh DB
+uv run python -m app.scripts.seed_offers    # load ~50 demo offers (optional, populates the UI)
+npm --prefix frontend install               # frontend deps
 ```
 
-Create a `.env` with at least `DATABASE_URL` and a provider key (see Configuration). Example:
-
-```
-POSTGRES_USER=offers
-POSTGRES_PASSWORD=offers
-POSTGRES_DB=offers
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5433
-DATABASE_URL="postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
-GEMINI_API_KEY=...            # or OPENAI_API_KEY with LLM_PROVIDER=openai
-JWT_SECRET=change-me-in-prod
-```
+`.env.example` ships working local defaults, so `cp .env.example .env` is enough to start.
+`DATABASE_URL` is the only required variable; a provider key is **optional** — the app boots
+without one and AI matching uses a per-user key added in the UI (see [Configuration](#configuration)).
 
 ---
 
@@ -444,13 +529,14 @@ JWT_SECRET=change-me-in-prod
 
 ```bash
 uv run python main.py                 # API  → http://localhost:8000 (docs at /docs)
-cd frontend && npm start              # SPA  → http://localhost:4200
+npm --prefix frontend start           # SPA  → http://localhost:4200
 ```
 
 Full stack via Docker (API runs migrations on boot, binds `0.0.0.0:8000`):
 
 ```bash
-docker-compose up --build
+docker compose up --build         # Postgres + API
+docker compose run --rm seed      # optional: load ~50 demo offers
 ```
 
 ---
@@ -460,7 +546,7 @@ docker-compose up --build
 ```bash
 uv run pytest        # backend: unit + integration + api
 uv run ruff check    # lint
-cd frontend && npm test   # frontend (Vitest via `ng test`)
+npm --prefix frontend test   # frontend (Vitest via `ng test`)
 ```
 
 - `tests/unit/` — domain, application, infrastructure (no real I/O; uses `tests/fakes.py`).
@@ -496,7 +582,7 @@ frontend/src/app/
     ├── match-offers/                   # deterministic match
     ├── ai-match-offers/                # AI match (+ ai-match-state.service.ts)
     ├── browse-offers/                  # paginated offer browser with filters
-    └── model-usage/                    # model selection, usage summary, budget controls
+    └── model-usage/                    # model selection, usage summary, budget controls (USD budget, per-day request budget, provider keys, admin key)
 ```
 
 Routes: `/` → `/profile` (default), `/login`, `/register`, `/forgot-password`,

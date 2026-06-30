@@ -18,6 +18,8 @@ function init(
   httpMock.expectOne((r) => r.url.endsWith('/usage/summary')).flush([]);
   httpMock.expectOne((r) => r.url.endsWith('/config/models')).flush(MODELS);
   httpMock.expectOne((r) => r.url.endsWith('/usage/org-spend')).flush(null);
+  // The embedded <app-daily-requests> child loads its own data.
+  httpMock.expectOne((r) => r.url.endsWith('/usage/daily-requests')).flush(null);
   // The embedded <app-api-keys> child loads its own data.
   httpMock.expectOne((r) => r.url.endsWith('/api-keys/providers')).flush([]);
   httpMock.expectOne((r) => r.url.endsWith('/api-keys')).flush([]);
@@ -62,6 +64,7 @@ describe('ModelUsage', () => {
     httpMock
       .expectOne((r) => r.url.endsWith('/usage/org-spend'))
       .flush({ spend_usd: 4.2, since: '2026-06-25T00:00:00Z' });
+    httpMock.expectOne((r) => r.url.endsWith('/usage/daily-requests')).flush(null);
     httpMock.expectOne((r) => r.url.endsWith('/api-keys/providers')).flush([]);
     httpMock.expectOne((r) => r.url.endsWith('/api-keys')).flush([]);
     httpMock.expectOne((r) => r.url.endsWith('/admin-key')).flush(null);

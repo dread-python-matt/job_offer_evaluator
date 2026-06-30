@@ -89,6 +89,12 @@ def test_unknown_token_passes_through_and_is_recorded():
     assert seen == [("Elixir", "elixir")]
 
 
+def test_exposes_canonical_labels_for_tooling():
+    labels = _normalizer().canonical_labels
+    assert labels["javascript"] == "JavaScript"  # explicit label
+    assert labels["java"] == "java"  # no label declared -> defaults to the id
+
+
 # --- known non-merges (regression guard against over-merging) ---
 
 

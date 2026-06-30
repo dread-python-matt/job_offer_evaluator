@@ -1,0 +1,169 @@
+.daily-card {
+  margin-bottom: var(--app-space-5);
+}
+
+.daily-content {
+  padding-top: var(--app-space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-3);
+}
+
+.section-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+  mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+}
+
+.status-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--app-space-2);
+  padding: var(--app-space-5);
+  color: var(--mat-sys-on-surface-variant);
+  text-align: center;
+}
+.error-block {
+  color: var(--mat-sys-error);
+}
+.status-icon {
+  font-size: 32px;
+  width: 32px;
+  height: 32px;
+}
+
+// ── Summary line: model + requests today / cap ──────────────────────────────────
+
+.daily-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--app-space-3);
+  flex-wrap: wrap;
+}
+.daily-model {
+  display: flex;
+  align-items: baseline;
+  gap: var(--app-space-2);
+}
+.daily-company {
+  font-size: 0.8em;
+  color: var(--mat-sys-on-surface-variant);
+}
+.daily-model-name {
+  font-weight: 600;
+}
+.daily-count {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.daily-used {
+  font-size: 1.3em;
+  font-weight: 700;
+}
+.daily-sep,
+.daily-limit {
+  color: var(--mat-sys-on-surface-variant);
+}
+.daily-unit {
+  margin-left: 4px;
+  font-size: 0.8em;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// ── Usage bar ───────────────────────────────────────────────────────────────────
+
+.usage-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--mat-sys-surface-container-high);
+  overflow: hidden;
+}
+.bar-segment {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+.bar-ok {
+  background: var(--mat-sys-primary);
+}
+.bar-warning {
+  background: var(--mat-sys-tertiary);
+}
+.bar-critical {
+  background: var(--mat-sys-error);
+}
+
+// ── Meta badge + actions ────────────────────────────────────────────────────────
+
+.daily-meta {
+  display: flex;
+}
+.daily-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8em;
+  color: var(--mat-sys-on-surface-variant);
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
+  &.custom {
+    color: var(--mat-sys-tertiary);
+  }
+}
+
+.daily-actions,
+.edit-form {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-3);
+  flex-wrap: wrap;
+}
+.limit-field {
+  width: 220px;
+}
+
+.daily-unavailable {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-2);
+  margin: 0;
+  font-size: 0.9em;
+  color: var(--mat-sys-on-surface-variant);
+  mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+}
+
+.action-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.85em;
+  color: var(--mat-sys-error);
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
+}

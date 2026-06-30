@@ -77,6 +77,59 @@ describe('ApiKeys', () => {
     expect(c.keyControl.value).toBe('');
   });
 
+  it('adds a Google key without a USD budget', () => {
+    const fixture = TestBed.createComponent(ApiKeys);
+    init(fixture, httpMock);
+    const c = fixture.componentInstance;
+
+    c.providerControl.setValue('google');
+    c.keyControl.setValue('AIza-secret-7890');
+    c.addKey();
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/api-keys'));
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ api_provider: 'google', key: 'AIza-secret-7890' });
+    req.flush({ api_provider: 'google', key_hint: 'AIz…7890', limit_usd: 0, used_usd: 0 });
+
+    expect(c.keys().map((k) => k.api_provider)).toEqual(['google']);
+  });
+
+  it('hides the USD budget field when adding a Google key', () => {
+    const fixture = TestBed.createComponent(ApiKeys);
+    init(fixture, httpMock);
+    const el = fixture.nativeElement as HTMLElement;
+
+    fixture.componentInstance.providerControl.setValue('google');
+    fixture.detectChanges();
+    expect(el.querySelector('.add-budget-field')).toBeNull();
+
+    fixture.componentInstance.providerControl.setValue('openai');
+    fixture.detectChanges();
+    expect(el.querySelector('.add-budget-field')).not.toBeNull();
+  });
+
+  it('shows the daily-request note instead of a dollar budget for a Google key', () => {
+    const fixture = TestBed.createComponent(ApiKeys);
+    init(fixture, httpMock, [
+      { api_provider: 'google', key_hint: 'AIz…7890', limit_usd: 0, used_usd: 0 },
+    ]);
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Capped by daily requests');
+    expect(text).not.toContain('of $');
+  });
+
+  it('still shows the dollar budget for an OpenAI key', () => {
+    const fixture = TestBed.createComponent(ApiKeys);
+    init(fixture, httpMock, [
+      { api_provider: 'openai', key_hint: 'sk-…1234', limit_usd: 10, used_usd: 2 },
+    ]);
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('of $');
+    expect(text).not.toContain('Capped by daily requests');
+  });
+
   it('surfaces the backend message when a key is rejected', () => {
     const fixture = TestBed.createComponent(ApiKeys);
     init(fixture, httpMock);

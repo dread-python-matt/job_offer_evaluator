@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.application.refresh_tokens import RefreshTokenRecord, RefreshTokenRepository
 from app.infrastructure.db import resolve_engine
-from app.infrastructure.orm_models import Base, RefreshTokenRow
+from app.infrastructure.orm_models import RefreshTokenRow
 
 
 class PostgresRefreshTokenRepository(RefreshTokenRepository):
@@ -15,7 +15,6 @@ class PostgresRefreshTokenRepository(RefreshTokenRepository):
 
     def __init__(self, database_or_engine: str | Engine) -> None:
         self._engine = resolve_engine(database_or_engine)
-        Base.metadata.create_all(self._engine, tables=[RefreshTokenRow.__table__])
 
     def add(self, record: RefreshTokenRecord) -> None:
         with Session(self._engine) as session:

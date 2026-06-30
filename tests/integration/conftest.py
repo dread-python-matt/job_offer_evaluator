@@ -23,8 +23,10 @@ import os
 from pathlib import Path
 
 import pytest
+from sqlalchemy import create_engine
 
 from app.config import DATABASE_URL
+from app.infrastructure.orm_models import Base
 
 _HERE = Path(__file__).resolve().parent
 _TRUTHY = {"1", "true", "yes", "on"}
@@ -43,6 +45,19 @@ def destructive_db_tests_allowed(url: str = DATABASE_URL) -> bool:
 
 def _under_integration_dir(item: pytest.Item) -> bool:
     return _HERE in Path(str(item.fspath)).resolve().parents
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _create_schema():
+    """Build the full app-owned schema once for the suite.
+
+    Production no longer creates tables from the repositories (`create_all` was removed so the
+    app can start without a reachable DB and Alembic stays the single source of truth — QA M-3).
+    The integration tests run against a disposable test DB without running migrations, so the
+    schema is created here instead of inside the adapters."""
+    if not destructive_db_tests_allowed():
+        return
+    Base.metadata.create_all(create_engine(DATABASE_URL))
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

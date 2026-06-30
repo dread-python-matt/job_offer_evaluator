@@ -12,6 +12,7 @@ import {
   Budget,
   CurrentModelConfig,
   DailyCost,
+  DailyRequestUsage,
   MatchedOffer,
   MatchSortBy,
   ModelUsageSummaryItem,
@@ -144,6 +145,18 @@ export class ApiService {
     return this.http.get<OrgSpend | null>(`${this.baseUrl}/usage/org-spend`);
   }
 
+  /** The caller's per-day request budget for their selected model, or null when there's no
+   * daily cap to show (e.g. an OpenAI model, or a Gemini model with no stored key). */
+  getDailyRequestUsage(): Observable<DailyRequestUsage | null> {
+    return this.http.get<DailyRequestUsage | null>(`${this.baseUrl}/usage/daily-requests`);
+  }
+
+  /** Set (a number) or clear (null → revert to the model's free-tier default) the per-day
+   * request cap on the key backing the selected model. */
+  setDailyRequestLimit(limit: number | null): Observable<DailyRequestUsage> {
+    return this.http.put<DailyRequestUsage>(`${this.baseUrl}/usage/daily-requests`, { limit });
+  }
+
   getApiKeyProviders(): Observable<ApiProvider[]> {
     return this.http.get<ApiProvider[]>(`${this.baseUrl}/api-keys/providers`);
   }
@@ -152,12 +165,15 @@ export class ApiService {
     return this.http.get<ApiKey[]>(`${this.baseUrl}/api-keys`);
   }
 
-  addApiKey(apiProvider: string, key: string, limitUsd: number): Observable<ApiKey> {
-    return this.http.post<ApiKey>(`${this.baseUrl}/api-keys`, {
+  addApiKey(apiProvider: string, key: string, limitUsd?: number): Observable<ApiKey> {
+    // `limitUsd` is omitted for request-budgeted providers (e.g. Google), which the backend
+    // then defaults to 0 — they're capped by the per-day request budget, not dollars.
+    const body: { api_provider: string; key: string; limit_usd?: number } = {
       api_provider: apiProvider,
       key,
-      limit_usd: limitUsd,
-    });
+    };
+    if (limitUsd != null) body.limit_usd = limitUsd;
+    return this.http.post<ApiKey>(`${this.baseUrl}/api-keys`, body);
   }
 
   updateApiKeyBudget(apiProvider: string, limitUsd: number): Observable<ApiKey> {

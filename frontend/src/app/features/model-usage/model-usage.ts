@@ -20,6 +20,7 @@ import {
 } from '../../core/models/profile.model';
 import { ApiKeys } from '../api-keys/api-keys';
 import { AdminKey } from '../admin-key/admin-key';
+import { DailyRequests } from '../daily-requests/daily-requests';
 
 @Component({
   selector: 'app-model-usage',
@@ -37,6 +38,7 @@ import { AdminKey } from '../admin-key/admin-key';
     MatTooltipModule,
     ApiKeys,
     AdminKey,
+    DailyRequests,
   ],
   templateUrl: './model-usage.html',
   styleUrl: './model-usage.scss',
@@ -52,6 +54,10 @@ export class ModelUsage implements OnInit {
   readonly selecting = signal(false);
   readonly selectError = signal<string | null>(null);
   readonly orgSpend = signal<OrgSpend | null>(null);
+
+  /** Bumped whenever the embedded daily-request budget may have changed (model switch, key
+   * add/remove, manual refresh) so the <app-daily-requests> card refetches. */
+  readonly dailyRefresh = signal(0);
 
   readonly selectedCompany = signal<string | null>(null);
 
@@ -94,11 +100,19 @@ export class ModelUsage implements OnInit {
       .subscribe((updated) => {
         this.currentModel.set(updated);
         this.selecting.set(false);
+        this.dailyRefresh.update((n) => n + 1); // the active model changed → refetch its budget
       });
   }
 
   ngOnInit(): void {
     this.load();
+  }
+
+  /** Refresh everything on this page, including the embedded daily-request budget card. Used by
+   * the refresh button and by child cards (keys/admin key) whose changes affect the budget. */
+  reloadAll(): void {
+    this.load();
+    this.dailyRefresh.update((n) => n + 1);
   }
 
   load(): void {

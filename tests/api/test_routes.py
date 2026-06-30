@@ -5,11 +5,20 @@ from fastapi.testclient import TestClient
 from datetime import datetime, timezone
 
 from app.application.ai_scoring_context import AiScoringContext
+from app.application.api_key_use_cases import SetDailyRequestLimitUseCase
 from app.application.budget_service import BudgetService
-from app.application.ports import AvailableModel, ModelUsageSummary
+from app.application.ports import (
+    ApiKeyRecord,
+    AvailableModel,
+    ModelLimits,
+    ModelLimitsRegistry,
+    ModelUsageRepository,
+    ModelUsageSummary,
+)
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     CountOffersUseCase,
+    GetDailyRequestUsageUseCase,
     GetModelUsageSummaryUseCase,
     GetUserProfileUseCase,
     ListAvailableModelsUseCase,
@@ -17,6 +26,9 @@ from app.application.use_cases import (
     MatchOffersUseCase,
     MatchOffersWithAiUseCase,
     SaveUserProfileUseCase,
+)
+from app.infrastructure.daily_request_usage_reader import (
+    TokenAccountingDailyRequestUsageReader,
 )
 from app.domain.budget import BudgetSettings
 from app.domain.errors import AiScoringError
@@ -40,6 +52,7 @@ from app.presentation.api.routes import (
     get_budget_service,
     get_calculate_salary_use_case,
     get_count_offers_use_case,
+    get_daily_request_usage_use_case,
     get_list_available_models_use_case,
     get_list_offers_use_case,
     get_match_offers_ai_use_case,
@@ -47,6 +60,7 @@ from app.presentation.api.routes import (
     get_model_usage_summary_use_case,
     get_profile_use_case,
     get_save_profile_use_case,
+    get_set_daily_request_limit_use_case,
     router,
 )
 from tests.fakes import (
@@ -54,6 +68,7 @@ from tests.fakes import (
     FakeOfferRepository,
     FakeUserProfileRepository,
     FixedUserSpendProvider,
+    InMemoryApiKeyRepository,
     InMemoryBudgetRepository,
     InMemorySelectedModelRepository,
     ScoreByLinkScorer,
@@ -72,8 +87,42 @@ def test_health_returns_ok_without_dependencies():
     assert response.json() == {"status": "ok"}
 
 
+def _readiness_app(probe):
+    from app.presentation.api.auth import get_readiness_probe, public_router
+
+    app = FastAPI()
+    app.include_router(public_router)
+    app.dependency_overrides[get_readiness_probe] = lambda: probe
+    return app
+
+
+def test_readiness_returns_ready_when_the_database_is_reachable():
+    class _OkProbe:
+        def check(self) -> None:
+            return None
+
+    response = TestClient(_readiness_app(_OkProbe())).get("/health/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+
+
+def test_readiness_returns_503_when_the_database_is_unreachable():
+    class _DownProbe:
+        def check(self) -> None:
+            raise RuntimeError("connection refused")
+
+    response = TestClient(_readiness_app(_DownProbe())).get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "database unavailable"
+
+
 def _salary(
-    min_amount: float, max_amount: float, period: str = "month", contract_type: str = "permanent"
+    min_amount: float,
+    max_amount: float,
+    period: str = "month",
+    contract_type: str = "permanent",
 ) -> Salary:
     # Net figures drive filtering/sorting/display now; stand in with the gross numbers.
     return Salary(
@@ -107,17 +156,28 @@ def _build_client(
     profile_repository = FakeUserProfileRepository(profile)
     offer_repository = FakeOfferRepository(offers or [])
     filter_chain = FilterChain(
-        [SkillFilter(), LocationFilter(), SalaryFilter(), ExpiredFilter(), LevelFilter()]
+        [
+            SkillFilter(),
+            LocationFilter(),
+            SalaryFilter(),
+            ExpiredFilter(),
+            LevelFilter(),
+        ]
     )
 
-    app.dependency_overrides[get_save_profile_use_case] = lambda: SaveUserProfileUseCase(
-        profile_repository
+    app.dependency_overrides[get_save_profile_use_case] = lambda: (
+        SaveUserProfileUseCase(profile_repository)
     )
     app.dependency_overrides[get_match_offers_use_case] = lambda: MatchOffersUseCase(
         offer_repository, SkillBasedScorer(), filter_chain
     )
-    app.dependency_overrides[get_match_offers_ai_use_case] = lambda: MatchOffersWithAiUseCase(
-        offer_repository, filter_chain, SkillBasedScorer(), ai_scorer or SkillBasedScorer()
+    app.dependency_overrides[get_match_offers_ai_use_case] = lambda: (
+        MatchOffersWithAiUseCase(
+            offer_repository,
+            filter_chain,
+            SkillBasedScorer(),
+            ai_scorer or SkillBasedScorer(),
+        )
     )
     app.dependency_overrides[get_profile_use_case] = lambda: GetUserProfileUseCase(
         profile_repository
@@ -128,9 +188,14 @@ def _build_client(
     app.dependency_overrides[get_list_offers_use_case] = lambda: ListOffersUseCase(
         offer_repository
     )
-    app.dependency_overrides[get_calculate_salary_use_case] = lambda: CalculateNetSalaryUseCase(SalaryCalculator())
-    app.dependency_overrides[get_model_usage_summary_use_case] = lambda: GetModelUsageSummaryUseCase(
-        FakeModelUsageRepository(usage_summaries or []), HardcodedModelLimitsRegistry()
+    app.dependency_overrides[get_calculate_salary_use_case] = lambda: (
+        CalculateNetSalaryUseCase(SalaryCalculator())
+    )
+    app.dependency_overrides[get_model_usage_summary_use_case] = lambda: (
+        GetModelUsageSummaryUseCase(
+            FakeModelUsageRepository(usage_summaries or []),
+            HardcodedModelLimitsRegistry(),
+        )
     )
     return TestClient(app)
 
@@ -176,7 +241,11 @@ def test_profile_round_trips_optional_tax_situation():
     client = _build_client(profile=None)
     payload = {
         **_profile_payload(),
-        "tax_situation": {"under_26": True, "is_student": True, "applies_tax_credit": False},
+        "tax_situation": {
+            "under_26": True,
+            "is_student": True,
+            "applies_tax_credit": False,
+        },
     }
 
     assert client.post("/profile", json=payload).status_code == 200
@@ -467,7 +536,9 @@ def test_list_offers_sorts_by_salary_ascending_when_requested():
     ]
     client = _build_client(offers=offers)
 
-    response = client.get("/offers", params={"sort_by": "salary_mid", "sort_order": "asc"})
+    response = client.get(
+        "/offers", params={"sort_by": "salary_mid", "sort_order": "asc"}
+    )
 
     assert response.status_code == 200
     assert [offer["link"] for offer in response.json()["offers"]] == ["a", "b"]
@@ -497,7 +568,12 @@ def test_list_offers_exposes_published_date():
 
 def test_list_offers_exposes_estimated_net_midpoint_as_net_monthly():
     offers = [
-        Offer(link="a", title="A", company="C", salaries=[_salary(10000, 12000, contract_type="b2b")]),
+        Offer(
+            link="a",
+            title="A",
+            company="C",
+            salaries=[_salary(10000, 12000, contract_type="b2b")],
+        ),
     ]
     client = _build_client(offers=offers)
 
@@ -511,7 +587,13 @@ def test_list_offers_exposes_estimated_net_midpoint_as_net_monthly():
 
 
 def test_list_offers_exposes_null_net_when_salary_has_no_normalized_figures():
-    no_net = Salary(contract_type="permanent", min_amount=10000, max_amount=12000, currency="PLN", period="month")
+    no_net = Salary(
+        contract_type="permanent",
+        min_amount=10000,
+        max_amount=12000,
+        currency="PLN",
+        period="month",
+    )
     offers = [Offer(link="a", title="A", company="C", salaries=[no_net])]
     client = _build_client(offers=offers)
 
@@ -524,7 +606,9 @@ def test_list_offers_exposes_null_net_when_salary_has_no_normalized_figures():
 def test_match_offers_filters_by_level():
     offers = [
         Offer(link="a", title="A", company="C", tech_stack=["Python"], levels=["Mid"]),
-        Offer(link="b", title="B", company="C", tech_stack=["Python"], levels=["Senior"]),
+        Offer(
+            link="b", title="B", company="C", tech_stack=["Python"], levels=["Senior"]
+        ),
     ]
     client = _build_client(offers=offers)
 
@@ -548,8 +632,20 @@ def test_match_offers_filters_by_level():
 
 def test_match_offers_sorts_by_salary_when_requested():
     offers = [
-        Offer(link="a", title="A", company="C", tech_stack=["Python"], salaries=[_salary(5000, 6000)]),
-        Offer(link="b", title="B", company="C", tech_stack=["Python"], salaries=[_salary(20000, 25000)]),
+        Offer(
+            link="a",
+            title="A",
+            company="C",
+            tech_stack=["Python"],
+            salaries=[_salary(5000, 6000)],
+        ),
+        Offer(
+            link="b",
+            title="B",
+            company="C",
+            tech_stack=["Python"],
+            salaries=[_salary(20000, 25000)],
+        ),
     ]
     client = _build_client(offers=offers)
 
@@ -573,8 +669,20 @@ def test_match_offers_sorts_by_salary_when_requested():
 
 def test_match_offers_sorts_by_recent_when_requested():
     offers = [
-        Offer(link="a", title="A", company="C", tech_stack=["Python"], published="2026-05-01"),
-        Offer(link="b", title="B", company="C", tech_stack=["Python"], published="2026-06-10"),
+        Offer(
+            link="a",
+            title="A",
+            company="C",
+            tech_stack=["Python"],
+            published="2026-05-01",
+        ),
+        Offer(
+            link="b",
+            title="B",
+            company="C",
+            tech_stack=["Python"],
+            published="2026-06-10",
+        ),
     ]
     client = _build_client(offers=offers)
 
@@ -602,8 +710,20 @@ def test_match_offers_score_recent_ranks_by_score_first():
     # "b" is older but requires Python which the candidate knows well (rating 5)
     # score wins over recency → "b" should come first
     offers = [
-        Offer(link="a", title="A", company="C", tech_stack=["Rust"], published="2026-06-20"),
-        Offer(link="b", title="B", company="C", tech_stack=["Python"], published="2026-01-01"),
+        Offer(
+            link="a",
+            title="A",
+            company="C",
+            tech_stack=["Rust"],
+            published="2026-06-20",
+        ),
+        Offer(
+            link="b",
+            title="B",
+            company="C",
+            tech_stack=["Python"],
+            published="2026-01-01",
+        ),
     ]
     client = _build_client(offers=offers)
 
@@ -612,7 +732,10 @@ def test_match_offers_score_recent_ranks_by_score_first():
         json={
             "candidate": {
                 "summary": "",
-                "skills": [{"name": "Python", "rating": 5}, {"name": "Rust", "rating": 1}],
+                "skills": [
+                    {"name": "Python", "rating": 5},
+                    {"name": "Rust", "rating": 1},
+                ],
                 "projects": [],
                 "experience": [],
             },
@@ -628,8 +751,20 @@ def test_match_offers_score_recent_ranks_by_score_first():
 def test_match_offers_score_recent_breaks_ties_by_recency():
     # same tech stack → equal scores, more recent published date wins
     offers = [
-        Offer(link="a", title="A", company="C", tech_stack=["Python"], published="2026-05-01"),
-        Offer(link="b", title="B", company="C", tech_stack=["Python"], published="2026-06-10"),
+        Offer(
+            link="a",
+            title="A",
+            company="C",
+            tech_stack=["Python"],
+            published="2026-05-01",
+        ),
+        Offer(
+            link="b",
+            title="B",
+            company="C",
+            tech_stack=["Python"],
+            published="2026-06-10",
+        ),
     ]
     client = _build_client(offers=offers)
 
@@ -653,8 +788,20 @@ def test_match_offers_score_recent_breaks_ties_by_recency():
 
 def test_match_offers_filters_by_location():
     offers = [
-        Offer(link="a", title="A", company="C", tech_stack=["Python"], locations=["Warsaw"]),
-        Offer(link="b", title="B", company="C", tech_stack=["Python"], locations=["Berlin"]),
+        Offer(
+            link="a",
+            title="A",
+            company="C",
+            tech_stack=["Python"],
+            locations=["Warsaw"],
+        ),
+        Offer(
+            link="b",
+            title="B",
+            company="C",
+            tech_stack=["Python"],
+            locations=["Berlin"],
+        ),
     ]
     client = _build_client(offers=offers)
 
@@ -681,11 +828,17 @@ def test_match_offers_filters_by_location():
 def test_match_offers_filters_by_minimum_salary():
     offers = [
         Offer(
-            link="a", title="A", company="C", tech_stack=["Python"],
+            link="a",
+            title="A",
+            company="C",
+            tech_stack=["Python"],
             salaries=[_salary(20000, 25000)],
         ),
         Offer(
-            link="b", title="B", company="C", tech_stack=["Python"],
+            link="b",
+            title="B",
+            company="C",
+            tech_stack=["Python"],
             salaries=[_salary(5000, 6000)],
         ),
     ]
@@ -828,19 +981,31 @@ class _InsightScorer(OfferScorer):
 
     def score(self, candidate, offer) -> MatchScore:
         return MatchScore().with_component(
-            ScoreComponent(name="description", value=0.9, weight=1.0, metadata={"ai_insight": self._insight})
+            ScoreComponent(
+                name="description",
+                value=0.9,
+                weight=1.0,
+                metadata={"ai_insight": self._insight},
+            )
         )
 
 
 def test_match_offers_ai_response_includes_ai_insight():
     offers = [Offer(link="a", title="A", company="C", tech_stack=["Python"])]
-    insight = AiInsight(rate=4, pros=["Strong Python"], cons=["No K8s"], rate_reason="Solid fit")
+    insight = AiInsight(
+        rate=4, pros=["Strong Python"], cons=["No K8s"], rate_reason="Solid fit"
+    )
     client = _build_client(offers=offers, ai_scorer=_InsightScorer(insight))
 
     response = client.post(
         "/offers/match/ai",
         json={
-            "candidate": {"summary": "", "skills": [{"name": "Python", "rating": 5}], "projects": [], "experience": []},
+            "candidate": {
+                "summary": "",
+                "skills": [{"name": "Python", "rating": 5}],
+                "projects": [],
+                "experience": [],
+            },
             "offers_to_score": 10,
         },
     )
@@ -861,7 +1026,12 @@ def test_match_offers_response_has_null_ai_insight():
     response = client.post(
         "/offers/match",
         json={
-            "candidate": {"summary": "", "skills": [{"name": "Python", "rating": 5}], "projects": [], "experience": []},
+            "candidate": {
+                "summary": "",
+                "skills": [{"name": "Python", "rating": 5}],
+                "projects": [],
+                "experience": [],
+            },
             "offers_limit": 10,
         },
     )
@@ -900,7 +1070,9 @@ def test_match_offers_ai_returns_offers_scored_by_the_ai_scorer():
 
 def test_match_offers_ai_only_sends_top_ranked_offers_to_the_ai_scorer():
     offers = [
-        Offer(link="a", title="A", company="C", tech_stack=["Python", "FastAPI", "Docker"]),
+        Offer(
+            link="a", title="A", company="C", tech_stack=["Python", "FastAPI", "Docker"]
+        ),
         Offer(link="b", title="B", company="C", tech_stack=["Python", "Java"]),
         Offer(link="c", title="C", company="C", tech_stack=["Java"]),
     ]
@@ -956,7 +1128,12 @@ def test_match_offers_ai_rejects_offers_to_score_above_the_cap():
     response = client.post(
         "/offers/match/ai",
         json={
-            "candidate": {"summary": "", "skills": [], "projects": [], "experience": []},
+            "candidate": {
+                "summary": "",
+                "skills": [],
+                "projects": [],
+                "experience": [],
+            },
             "offers_to_score": 51,
         },
     )
@@ -970,7 +1147,12 @@ def test_match_offers_ai_rejects_offers_to_score_below_one():
     response = client.post(
         "/offers/match/ai",
         json={
-            "candidate": {"summary": "", "skills": [], "projects": [], "experience": []},
+            "candidate": {
+                "summary": "",
+                "skills": [],
+                "projects": [],
+                "experience": [],
+            },
             "offers_to_score": 0,
         },
     )
@@ -1006,7 +1188,8 @@ def test_calculate_salary_for_employment_contract():
     client = _build_client()
 
     response = client.post(
-        "/salary/calculate", json={"contract_type": "employment", "gross_monthly": 10000.0}
+        "/salary/calculate",
+        json={"contract_type": "employment", "gross_monthly": 10000.0},
     )
 
     assert response.status_code == 200
@@ -1024,7 +1207,11 @@ def test_calculate_salary_for_employment_contract_with_ppk():
 
     response = client.post(
         "/salary/calculate",
-        json={"contract_type": "employment", "gross_monthly": 10000.0, "include_ppk": True},
+        json={
+            "contract_type": "employment",
+            "gross_monthly": 10000.0,
+            "include_ppk": True,
+        },
     )
 
     assert response.status_code == 200
@@ -1047,14 +1234,20 @@ def test_calculate_salary_for_b2b_contract_with_business_costs():
 
     response = client.post(
         "/salary/calculate",
-        json={"contract_type": "b2b", "gross_monthly": 10000.0, "business_costs": 1000.0},
+        json={
+            "contract_type": "b2b",
+            "gross_monthly": 10000.0,
+            "business_costs": 1000.0,
+        },
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["business_costs"] == pytest.approx(1000.0)
     assert body["take_home"] == pytest.approx(
-        SalaryCalculator().calculate(ContractType.B2B, 10000.0, business_costs=1000.0).take_home,
+        SalaryCalculator()
+        .calculate(ContractType.B2B, 10000.0, business_costs=1000.0)
+        .take_home,
         abs=0.01,
     )
 
@@ -1064,12 +1257,24 @@ def test_calculate_salary_rounds_money_fields_to_cents():
 
     response = client.post(
         "/salary/calculate",
-        json={"contract_type": "b2b", "gross_monthly": 10000.0, "business_costs": 500.0},
+        json={
+            "contract_type": "b2b",
+            "gross_monthly": 10000.0,
+            "business_costs": 500.0,
+        },
     )
 
     assert response.status_code == 200
     body = response.json()
-    for field in ("gross", "social_security", "health_insurance", "income_tax", "business_costs", "ppk", "take_home"):
+    for field in (
+        "gross",
+        "social_security",
+        "health_insurance",
+        "income_tax",
+        "business_costs",
+        "ppk",
+        "take_home",
+    ):
         value = body[field]
         assert value == round(value, 2), f"{field}={value} has sub-cent precision"
 
@@ -1078,7 +1283,8 @@ def test_calculate_salary_rejects_unknown_contract_type():
     client = _build_client()
 
     response = client.post(
-        "/salary/calculate", json={"contract_type": "freelance", "gross_monthly": 10000.0}
+        "/salary/calculate",
+        json={"contract_type": "freelance", "gross_monthly": 10000.0},
     )
 
     assert response.status_code == 422
@@ -1099,7 +1305,11 @@ def test_calculate_salary_waives_income_tax_for_under_26():
 
     response = client.post(
         "/salary/calculate",
-        json={"contract_type": "employment", "gross_monthly": 10000.0, "under_26": True},
+        json={
+            "contract_type": "employment",
+            "gross_monthly": 10000.0,
+            "under_26": True,
+        },
     )
 
     assert response.status_code == 200
@@ -1110,7 +1320,8 @@ def test_calculate_salary_without_pit2_credit_increases_income_tax():
     client = _build_client()
 
     base = client.post(
-        "/salary/calculate", json={"contract_type": "employment", "gross_monthly": 10000.0}
+        "/salary/calculate",
+        json={"contract_type": "employment", "gross_monthly": 10000.0},
     ).json()
     without_credit = client.post(
         "/salary/calculate",
@@ -1132,7 +1343,11 @@ def test_calculate_salary_honours_b2b_tax_form():
     ).json()
     liniowy = client.post(
         "/salary/calculate",
-        json={"contract_type": "b2b", "gross_monthly": 10000.0, "b2b_tax_form": "liniowy"},
+        json={
+            "contract_type": "b2b",
+            "gross_monthly": 10000.0,
+            "b2b_tax_form": "liniowy",
+        },
     ).json()
 
     assert liniowy["income_tax"] != ryczalt["income_tax"]
@@ -1143,7 +1358,11 @@ def test_calculate_salary_rejects_unknown_b2b_tax_form():
 
     response = client.post(
         "/salary/calculate",
-        json={"contract_type": "b2b", "gross_monthly": 10000.0, "b2b_tax_form": "bogus"},
+        json={
+            "contract_type": "b2b",
+            "gross_monthly": 10000.0,
+            "b2b_tax_form": "bogus",
+        },
     )
 
     assert response.status_code == 422
@@ -1194,7 +1413,12 @@ def test_match_offers_ai_returns_400_when_user_has_no_key_for_the_model():
     response = TestClient(app).post(
         "/offers/match/ai",
         json={
-            "candidate": {"summary": "", "skills": [], "projects": [], "experience": []},
+            "candidate": {
+                "summary": "",
+                "skills": [],
+                "projects": [],
+                "experience": [],
+            },
         },
     )
 
@@ -1228,7 +1452,9 @@ def test_org_spend_returns_the_real_spend_when_available():
             return 4.2
 
     client = _org_spend_client(
-        GetOrgSpendUseCase(_Spend(), clock=lambda: datetime(2026, 6, 25, 12, tzinfo=timezone.utc))
+        GetOrgSpendUseCase(
+            _Spend(), clock=lambda: datetime(2026, 6, 25, 12, tzinfo=timezone.utc)
+        )
     )
 
     response = client.get("/usage/org-spend")
@@ -1276,7 +1502,9 @@ def test_org_usage_returns_per_model_usage_when_available():
             return [ModelUsageSummary("OpenAI", "gpt-4o", 1500, 300)]
 
     client = _org_usage_client(
-        GetOrgUsageUseCase(_Usage(), clock=lambda: datetime(2026, 6, 25, 12, tzinfo=timezone.utc))
+        GetOrgUsageUseCase(
+            _Usage(), clock=lambda: datetime(2026, 6, 25, 12, tzinfo=timezone.utc)
+        )
     )
 
     response = client.get("/usage/org-usage")
@@ -1285,7 +1513,12 @@ def test_org_usage_returns_per_model_usage_when_available():
     body = response.json()
     assert body["since"].startswith("2026-06-25T00:00:00")
     assert body["models"] == [
-        {"company": "OpenAI", "model": "gpt-4o", "input_tokens": 1500, "output_tokens": 300}
+        {
+            "company": "OpenAI",
+            "model": "gpt-4o",
+            "input_tokens": 1500,
+            "output_tokens": 300,
+        }
     ]
 
 
@@ -1313,9 +1546,16 @@ def test_usage_summary_returns_empty_list_when_no_usage():
 
 
 def test_usage_summary_returns_model_usage_with_limits():
-    client = _build_client(usage_summaries=[
-        ModelUsageSummary(company="Google", model="gemini-2.0-flash", input_tokens=1000, output_tokens=200),
-    ])
+    client = _build_client(
+        usage_summaries=[
+            ModelUsageSummary(
+                company="Google",
+                model="gemini-2.0-flash",
+                input_tokens=1000,
+                output_tokens=200,
+            ),
+        ]
+    )
 
     response = client.get("/usage/summary")
 
@@ -1333,14 +1573,179 @@ def test_usage_summary_returns_model_usage_with_limits():
 
 
 def test_usage_summary_limits_are_null_for_unknown_model():
-    client = _build_client(usage_summaries=[
-        ModelUsageSummary(company="OpenAI", model="gpt-unknown-99", input_tokens=500, output_tokens=100),
-    ])
+    client = _build_client(
+        usage_summaries=[
+            ModelUsageSummary(
+                company="OpenAI",
+                model="gpt-unknown-99",
+                input_tokens=500,
+                output_tokens=100,
+            ),
+        ]
+    )
 
     response = client.get("/usage/summary")
 
     assert response.status_code == 200
     assert response.json()[0]["limits"] is None
+
+
+# --- /usage/daily-requests (per-day request budget) ---
+
+
+class _StaticLimits(ModelLimitsRegistry):
+    def __init__(self, limits: dict[str, ModelLimits]) -> None:
+        self._limits = limits
+
+    def get_limits(self, model):
+        return self._limits.get(model)
+
+
+class _FixedCountUsageRepo(ModelUsageRepository):
+    """Reports a fixed requests-since count, so daily-request tests can set 'used' without
+    seeding individual usage rows."""
+
+    def __init__(self, count: int) -> None:
+        self._count = count
+
+    def save(self, usage):
+        raise NotImplementedError
+
+    def get_summary(self, user_id):
+        return []
+
+    def usage_since(self, user_id, start):
+        return []
+
+    def count_requests_since(self, user_id, company, start):
+        return self._count
+
+
+def _build_daily_requests_client(
+    *,
+    model: str | None = "gemini-2.5-flash",
+    has_key: bool = True,
+    used: int = 0,
+    override: int | None = None,
+) -> tuple[TestClient, InMemoryApiKeyRepository]:
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: User(
+        id="user-1", email="dev@example.com", password_hash="x"
+    )
+
+    selected = (
+        InMemorySelectedModelRepository(model)
+        if model is not None
+        else InMemorySelectedModelRepository()
+    )
+    api_keys = InMemoryApiKeyRepository()
+    if has_key:
+        anchor = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        api_keys.add(
+            ApiKeyRecord(
+                user_id="user-1",
+                api_provider="google",
+                key_ciphertext="x",
+                key_hint="x",
+                limit_usd=10.0,
+                tracking_since=anchor,
+                created_at=anchor,
+                daily_request_limit=override,
+            )
+        )
+    reader = TokenAccountingDailyRequestUsageReader(
+        api_keys,
+        _FixedCountUsageRepo(used),
+        _StaticLimits({"gemini-2.5-flash": ModelLimits(rpm=10, tpm=250_000, rpd=500)}),
+    )
+    context = AiScoringContext(
+        repository=selected,
+        build_use_case=lambda user_id, m: object(),
+        configure_sdk=lambda m: None,
+        default_model="",
+    )
+
+    app.dependency_overrides[get_ai_scoring_context] = lambda: context
+    app.dependency_overrides[get_daily_request_usage_use_case] = lambda: (
+        GetDailyRequestUsageUseCase(selected, reader)
+    )
+    app.dependency_overrides[get_set_daily_request_limit_use_case] = lambda: (
+        SetDailyRequestLimitUseCase(api_keys)
+    )
+    return TestClient(app), api_keys
+
+
+def test_get_daily_requests_reports_used_and_the_models_default_limit():
+    client, _ = _build_daily_requests_client(used=12)
+
+    response = client.get("/usage/daily-requests")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "model": "gemini-2.5-flash",
+        "company": "Google",
+        "used": 12,
+        "limit": 500,
+        "default_limit": 500,
+    }
+
+
+def test_get_daily_requests_is_null_when_there_is_no_keyable_daily_budget():
+    # An OpenAI model has no Gemini-style per-day request cap to display.
+    client, _ = _build_daily_requests_client(model="gpt-4o")
+
+    response = client.get("/usage/daily-requests")
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+def test_put_daily_requests_sets_an_override_and_returns_the_refreshed_view():
+    client, api_keys = _build_daily_requests_client(used=5)
+
+    response = client.put("/usage/daily-requests", json={"limit": 50})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["limit"] == 50
+    assert body["default_limit"] == 500  # still surfaces the free-tier default
+    assert body["used"] == 5
+    assert api_keys.get("user-1", "google").daily_request_limit == 50
+
+
+def test_put_daily_requests_clears_the_override_with_null():
+    client, api_keys = _build_daily_requests_client(override=50)
+
+    response = client.put("/usage/daily-requests", json={"limit": None})
+
+    assert response.status_code == 200
+    assert response.json()["limit"] == 500  # reverts to the model's free-tier default
+    assert api_keys.get("user-1", "google").daily_request_limit is None
+
+
+def test_put_daily_requests_404_when_selected_model_has_no_keyable_provider():
+    client, _ = _build_daily_requests_client(model="claude-3-5-sonnet")
+
+    response = client.put("/usage/daily-requests", json={"limit": 50})
+
+    assert response.status_code == 404
+
+
+def test_put_daily_requests_404_when_user_has_no_key_for_the_provider():
+    client, _ = _build_daily_requests_client(has_key=False)
+
+    response = client.put("/usage/daily-requests", json={"limit": 50})
+
+    assert response.status_code == 404
+
+
+def test_put_daily_requests_rejects_a_negative_limit():
+    client, _ = _build_daily_requests_client()
+
+    response = client.put("/usage/daily-requests", json={"limit": -1})
+
+    assert response.status_code == 422
 
 
 # --- GET /config/models and PUT /config/model ---
@@ -1365,7 +1770,9 @@ def _build_model_client(
         id="user-1", email="dev@example.com", password_hash="x"
     )
 
-    use_case = ListAvailableModelsUseCase(_FakeAvailableModelsProvider(available_models))
+    use_case = ListAvailableModelsUseCase(
+        _FakeAvailableModelsProvider(available_models)
+    )
     context = AiScoringContext(
         repository=InMemorySelectedModelRepository(initial_model),
         build_use_case=lambda user_id, model: object(),
@@ -1436,20 +1843,26 @@ def test_put_model_returns_404_for_unknown_model():
 _ANCHOR = datetime(2026, 6, 1, tzinfo=timezone.utc)
 
 
-def _build_budget_client(limit_usd: float = 5.0, spend_provider=None) -> tuple[TestClient, BudgetService]:
+def _build_budget_client(
+    limit_usd: float = 5.0, spend_provider=None
+) -> tuple[TestClient, BudgetService]:
     app = FastAPI()
     app.include_router(router)
     app.dependency_overrides[get_current_user] = lambda: User(
         id="user-1", email="dev@example.com", password_hash="x"
     )
-    repo = InMemoryBudgetRepository(BudgetSettings(limit_usd=limit_usd, tracking_since=_ANCHOR))
+    repo = InMemoryBudgetRepository(
+        BudgetSettings(limit_usd=limit_usd, tracking_since=_ANCHOR)
+    )
     service = BudgetService(repo, spend_provider)
     app.dependency_overrides[get_budget_service] = lambda: service
     return TestClient(app), service
 
 
 def test_get_usage_cost_returns_used_and_limit():
-    client, _ = _build_budget_client(limit_usd=5.0, spend_provider=FixedUserSpendProvider(2.50))
+    client, _ = _build_budget_client(
+        limit_usd=5.0, spend_provider=FixedUserSpendProvider(2.50)
+    )
 
     response = client.get("/usage/cost")
 
@@ -1467,7 +1880,9 @@ def test_get_usage_cost_returns_null_when_spend_unknown():
 
 
 def test_put_usage_limit_sets_the_limit():
-    client, service = _build_budget_client(limit_usd=5.0, spend_provider=FixedUserSpendProvider(1.0))
+    client, service = _build_budget_client(
+        limit_usd=5.0, spend_provider=FixedUserSpendProvider(1.0)
+    )
 
     response = client.put("/usage/limit", json={"limit_usd": 25.0})
 

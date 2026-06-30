@@ -86,6 +86,21 @@ def test_post_api_key_stores_and_returns_masked_view():
     assert repo.get("user-1", "openai") is not None
 
 
+def test_post_google_key_without_a_usd_limit_defaults_to_zero():
+    # Google keys are capped by the per-day request budget, not dollars, so the UI omits the
+    # USD limit when adding one — the request must still succeed (limit_usd defaults to 0).
+    client, repo = _build_client()
+
+    response = client.post(
+        "/api-keys",
+        json={"api_provider": "google", "key": "AIza-google-key-7890"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["limit_usd"] == 0.0
+    assert repo.get("user-1", "google").limit_usd == 0.0
+
+
 def test_post_api_key_rejected_by_provider_returns_400():
     client, repo = _build_client(validator=_RejectingValidator())
 

@@ -46,7 +46,8 @@
 
 .empty-hint,
 .add-error,
-.row-error {
+.row-error,
+.key-note {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -58,7 +59,8 @@
     height: 16px;
   }
 }
-.empty-hint {
+.empty-hint,
+.key-note {
   color: var(--mat-sys-on-surface-variant);
 }
 .add-error,

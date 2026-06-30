@@ -93,6 +93,17 @@ class InMemoryApiKeyRepository(ApiKeyRepository):
         self._by_key[(user_id, api_provider)] = replace(existing, limit_usd=limit_usd)
         return True
 
+    def update_daily_request_limit(
+        self, user_id: str, api_provider: str, limit: int | None
+    ) -> bool:
+        existing = self._by_key.get((user_id, api_provider))
+        if existing is None:
+            return False
+        self._by_key[(user_id, api_provider)] = replace(
+            existing, daily_request_limit=limit
+        )
+        return True
+
 
 class InMemoryAdminKeyRepository(AdminKeyRepository):
     """In-memory OpenAI admin keys keyed by user_id (at most one per user, mirroring the
@@ -178,7 +189,9 @@ class FakeUserProfileRepository(UserProfileRepository):
     """In-memory per-user profiles. For convenience a single seed `profile` is stored
     under `seed_user_id`, matching the fake user used by the API tests."""
 
-    def __init__(self, profile: UserProfile | None = None, seed_user_id: str = "user-1") -> None:
+    def __init__(
+        self, profile: UserProfile | None = None, seed_user_id: str = "user-1"
+    ) -> None:
         self._profiles: dict[str, UserProfile] = {}
         if profile is not None:
             self._profiles[seed_user_id] = profile
@@ -243,6 +256,10 @@ class FakeModelUsageRepository(ModelUsageRepository):
     def usage_since(self, user_id: str, start) -> list[ModelUsageSummary]:
         return self._summaries
 
+    def count_requests_since(self, user_id: str, company: str, start) -> int:
+        # One saved row is one request; tests that exercise the count seed `saved` directly.
+        return sum(1 for u in self.saved if u.company == company)
+
 
 class FakeUserRepository(UserRepository):
     def __init__(self, users: list[User] | None = None) -> None:
@@ -266,10 +283,14 @@ class FakeUserRepository(UserRepository):
         if user is not None:
             self.add(replace(user, email_verified=True))
 
-    def update_password(self, user_id: str, password_hash: str, token_version: int) -> None:
+    def update_password(
+        self, user_id: str, password_hash: str, token_version: int
+    ) -> None:
         user = self._by_id.get(user_id)
         if user is not None:
-            self.add(replace(user, password_hash=password_hash, token_version=token_version))
+            self.add(
+                replace(user, password_hash=password_hash, token_version=token_version)
+            )
 
 
 class FakeRefreshTokenRepository(RefreshTokenRepository):
@@ -282,13 +303,19 @@ class FakeRefreshTokenRepository(RefreshTokenRepository):
         self.records[record.id] = record
 
     def get_by_hash(self, token_hash: str) -> RefreshTokenRecord | None:
-        return next((r for r in self.records.values() if r.token_hash == token_hash), None)
+        return next(
+            (r for r in self.records.values() if r.token_hash == token_hash), None
+        )
 
     def mark_consumed(self, token_id: str, consumed_at: datetime) -> None:
-        self.records[token_id] = replace(self.records[token_id], consumed_at=consumed_at)
+        self.records[token_id] = replace(
+            self.records[token_id], consumed_at=consumed_at
+        )
 
     def revoke_family(self, family_id: str) -> None:
-        self.records = {i: r for i, r in self.records.items() if r.family_id != family_id}
+        self.records = {
+            i: r for i, r in self.records.items() if r.family_id != family_id
+        }
 
     def revoke_user(self, user_id: str) -> None:
         self.records = {i: r for i, r in self.records.items() if r.user_id != user_id}
@@ -393,5 +420,7 @@ class ScoreByLinkScorer(OfferScorer):
     def score(self, candidate: UserProfile, offer: Offer) -> MatchScore:
         self.scored_links.append(offer.link)
         return MatchScore().with_component(
-            ScoreComponent(name="fixed", value=self._scores_by_link[offer.link], weight=1.0)
+            ScoreComponent(
+                name="fixed", value=self._scores_by_link[offer.link], weight=1.0
+            )
         )

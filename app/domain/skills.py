@@ -34,3 +34,11 @@ class SkillNormalizer(ABC):
 
     @abstractmethod
     def normalize(self, raw: str) -> CanonicalSkill: ...
+
+
+class SkillEmbedder(ABC):
+    """Port: embed text into vectors for semantic similarity. Used only by offline tooling
+    (the alias suggester), never the request path; adapters live in infrastructure."""
+
+    @abstractmethod
+    def embed(self, texts: list[str]) -> list[list[float]]: ...

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.application.ports import AiScoreCacheRepository
 from app.domain.scoring import AiInsight, MatchScore, ScoreComponent
 from app.infrastructure.db import resolve_engine
-from app.infrastructure.orm_models import AiScoreRow, Base
+from app.infrastructure.orm_models import AiScoreRow
 
 
 def serialize_score(score: MatchScore) -> dict[str, Any]:
@@ -58,7 +58,6 @@ class PostgresAiScoreRepository(AiScoreCacheRepository):
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         self._engine = resolve_engine(database_or_engine)
-        Base.metadata.create_all(self._engine, tables=[AiScoreRow.__table__])
         self._clock = clock
 
     def get(self, key: str) -> MatchScore | None:

@@ -8,6 +8,7 @@ from app.application.api_key_use_cases import (
     DeleteApiKeyUseCase,
     ListApiKeysUseCase,
     SetApiKeyBudgetUseCase,
+    SetDailyRequestLimitUseCase,
 )
 from app.application.ports import ApiKeyValidator, UserProviderSpendProvider
 from app.domain.errors import (
@@ -57,15 +58,31 @@ def _add_use_case(repo, cipher, validator=None):
 
 # --- AddApiKeyUseCase ---
 
+
 def test_add_stores_an_encrypted_key_and_returns_a_masked_view():
     repo, cipher = InMemoryApiKeyRepository(), _cipher()
 
-    view = _add_use_case(repo, cipher).execute(_USER, "openai", "sk-secret-value-1234", 10.0)
+    view = _add_use_case(repo, cipher).execute(
+        _USER, "openai", "sk-secret-value-1234", 10.0
+    )
 
-    assert view == ApiKeyView(api_provider="openai", key_hint="sk-…1234", limit_usd=10.0, used_usd=0.0)
+    assert view == ApiKeyView(
+        api_provider="openai", key_hint="sk-…1234", limit_usd=10.0, used_usd=0.0
+    )
     stored = repo.get(_USER, "openai")
     assert stored.key_ciphertext != "sk-secret-value-1234"
     assert cipher.decrypt(stored.key_ciphertext) == "sk-secret-value-1234"
+
+
+def test_add_google_key_defaults_to_a_zero_usd_limit():
+    # Google keys are request-budgeted (per-day), not dollar-budgeted, so adding one needn't
+    # carry a USD limit — it defaults to 0.
+    repo, cipher = InMemoryApiKeyRepository(), _cipher()
+
+    view = _add_use_case(repo, cipher).execute(_USER, "google", "AIza-google-key-7890")
+
+    assert view.limit_usd == 0.0
+    assert repo.get(_USER, "google").limit_usd == 0.0
 
 
 def test_add_validates_the_key_before_storing():
@@ -81,9 +98,9 @@ def test_add_rejected_key_is_not_stored():
     repo, cipher = InMemoryApiKeyRepository(), _cipher()
 
     with pytest.raises(InvalidApiKeyError):
-        AddApiKeyUseCase(repo, cipher, _RejectingValidator(), clock=lambda: _NOW).execute(
-            _USER, "openai", "sk-bad", 5.0
-        )
+        AddApiKeyUseCase(
+            repo, cipher, _RejectingValidator(), clock=lambda: _NOW
+        ).execute(_USER, "openai", "sk-bad", 5.0)
 
     assert repo.get(_USER, "openai") is None
 
@@ -109,7 +126,11 @@ def test_add_signals_a_key_change_for_the_user_after_storing():
     changed = []
 
     AddApiKeyUseCase(
-        repo, cipher, _AcceptingValidator(), clock=lambda: _NOW, on_change=changed.append
+        repo,
+        cipher,
+        _AcceptingValidator(),
+        clock=lambda: _NOW,
+        on_change=changed.append,
     ).execute(_USER, "openai", "sk-good", 5.0)
 
     assert changed == [_USER]
@@ -121,13 +142,18 @@ def test_add_does_not_signal_a_change_when_the_key_is_rejected():
 
     with pytest.raises(InvalidApiKeyError):
         AddApiKeyUseCase(
-            repo, cipher, _RejectingValidator(), clock=lambda: _NOW, on_change=changed.append
+            repo,
+            cipher,
+            _RejectingValidator(),
+            clock=lambda: _NOW,
+            on_change=changed.append,
         ).execute(_USER, "openai", "sk-bad", 5.0)
 
     assert changed == []
 
 
 # --- ListApiKeysUseCase ---
+
 
 def test_list_returns_each_key_with_derived_usage():
     repo, cipher = InMemoryApiKeyRepository(), _cipher()
@@ -153,6 +179,7 @@ def test_list_never_exposes_ciphertext_or_plaintext():
 
 # --- SetApiKeyBudgetUseCase ---
 
+
 def test_set_budget_updates_the_limit_and_returns_the_view():
     repo, cipher = InMemoryApiKeyRepository(), _cipher()
     _add_use_case(repo, cipher).execute(_USER, "openai", "sk-openai-key-1234", 10.0)
@@ -168,10 +195,42 @@ def test_set_budget_on_a_missing_key_raises():
     repo = InMemoryApiKeyRepository()
 
     with pytest.raises(ApiKeyNotFoundError):
-        SetApiKeyBudgetUseCase(repo, _FixedProviderSpend()).execute(_USER, "openai", 25.0)
+        SetApiKeyBudgetUseCase(repo, _FixedProviderSpend()).execute(
+            _USER, "openai", 25.0
+        )
+
+
+# --- SetDailyRequestLimitUseCase ---
+
+
+def test_set_daily_request_limit_stores_an_override():
+    repo, cipher = InMemoryApiKeyRepository(), _cipher()
+    _add_use_case(repo, cipher).execute(_USER, "google", "AIza-google-key-7890", 8.0)
+
+    SetDailyRequestLimitUseCase(repo).execute(_USER, "google", 50)
+
+    assert repo.get(_USER, "google").daily_request_limit == 50
+
+
+def test_set_daily_request_limit_to_none_clears_the_override():
+    repo, cipher = InMemoryApiKeyRepository(), _cipher()
+    _add_use_case(repo, cipher).execute(_USER, "google", "AIza-google-key-7890", 8.0)
+    SetDailyRequestLimitUseCase(repo).execute(_USER, "google", 50)
+
+    SetDailyRequestLimitUseCase(repo).execute(_USER, "google", None)
+
+    assert repo.get(_USER, "google").daily_request_limit is None
+
+
+def test_set_daily_request_limit_on_a_missing_key_raises():
+    with pytest.raises(ApiKeyNotFoundError):
+        SetDailyRequestLimitUseCase(InMemoryApiKeyRepository()).execute(
+            _USER, "google", 50
+        )
 
 
 # --- DeleteApiKeyUseCase ---
+
 
 def test_delete_removes_the_key():
     repo, cipher = InMemoryApiKeyRepository(), _cipher()
@@ -201,8 +260,8 @@ def test_delete_a_missing_key_does_not_signal_a_change():
     changed = []
 
     with pytest.raises(ApiKeyNotFoundError):
-        DeleteApiKeyUseCase(InMemoryApiKeyRepository(), on_change=changed.append).execute(
-            _USER, "openai"
-        )
+        DeleteApiKeyUseCase(
+            InMemoryApiKeyRepository(), on_change=changed.append
+        ).execute(_USER, "openai")
 
     assert changed == []

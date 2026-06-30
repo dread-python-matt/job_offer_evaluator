@@ -26,7 +26,9 @@ from app.observability.request_context import bind_request_id, reset_request_id
 
 # Dedicated logger so access lines are filterable as `logger == "app.request"`.
 _logger = logging.getLogger("app.request")
-_HEALTH_PATH = "/health"
+# Liveness + readiness probes are hit constantly by orchestration; keep their successful
+# lines at DEBUG (failures still escalate to ERROR via the status check below).
+_HEALTH_PATHS = frozenset({"/health", "/health/ready"})
 
 
 class RequestLoggingMiddleware:
@@ -83,7 +85,7 @@ class RequestLoggingMiddleware:
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
         if failed or status >= 500:
             level = logging.ERROR
-        elif path == _HEALTH_PATH:
+        elif path in _HEALTH_PATHS:
             level = logging.DEBUG
         else:
             level = logging.INFO

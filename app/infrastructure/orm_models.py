@@ -119,6 +119,22 @@ class OfferRow(Base):
         )
 
 
+class OfferSkillRow(Base):
+    """App-owned projection of each offer's skills onto canonical concepts, so the browse `tech`
+    filter can match by concept in SQL (the scraper-owned `offers.tech_stack` holds raw strings).
+    One row per (offer, canonical concept); rebuilt by `PostgresOfferSkillIndexer`. No FK to
+    `offers` on purpose — that table is scraper-owned/migrated and this is a derived cache, so we
+    avoid coupling our migration to it; orphan rows are harmless and pruned on the next rebuild."""
+
+    __tablename__ = "offer_skill"
+
+    offer_id: Mapped[str] = mapped_column(String, primary_key=True)
+    canonical_id: Mapped[str] = mapped_column(String, primary_key=True)
+    required: Mapped[bool] = mapped_column(Boolean, nullable=False)
+
+    __table_args__ = (Index("ix_offer_skill_canonical_id", "canonical_id"),)
+
+
 class ModelUsageRow(Base):
     __tablename__ = "model_usage"
     # Spend is derived by summing a user's usage since an anchor timestamp
@@ -140,7 +156,9 @@ class ModelUsageRow(Base):
     output_tokens: Mapped[int]
     # True when the counts were estimated (provider reported no usage), so estimated and
     # measured usage stay distinguishable in the data.
-    estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    estimated: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
     # USD cost of this row's tokens, priced once at write time (PricingModelUsageRepository)
     # and frozen here, so spend reads sum this column and a later price change never rewrites
     # historical spend.
@@ -172,7 +190,9 @@ class UserApiKeyRow(Base):
     model usage for this provider since `tracking_since`."""
 
     __tablename__ = "user_api_key"
-    __table_args__ = (UniqueConstraint("user_id", "api_provider", name="uq_user_api_key_provider"),)
+    __table_args__ = (
+        UniqueConstraint("user_id", "api_provider", name="uq_user_api_key_provider"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(
@@ -278,4 +298,6 @@ class RefreshTokenRow(Base):
     family_id: Mapped[str] = mapped_column(String(36), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

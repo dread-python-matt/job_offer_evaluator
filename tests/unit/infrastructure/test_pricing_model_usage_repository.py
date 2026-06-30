@@ -7,7 +7,9 @@ from app.application.ports import (
     ModelUsageRepository,
     ModelUsageSummary,
 )
-from app.infrastructure.pricing_model_usage_repository import PricingModelUsageRepository
+from app.infrastructure.pricing_model_usage_repository import (
+    PricingModelUsageRepository,
+)
 
 
 class _RecordingRepo(ModelUsageRepository):
@@ -15,6 +17,7 @@ class _RecordingRepo(ModelUsageRepository):
         self.saved: list[ModelUsage] = []
         self.summary_calls: list[str] = []
         self.since_calls: list[tuple[str, datetime]] = []
+        self.count_calls: list[tuple[str, str, datetime]] = []
 
     def save(self, usage: ModelUsage) -> None:
         self.saved.append(usage)
@@ -26,6 +29,10 @@ class _RecordingRepo(ModelUsageRepository):
     def usage_since(self, user_id: str, start: datetime) -> list[ModelUsageSummary]:
         self.since_calls.append((user_id, start))
         return [ModelUsageSummary("OpenAI", "gpt-4o", 1, 2, cost_usd=3.0)]
+
+    def count_requests_since(self, user_id: str, company: str, start: datetime) -> int:
+        self.count_calls.append((user_id, company, start))
+        return 7
 
 
 class _Pricing(ModelPricingRegistry):
@@ -39,7 +46,9 @@ class _Pricing(ModelPricingRegistry):
 _PRICING = _Pricing(
     {
         "gpt-4o": ModelPrice(
-            input_per_million=2.50, output_per_million=10.0, cached_input_per_million=1.25
+            input_per_million=2.50,
+            output_per_million=10.0,
+            cached_input_per_million=1.25,
         )
     }
 )
@@ -76,7 +85,12 @@ def test_save_prices_cached_input_tokens_at_the_cached_rate():
     # 1M input, 0.5M of it cached, no output:
     # 0.5M @ $2.50 (normal) + 0.5M @ $1.25 (cached) = 1.25 + 0.625
     repo.save(
-        _usage("gpt-4o", input_tokens=1_000_000, output_tokens=0, cached_input_tokens=500_000)
+        _usage(
+            "gpt-4o",
+            input_tokens=1_000_000,
+            output_tokens=0,
+            cached_input_tokens=500_000,
+        )
     )
 
     assert inner.saved[0].cost_usd == 1.875
@@ -117,3 +131,12 @@ def test_reads_delegate_to_the_wrapped_repository():
     assert repo.usage_since("u1", start) == inner.usage_since("u1", start)
     assert inner.summary_calls == ["u1", "u1"]
     assert inner.since_calls == [("u1", start), ("u1", start)]
+
+
+def test_count_requests_since_delegates_to_the_wrapped_repository():
+    inner = _RecordingRepo()
+    repo = PricingModelUsageRepository(inner, _PRICING)
+    start = datetime(2026, 6, 26, tzinfo=timezone.utc)
+
+    assert repo.count_requests_since("u1", "Google", start) == 7
+    assert inner.count_calls == [("u1", "Google", start)]

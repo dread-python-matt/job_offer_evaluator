@@ -68,8 +68,10 @@ class AddApiKeyUseCase:
         self._on_change = on_change
 
     def execute(
-        self, user_id: str, api_provider: str, key: str, limit_usd: float
+        self, user_id: str, api_provider: str, key: str, limit_usd: float = 0.0
     ) -> ApiKeyView:
+        # `limit_usd` defaults to 0 for providers that aren't USD-budgeted (Google keys are
+        # capped by the per-day request budget, not dollars).
         if not is_supported_provider(api_provider):
             raise UnsupportedApiProviderError(api_provider)
         if self._repository.get(user_id, api_provider) is not None:
@@ -90,7 +92,10 @@ class AddApiKeyUseCase:
         # cached model picker) refresh instead of serving a stale list.
         self._on_change(user_id)
         return ApiKeyView(
-            api_provider=api_provider, key_hint=record.key_hint, limit_usd=limit_usd, used_usd=0.0
+            api_provider=api_provider,
+            key_hint=record.key_hint,
+            limit_usd=limit_usd,
+            used_usd=0.0,
         )
 
 
@@ -126,6 +131,21 @@ class SetApiKeyBudgetUseCase:
             raise ApiKeyNotFoundError(api_provider)
         record = self._repository.get(user_id, api_provider)
         return _view_with_usage(record, self._spend)
+
+
+class SetDailyRequestLimitUseCase:
+    """Sets (an int) or clears (None → revert to the free-tier default) the per-day request
+    cap on a user's provider key, leaving the key and everything else untouched. Raises if the
+    user has no key for that provider."""
+
+    def __init__(self, repository: ApiKeyRepository) -> None:
+        self._repository = repository
+
+    def execute(self, user_id: str, api_provider: str, limit: int | None) -> None:
+        if not self._repository.update_daily_request_limit(
+            user_id, api_provider, limit
+        ):
+            raise ApiKeyNotFoundError(api_provider)
 
 
 class DeleteApiKeyUseCase:

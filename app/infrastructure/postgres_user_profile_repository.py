@@ -16,7 +16,7 @@ from app.domain.entities import (
     ZusScheme,
 )
 from app.infrastructure.db import resolve_engine
-from app.infrastructure.orm_models import Base, UserProfileRow
+from app.infrastructure.orm_models import UserProfileRow
 
 
 def profile_to_dict(profile: UserProfile) -> dict[str, Any]:
@@ -97,7 +97,6 @@ class PostgresUserProfileRepository(UserProfileRepository):
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         self._engine = resolve_engine(database_or_engine)
-        Base.metadata.create_all(self._engine, tables=[UserProfileRow.__table__])
         self._clock = clock
 
     def save(self, user_id: str, profile: UserProfile) -> None:

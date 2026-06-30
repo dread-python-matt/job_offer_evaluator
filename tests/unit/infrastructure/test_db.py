@@ -24,6 +24,28 @@ def test_build_engine_keeps_pre_ping_enabled():
     assert build_engine(_URL).pool._pre_ping is True
 
 
+def _captured_connect_args(monkeypatch, **build_kwargs) -> dict:
+    captured: dict = {}
+
+    def fake_create_engine(url, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr("app.infrastructure.db.create_engine", fake_create_engine)
+    build_engine(_URL, **build_kwargs)
+    return captured["connect_args"]
+
+
+def test_build_engine_sets_a_connect_timeout_so_a_down_db_fails_fast(monkeypatch):
+    # Without a libpq connect_timeout a down/unreachable DB hangs for the OS TCP timeout
+    # (~2 minutes); the bounded timeout surfaces it as a fast, clear error instead.
+    assert _captured_connect_args(monkeypatch) == {"connect_timeout": 10}
+
+
+def test_build_engine_connect_timeout_is_overridable(monkeypatch):
+    assert _captured_connect_args(monkeypatch, connect_timeout=3) == {"connect_timeout": 3}
+
+
 def test_resolve_engine_passes_through_an_existing_engine():
     engine = build_engine(_URL)
 

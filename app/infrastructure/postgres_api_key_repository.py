@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.application.ports import ApiKeyRecord, ApiKeyRepository
 from app.infrastructure.db import resolve_engine
-from app.infrastructure.orm_models import Base, UserApiKeyRow
+from app.infrastructure.orm_models import UserApiKeyRow
 
 
 class PostgresApiKeyRepository(ApiKeyRepository):
@@ -13,7 +13,6 @@ class PostgresApiKeyRepository(ApiKeyRepository):
 
     def __init__(self, database_or_engine: str | Engine) -> None:
         self._engine = resolve_engine(database_or_engine)
-        Base.metadata.create_all(self._engine, tables=[UserApiKeyRow.__table__])
 
     def add(self, record: ApiKeyRecord) -> None:
         with Session(self._engine) as session:

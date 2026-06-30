@@ -65,12 +65,17 @@ def build_llm_provider_factory(
     openai_admin_key: str | None,
     gemini_api_key: str | None,
 ) -> LLMProviderFactory:
+    """Pick the org-level provider wiring for `LLM_PROVIDER`.
+
+    A provider API key is **optional** here: AI scoring uses each user's own stored key
+    (require-own-key), and the org-level spend/usage readouts only activate with an admin key.
+    So a missing env key yields a factory whose org-level providers are `None` (those features
+    report 'unavailable') rather than blocking startup — the app still boots and serves
+    browsing, deterministic matching and the salary calculator with no keys configured at all.
+    An unknown provider name is still a hard misconfiguration and raises.
+    """
     if provider == "openai":
-        if not openai_api_key:
-            raise ValueError("OPENAI_API_KEY must be set in .env when LLM_PROVIDER=openai")
-        return OpenAIProviderFactory(openai_api_key, openai_admin_key)
+        return OpenAIProviderFactory(openai_api_key or "", openai_admin_key)
     if provider == "gemini":
-        if not gemini_api_key:
-            raise ValueError("GEMINI_API_KEY must be set in .env when LLM_PROVIDER=gemini")
-        return GeminiProviderFactory(gemini_api_key)
+        return GeminiProviderFactory(gemini_api_key or "")
     raise ValueError(f"Unknown LLM_PROVIDER={provider!r}. Supported values: 'gemini', 'openai'")

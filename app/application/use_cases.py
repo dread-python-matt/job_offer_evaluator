@@ -17,6 +17,7 @@ from app.application.ports import (
     ModelUsageTracker,
     ModelUsageWithLimits,
     OfferRepository,
+    SelectedModelRepository,
     SpendProvider,
     UserAvailableModelsProvider,
     UserProfileRepository,
@@ -516,3 +517,43 @@ class GetModelUsageSummaryUseCase:
             )
             for s in summaries
         ]
+
+
+@dataclass
+class DailyRequestUsageView:
+    """The caller's per-day request budget for one model: requests made today, the effective
+    daily cap actually enforced, and the free-tier requests-per-day default it derives from
+    (None when the model's RPD is unknown and the cap is a user override)."""
+
+    model: str
+    used: int
+    limit: int
+    default_limit: int | None
+
+
+class GetDailyRequestUsageUseCase:
+    """The caller's per-day request budget for their currently selected model. Returns None
+    when there's nothing to show — no model selected, a model whose provider isn't keyable,
+    no stored key for it, or an unknown model with no override (see DailyRequestUsageReader)."""
+
+    def __init__(
+        self,
+        selected_model: SelectedModelRepository,
+        reader: DailyRequestUsageReader,
+    ) -> None:
+        self._selected_model = selected_model
+        self._reader = reader
+
+    def execute(self, user_id: str) -> DailyRequestUsageView | None:
+        model = self._selected_model.get(user_id)
+        if not model:
+            return None
+        status = self._reader.status_for(user_id, model)
+        if status is None:
+            return None
+        return DailyRequestUsageView(
+            model=model,
+            used=status.used,
+            limit=status.limit,
+            default_limit=status.default_limit,
+        )

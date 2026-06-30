@@ -186,3 +186,13 @@ export interface AdminKey {
   key_hint: string;
   created_at: string;
 }
+
+export interface DailyRequestUsage {
+  model: string;
+  company: string;
+  used: number;
+  limit: number;
+  // The model's free-tier requests-per-day default, or null when unknown (so the cap is a
+  // user override). When `limit` differs from this, the user has set their own limit.
+  default_limit: number | null;
+}

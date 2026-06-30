@@ -1,21 +1,40 @@
-from sqlalchemy import Engine, Text, cast, func, or_, select
+from sqlalchemy import Engine, Text, cast, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.application.ports import OfferRepository
 from app.domain.entities import Offer
 from app.domain.filters import MatchCriteria, OfferBrowseFilters
+from app.domain.skills import SkillNormalizer
 from app.infrastructure.db import resolve_engine
-from app.infrastructure.orm_models import NormalizedSalaryRow, OfferRow, SalaryRow
+from app.infrastructure.orm_models import (
+    NormalizedSalaryRow,
+    OfferRow,
+    OfferSkillRow,
+    SalaryRow,
+)
 
 # Salary sort keys -> the aggregated subquery column they order by.
-_SALARY_SORT_COLUMNS = {"salary_min": "net_min", "salary_mid": "net_mid", "salary_max": "net_max"}
+_SALARY_SORT_COLUMNS = {
+    "salary_min": "net_min",
+    "salary_mid": "net_mid",
+    "salary_max": "net_max",
+}
 
 
 class PostgresOfferRepository(OfferRepository):
     """Read-only adapter over the existing `offers` table owned by the scraper."""
 
-    def __init__(self, database_or_engine: str | Engine) -> None:
+    def __init__(
+        self,
+        database_or_engine: str | Engine,
+        normalizer: SkillNormalizer | None = None,
+    ) -> None:
         self._engine = resolve_engine(database_or_engine)
+        # When set, the browse "tech" filter matches canonical concepts via the offer_skill index
+        # (so "k8s" finds offers tagged "Kubernetes"); when None it falls back to raw substring
+        # matching on the stored stacks. The index is built by app.scripts.index_offer_skills with
+        # this same normalizer, so the query side and the stored side agree on concepts.
+        self._normalizer = normalizer
 
     def candidate_offers(self, criteria: MatchCriteria) -> list[Offer]:
         # A match filters on the same structural fields as browsing (location, net-salary
@@ -46,11 +65,16 @@ class PostgresOfferRepository(OfferRepository):
         # (max net_of_max across its salary rows).
         salary_sq = self._salary_subquery_if_needed(filters)
         with Session(self._engine) as session:
-            total = session.scalar(
-                select(func.count()).select_from(
-                    self._apply_filters(select(OfferRow.id), filters, salary_sq).subquery()
+            total = (
+                session.scalar(
+                    select(func.count()).select_from(
+                        self._apply_filters(
+                            select(OfferRow.id), filters, salary_sq
+                        ).subquery()
+                    )
                 )
-            ) or 0
+                or 0
+            )
             data_q = (
                 self._apply_filters(select(OfferRow), filters, salary_sq)
                 .order_by(self._order_clause(filters, salary_sq))
@@ -63,7 +87,9 @@ class PostgresOfferRepository(OfferRepository):
     def _salary_subquery_if_needed(self, filters: OfferBrowseFilters):
         """The best-salary subquery, but only when the request needs it (a min-salary floor
         or a salary sort) — otherwise None, so no join is added."""
-        needs_salary = filters.min_salary is not None or filters.sort_by in _SALARY_SORT_COLUMNS
+        needs_salary = (
+            filters.min_salary is not None or filters.sort_by in _SALARY_SORT_COLUMNS
+        )
         return self._best_salary_subquery() if needs_salary else None
 
     def _apply_filters(self, stmt, filters: OfferBrowseFilters, salary_sq):
@@ -116,14 +142,36 @@ class PostgresOfferRepository(OfferRepository):
             ]
             query = query.where(or_(*level_conds))
         if filters.tech:
-            for tech in filters.tech:
+            query = self._apply_tech_filter(query, filters.tech)
+        return query
+
+    def _apply_tech_filter(self, query, techs: list[str]):
+        """Filter to offers having ALL requested techs. With a normalizer wired, each term is
+        canonicalized and matched against the `offer_skill` index (concept-based, so "k8s" finds
+        "Kubernetes"); without one, fall back to raw substring matching on the stored stacks."""
+        if self._normalizer is None:
+            for tech in techs:
                 pattern = f"%{tech.lower()}%"
                 query = query.where(
                     or_(
                         func.lower(cast(OfferRow.tech_stack, Text)).like(pattern),
-                        func.lower(cast(OfferRow.tech_stack_nice_to_have, Text)).like(pattern),
+                        func.lower(cast(OfferRow.tech_stack_nice_to_have, Text)).like(
+                            pattern
+                        ),
                     )
                 )
+            return query
+        for tech in techs:
+            canonical_id = self._normalizer.normalize(tech).id
+            if not canonical_id:
+                continue
+            query = query.where(
+                exists(
+                    select(OfferSkillRow.offer_id)
+                    .where(OfferSkillRow.offer_id == OfferRow.id)
+                    .where(OfferSkillRow.canonical_id == canonical_id)
+                )
+            )
         return query
 
     def _order_clause(self, filters: OfferBrowseFilters, salary_sq=None):

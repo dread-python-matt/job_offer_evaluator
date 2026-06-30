@@ -11,11 +11,14 @@ from app.application.api_key_use_cases import (
     DeleteApiKeyUseCase,
     ListApiKeysUseCase,
     SetApiKeyBudgetUseCase,
+    SetDailyRequestLimitUseCase,
 )
 from app.application.budget_service import BudgetService
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     CountOffersUseCase,
+    DailyRequestUsageView,
+    GetDailyRequestUsageUseCase,
     GetModelUsageSummaryUseCase,
     GetOrgSpendUseCase,
     GetOrgUsageUseCase,
@@ -26,13 +29,18 @@ from app.application.use_cases import (
     MatchOffersWithAiUseCase,
     SaveUserProfileUseCase,
 )
-from app.domain.api_providers import SUPPORTED_API_PROVIDERS, company_for_provider
+from app.domain.api_providers import (
+    SUPPORTED_API_PROVIDERS,
+    company_for_provider,
+    provider_for_company,
+)
 from app.domain.auth import User
 from app.domain.errors import (
     AiScoringError,
     ApiKeyAlreadyExistsError,
     ApiKeyNotFoundError,
     BudgetExceededError,
+    DailyRequestLimitExceededError,
     InvalidAdminKeyError,
     InvalidApiKeyError,
     UnsupportedApiProviderError,
@@ -54,6 +62,7 @@ from app.presentation.api.schemas import (
     SetApiKeyBudgetRequestSchema,
     CompanyModelsSchema,
     CurrentModelSchema,
+    DailyRequestUsageSchema,
     MatchAiRequestSchema,
     MatchedOfferSchema,
     MatchRequestSchema,
@@ -67,6 +76,7 @@ from app.presentation.api.schemas import (
     SalaryCalculationResponseSchema,
     SelectModelRequestSchema,
     SetBudgetLimitRequestSchema,
+    SetDailyRequestLimitRequestSchema,
     UsageCostSchema,
     UserProfileSchema,
 )
@@ -135,6 +145,14 @@ def get_list_api_keys_use_case() -> ListApiKeysUseCase:
 
 
 def get_set_api_key_budget_use_case() -> SetApiKeyBudgetUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_daily_request_usage_use_case() -> GetDailyRequestUsageUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_set_daily_request_limit_use_case() -> SetDailyRequestLimitUseCase:
     raise NotImplementedError("override with a configured use case")
 
 
@@ -254,6 +272,8 @@ async def match_offers_ai(
         )
     except BudgetExceededError as exc:
         raise HTTPException(status_code=402, detail=str(exc)) from exc
+    except DailyRequestLimitExceededError as exc:
+        raise HTTPException(status_code=402, detail=str(exc)) from exc
     except AiScoringError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return AiMatchResponseSchema(
@@ -300,11 +320,16 @@ def get_available_models(
     by_company: dict[str, list[str]] = {}
     for m in all_models:
         by_company.setdefault(m.company, []).append(m.model)
-    companies = [CompanyModelsSchema(name=company, models=models) for company, models in sorted(by_company.items())]
+    companies = [
+        CompanyModelsSchema(name=company, models=models)
+        for company, models in sorted(by_company.items())
+    ]
     active_model = context.active_model_for(user.id)
     return AvailableModelsSchema(
         companies=companies,
-        active=CurrentModelSchema(model=active_model, company=company_from_model(active_model)),
+        active=CurrentModelSchema(
+            model=active_model, company=company_from_model(active_model)
+        ),
     )
 
 
@@ -317,9 +342,13 @@ def select_model(
 ) -> CurrentModelSchema:
     available = {m.model for m in use_case.execute(user.id)}
     if payload.model not in available:
-        raise HTTPException(status_code=404, detail=f"Model '{payload.model}' is not available")
+        raise HTTPException(
+            status_code=404, detail=f"Model '{payload.model}' is not available"
+        )
     context.select_model(user.id, payload.model)
-    return CurrentModelSchema(model=payload.model, company=company_from_model(payload.model))
+    return CurrentModelSchema(
+        model=payload.model, company=company_from_model(payload.model)
+    )
 
 
 @router.get("/usage/cost", response_model=UsageCostSchema | None)
@@ -378,7 +407,67 @@ def get_usage_summary(
     user: User = Depends(get_current_user),
     use_case: GetModelUsageSummaryUseCase = Depends(get_model_usage_summary_use_case),
 ) -> list[ModelUsageSummaryItemSchema]:
-    return [ModelUsageSummaryItemSchema.from_domain(item) for item in use_case.execute(user.id)]
+    return [
+        ModelUsageSummaryItemSchema.from_domain(item)
+        for item in use_case.execute(user.id)
+    ]
+
+
+def _daily_request_schema(view: DailyRequestUsageView) -> DailyRequestUsageSchema:
+    return DailyRequestUsageSchema(
+        model=view.model,
+        company=company_from_model(view.model),
+        used=view.used,
+        limit=view.limit,
+        default_limit=view.default_limit,
+    )
+
+
+@router.get("/usage/daily-requests", response_model=DailyRequestUsageSchema | None)
+def get_daily_request_usage(
+    user: User = Depends(get_current_user),
+    use_case: GetDailyRequestUsageUseCase = Depends(get_daily_request_usage_use_case),
+) -> DailyRequestUsageSchema | None:
+    """The caller's per-day request budget for their selected model — the free-tier-friendly
+    alternative to the USD budget. Null when there's no daily cap to show (no model selected,
+    a model whose provider the caller has no key for, or an unknown model's RPD with no
+    override)."""
+    view = use_case.execute(user.id)
+    return _daily_request_schema(view) if view is not None else None
+
+
+@router.put("/usage/daily-requests", response_model=DailyRequestUsageSchema)
+def set_daily_request_limit(
+    payload: SetDailyRequestLimitRequestSchema,
+    user: User = Depends(get_current_user),
+    context: AiScoringContext = Depends(get_ai_scoring_context),
+    set_use_case: SetDailyRequestLimitUseCase = Depends(
+        get_set_daily_request_limit_use_case
+    ),
+    get_use_case: GetDailyRequestUsageUseCase = Depends(
+        get_daily_request_usage_use_case
+    ),
+) -> DailyRequestUsageSchema:
+    """Set (or clear, with `limit: null`) the per-day request cap on the key backing the
+    caller's currently selected model. 404 if no model is selected, the model's provider
+    isn't keyable, or the caller has no key for it."""
+    model = context.active_model_for(user.id)
+    provider = provider_for_company(company_from_model(model)) if model else None
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No keyable provider for the selected model; select a Gemini/OpenAI model first",
+        )
+    try:
+        set_use_case.execute(user.id, provider, payload.limit)
+    except ApiKeyNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    view = get_use_case.execute(user.id)
+    if view is None:
+        raise HTTPException(
+            status_code=404, detail="No daily request budget for the selected model"
+        )
+    return _daily_request_schema(view)
 
 
 @router.get("/api-keys/providers", response_model=list[ApiProviderSchema])
@@ -405,7 +494,9 @@ def add_api_key(
     use_case: AddApiKeyUseCase = Depends(get_add_api_key_use_case),
 ) -> ApiKeySchema:
     try:
-        view = use_case.execute(user.id, payload.api_provider, payload.key, payload.limit_usd)
+        view = use_case.execute(
+            user.id, payload.api_provider, payload.key, payload.limit_usd
+        )
     except UnsupportedApiProviderError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except InvalidApiKeyError as exc:

@@ -18,7 +18,7 @@
     }
     <button
       mat-icon-button
-      (click)="load()"
+      (click)="reloadAll()"
       [disabled]="loading()"
       aria-label="Refresh usage data"
       class="refresh-btn"
@@ -85,9 +85,11 @@
     </mat-card>
   }
 
-  <app-api-keys (changed)="load()" />
+  <app-daily-requests [refreshToken]="dailyRefresh()" />
 
-  <app-admin-key (changed)="load()" />
+  <app-api-keys (changed)="reloadAll()" />
+
+  <app-admin-key (changed)="reloadAll()" />
 
   <mat-card appearance="outlined" class="org-spend-card">
     <mat-card-header>

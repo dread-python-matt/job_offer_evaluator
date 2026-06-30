@@ -11,8 +11,19 @@ inherits string-match errors; canonicalizing once at the boundary fixes all of t
 >
 > **Status:** Phase 1 (deterministic Tier 0 — `SkillNormalizer` port + `AliasMapSkillNormalizer`
 > + seeded `skill_aliases.json` + canonicalization at the matching boundary + the evidence-aware
-> scoring fix) is **implemented**. Tiers 1–2 (embedding-assisted curation tooling, optional
-> semantic fallback) remain planned (§7–§8, §12).
+> scoring fix) is **implemented**, along with **Phase 2**: the corpus-mining / coverage tool
+> (`app/scripts/mine_skill_corpus.py` + pure core `app/application/skill_corpus.py`) that surveys
+> the offers' skill tokens and lists the unmapped tail by frequency, and the **embedding-assisted
+> alias suggester** (`app/scripts/suggest_skill_aliases.py` + pure core
+> `app/application/skill_suggestions.py`) that ranks that tail against the canonical concepts —
+> lexical (stdlib `difflib`) by default, with an optional embedding-cosine blend behind a
+> `SkillEmbedder` port — and emits human-review suggestions without ever auto-editing the map.
+> Together they grow the map from real data. **Phase 3 (browse) is also implemented**: an
+> `offer_skill` index table (ORM `OfferSkillRow`, migration `0018`, rebuilt by
+> `app/scripts/index_offer_skills.py` via `PostgresOfferSkillIndexer`) projects each offer's
+> skills onto canonical concepts, so browsing's tech filter matches by concept in SQL
+> (`PostgresOfferRepository` is concept-aware when a normalizer is wired). Only the optional
+> semantic *runtime* fallback (Tier 2 pgvector, §7–§8) remains planned.
 
 ---
 
@@ -295,13 +306,16 @@ synonyms + Linguist + corpus survey) → canonicalize candidate & offers at the 
 update scoring to canonical + explicit features (incl. the evidenced-but-unrated fix) →
 unknown-token table + structured log → tests for known **merges and non-merges**. Ship.
 
-**Phase 2 — curation tooling.** `mine_skill_corpus.py` + `suggest_skill_aliases.py` (embeddings +
-rapidfuzz) + review workflow; iterate the map from the unknown-token log. Optionally persist
-profile/offer canonical projections (write-time, `map_version`-tagged).
+**Phase 2 — curation tooling.** `mine_skill_corpus.py` + `suggest_skill_aliases.py` (stdlib
+`difflib` lexical + optional embeddings behind a `SkillEmbedder` port) + review workflow; iterate
+the map from the unknown-token log. Optionally persist profile/offer canonical projections
+(write-time, `map_version`-tagged).
 
-**Phase 3 — semantic fallback / scale.** pgvector `canonical_skill_embedding`, confidence-weighted
-Tier-2 runtime fallback, and the `offer_skill_index` table to push canonical tech filtering into
-SQL for browse. Only if metrics justify it.
+**Phase 3 — scale / semantic fallback.** The `offer_skill` index that pushes canonical tech
+filtering into SQL for browse is **done** (`OfferSkillRow` + migration `0018` +
+`PostgresOfferSkillIndexer`, rebuilt by `app.scripts.index_offer_skills`). Still planned (only if
+metrics justify it): pgvector `canonical_skill_embedding` + a confidence-weighted Tier-2 runtime
+fallback, and incremental index refresh keyed on `offers.scraped_at` (the current rebuild is full).
 
 ---
 

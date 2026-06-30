@@ -140,9 +140,12 @@ class UserProfileSchema(BaseModel):
         return cls(
             summary=profile.summary,
             skills=[SkillSchema.from_domain(skill) for skill in profile.skills],
-            projects=[ProjectSchema.from_domain(project) for project in profile.projects],
+            projects=[
+                ProjectSchema.from_domain(project) for project in profile.projects
+            ],
             experience=[
-                ExperienceSchema.from_domain(experience) for experience in profile.experience
+                ExperienceSchema.from_domain(experience)
+                for experience in profile.experience
             ],
             tax_situation=TaxSituationSchema.from_domain(profile.tax_situation),
         )
@@ -213,7 +216,9 @@ class SalaryCalculationResponseSchema(BaseModel):
     take_home: float
 
     @classmethod
-    def from_domain(cls, breakdown: NetSalaryBreakdown) -> "SalaryCalculationResponseSchema":
+    def from_domain(
+        cls, breakdown: NetSalaryBreakdown
+    ) -> "SalaryCalculationResponseSchema":
         return cls(
             gross=round(breakdown.gross, 2),
             social_security=round(breakdown.social_security, 2),
@@ -327,13 +332,17 @@ class MatchedOfferSchema(BaseModel):
             score=matched.score,
             matched_skills=sorted(matched.matched_skills),
             locations=matched.offer.locations,
-            salaries=[SalarySchema.from_domain(salary) for salary in matched.offer.salaries],
+            salaries=[
+                SalarySchema.from_domain(salary) for salary in matched.offer.salaries
+            ],
             expired=matched.offer.expired,
             expires=matched.offer.expires,
             levels=matched.offer.levels,
             published=matched.offer.published,
             ai_insight=(
-                AiInsightSchema.from_domain(matched.ai_insight) if matched.ai_insight else None
+                AiInsightSchema.from_domain(matched.ai_insight)
+                if matched.ai_insight
+                else None
             ),
         )
 
@@ -390,6 +399,26 @@ class BudgetSchema(BaseModel):
 
 class SetBudgetLimitRequestSchema(BaseModel):
     limit_usd: float = Field(ge=0)
+
+
+class DailyRequestUsageSchema(BaseModel):
+    """The caller's per-day request budget for their selected model — the free-tier-friendly
+    alternative to the USD budget. `used` is the requests made today (resets at midnight
+    US/Pacific, like Gemini's RPD), `limit` is the cap actually enforced, and `default_limit`
+    is the model's free-tier requests-per-day (null when the model's RPD is unknown)."""
+
+    model: str
+    company: str
+    used: int
+    limit: int
+    default_limit: int | None
+
+
+class SetDailyRequestLimitRequestSchema(BaseModel):
+    """Set the per-day request cap, or send `null` to clear it (revert to the free-tier
+    default). `0` is allowed and effectively pauses AI matching for that key."""
+
+    limit: int | None = Field(default=None, ge=0)
 
 
 class OrgSpendSchema(BaseModel):
@@ -467,7 +496,9 @@ class ApiKeySchema(BaseModel):
 class AddApiKeyRequestSchema(BaseModel):
     api_provider: str
     key: str = Field(min_length=1)
-    limit_usd: float = Field(ge=0)
+    # Optional: only USD-budgeted providers (e.g. OpenAI) carry a spend limit. Google keys are
+    # capped by the per-day request budget instead, so the UI omits this for them → defaults to 0.
+    limit_usd: float = Field(default=0.0, ge=0)
 
 
 class SetApiKeyBudgetRequestSchema(BaseModel):
@@ -510,8 +541,11 @@ class ModelUsageSummaryItemSchema(BaseModel):
             model=item.model,
             input_tokens=item.input_tokens,
             output_tokens=item.output_tokens,
-            limits=ModelLimitsSchema(rpm=item.limits.rpm, tpm=item.limits.tpm, rpd=item.limits.rpd)
-            if item.limits else None,
+            limits=ModelLimitsSchema(
+                rpm=item.limits.rpm, tpm=item.limits.tpm, rpd=item.limits.rpd
+            )
+            if item.limits
+            else None,
         )
 
 

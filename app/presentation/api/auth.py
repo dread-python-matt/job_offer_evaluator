@@ -1,5 +1,7 @@
+import logging
 import secrets
 from dataclasses import dataclass
+from typing import Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
@@ -205,11 +207,45 @@ public_router = APIRouter()
 private_router = APIRouter()
 
 
+_logger = logging.getLogger(__name__)
+
+
 @public_router.get("/health")
 def health() -> dict[str, str]:
     """Liveness probe for orchestration/load balancers. Intentionally dependency-free
-    and unauthenticated so it stays green even if downstream providers are degraded."""
+    and unauthenticated so it stays green even if downstream providers (or the database)
+    are degraded — use it to decide whether the *process* is alive, not whether it can
+    serve traffic. Readiness lives at `/health/ready`."""
     return {"status": "ok"}
+
+
+class ReadinessProbe(Protocol):
+    """Confirms the service's critical dependencies (the database) are reachable.
+
+    `check()` raises when a dependency is down; the readiness route maps that to a 503."""
+
+    def check(self) -> None: ...
+
+
+def get_readiness_probe() -> ReadinessProbe:
+    # Wired to a concrete adapter (EngineReadinessProbe) in main.py's composition root.
+    raise NotImplementedError("readiness probe not configured")
+
+
+@public_router.get("/health/ready")
+def readiness(
+    probe: ReadinessProbe = Depends(get_readiness_probe),
+) -> dict[str, str]:
+    """Readiness probe: returns 200 only when the database is reachable (a real `SELECT 1`),
+    otherwise 503 so an orchestrator/load balancer stops routing traffic here until the
+    database recovers. Point Kubernetes/compose readiness checks at this path; keep `/health`
+    for liveness so a transient DB outage never restarts an otherwise-healthy process."""
+    try:
+        probe.check()
+    except Exception:
+        _logger.warning("readiness check failed: database unreachable", exc_info=True)
+        raise HTTPException(status_code=503, detail="database unavailable")
+    return {"status": "ready"}
 
 
 @public_router.post(

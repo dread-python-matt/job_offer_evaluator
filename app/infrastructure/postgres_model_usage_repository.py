@@ -5,13 +5,12 @@ from sqlalchemy.orm import Session
 
 from app.application.ports import ModelUsage, ModelUsageRepository, ModelUsageSummary
 from app.infrastructure.db import resolve_engine
-from app.infrastructure.orm_models import Base, ModelUsageRow
+from app.infrastructure.orm_models import ModelUsageRow
 
 
 class PostgresModelUsageRepository(ModelUsageRepository):
     def __init__(self, database_or_engine: str | Engine) -> None:
         self._engine = resolve_engine(database_or_engine)
-        Base.metadata.create_all(self._engine, tables=[ModelUsageRow.__table__])
 
     def save(self, usage: ModelUsage) -> None:
         with Session(self._engine) as session:

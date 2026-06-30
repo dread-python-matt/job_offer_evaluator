@@ -69,7 +69,12 @@ class AliasMapSkillNormalizer(SkillNormalizer):
     def __init__(
         self, spec: dict, on_unknown: UnknownSink | None = log_unknown_skill_token
     ) -> None:
-        self._canonical: set[str] = set(spec.get("canonical", {}))
+        # id -> display label, kept so tooling (the alias suggester) can match unmapped tokens
+        # against canonical labels, not just ids. Membership checks use the dict's keys.
+        self._canonical: dict[str, str] = {
+            cid: (meta or {}).get("label", cid)
+            for cid, meta in spec.get("canonical", {}).items()
+        }
         # Build protected first: its members bypass separator collapsing, both for incoming
         # tokens and when normalizing alias keys, so they line up.
         self._protected: set[str] = {_fold(t) for t in spec.get("protected", [])}
@@ -112,3 +117,8 @@ class AliasMapSkillNormalizer(SkillNormalizer):
     def never_merge_pairs(self) -> list[tuple[str, str]]:
         """Canonical-id pairs that must never resolve to the same concept (asserted by tests)."""
         return list(self._never_merge)
+
+    @property
+    def canonical_labels(self) -> dict[str, str]:
+        """Canonical id → display label, for tooling (e.g. the alias suggester)."""
+        return dict(self._canonical)

@@ -25,6 +25,7 @@ from app.application.api_key_use_cases import (
     DeleteApiKeyUseCase,
     ListApiKeysUseCase,
     SetApiKeyBudgetUseCase,
+    SetDailyRequestLimitUseCase,
 )
 from app.application.api_key_resolver import UserApiKeyResolver
 from app.application.budget_service import BudgetService
@@ -33,6 +34,7 @@ from app.application.refresh_tokens import RefreshTokenService
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
     CountOffersUseCase,
+    GetDailyRequestUsageUseCase,
     GetModelUsageSummaryUseCase,
     GetOrgSpendUseCase,
     GetOrgUsageUseCase,
@@ -94,8 +96,11 @@ from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
 from app.infrastructure.llm_utils import company_from_model
 from app.infrastructure.rate_limiting import AsyncRateLimiter, build_google_pace_limiter
-from app.infrastructure.composite_budget_status_reader import CompositeBudgetStatusReader
+from app.infrastructure.composite_budget_status_reader import (
+    CompositeBudgetStatusReader,
+)
 from app.infrastructure.db import build_engine
+from app.infrastructure.db_readiness import EngineReadinessProbe
 from app.application.ports import RateLimiter
 from app.infrastructure.in_memory_rate_limiter import InMemoryRateLimiter
 from app.infrastructure.redis_rate_limiter import RedisRateLimiter
@@ -107,16 +112,24 @@ from app.infrastructure.keyed_user_available_models_provider import (
     CachingUserAvailableModelsProvider,
     KeyedUserAvailableModelsProvider,
 )
-from app.infrastructure.gemini_available_models_provider import GeminiAvailableModelsProvider
+from app.infrastructure.gemini_available_models_provider import (
+    GeminiAvailableModelsProvider,
+)
 from app.infrastructure.llm_logging import configure_llm_logging
 from app.infrastructure.llm_provider_factory import build_llm_provider_factory
 from app.infrastructure.llm_scoring_strategy import LLMScoringStrategy
-from app.infrastructure.openai_available_models_provider import OpenAIAvailableModelsProvider
+from app.infrastructure.openai_available_models_provider import (
+    OpenAIAvailableModelsProvider,
+)
 from app.infrastructure.model_limits_registry import HardcodedModelLimitsRegistry
 from app.infrastructure.model_pricing_registry import HardcodedModelPricingRegistry
 from app.infrastructure.org_spend_backstop import OrgSpendBackstop
-from app.infrastructure.request_scoped_usage_tracker import RequestScopedModelUsageTracker
-from app.infrastructure.token_accounting_spend_provider import TokenAccountingSpendProvider
+from app.infrastructure.request_scoped_usage_tracker import (
+    RequestScopedModelUsageTracker,
+)
+from app.infrastructure.token_accounting_spend_provider import (
+    TokenAccountingSpendProvider,
+)
 from app.infrastructure.offer_filters import (
     ExpiredFilter,
     LevelFilter,
@@ -126,16 +139,28 @@ from app.infrastructure.offer_filters import (
 )
 from app.infrastructure.postgres_ai_score_repository import PostgresAiScoreRepository
 from app.infrastructure.postgres_budget_repository import PostgresBudgetRepository
-from app.infrastructure.postgres_model_usage_repository import PostgresModelUsageRepository
-from app.infrastructure.pricing_model_usage_repository import PricingModelUsageRepository
+from app.infrastructure.postgres_model_usage_repository import (
+    PostgresModelUsageRepository,
+)
+from app.infrastructure.pricing_model_usage_repository import (
+    PricingModelUsageRepository,
+)
 from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
-from app.infrastructure.postgres_selected_model_repository import PostgresSelectedModelRepository
-from app.infrastructure.postgres_user_profile_repository import PostgresUserProfileRepository
-from app.infrastructure.postgres_refresh_token_repository import PostgresRefreshTokenRepository
+from app.infrastructure.postgres_selected_model_repository import (
+    PostgresSelectedModelRepository,
+)
+from app.infrastructure.postgres_user_profile_repository import (
+    PostgresUserProfileRepository,
+)
+from app.infrastructure.postgres_refresh_token_repository import (
+    PostgresRefreshTokenRepository,
+)
 from app.infrastructure.postgres_user_repository import PostgresUserRepository
 from app.infrastructure.argon2_password_hasher import Argon2PasswordHasher
 from app.infrastructure.fernet_key_cipher import FernetKeyCipher
-from app.infrastructure.model_listing_api_key_validator import ModelListingApiKeyValidator
+from app.infrastructure.model_listing_api_key_validator import (
+    ModelListingApiKeyValidator,
+)
 from app.infrastructure.openai_admin_key_validator import OpenAIAdminKeyValidator
 from app.infrastructure.postgres_admin_key_repository import PostgresAdminKeyRepository
 from app.infrastructure.postgres_api_key_repository import PostgresApiKeyRepository
@@ -143,12 +168,22 @@ from app.infrastructure.token_accounting_provider_spend_provider import (
     TokenAccountingProviderSpendProvider,
 )
 from app.infrastructure.console_email_sender import ConsoleEmailSender
-from app.infrastructure.email_validators import AllowAllEmailValidator, DnsEmailValidator
-from app.infrastructure.jwt_password_reset_token_service import JwtPasswordResetTokenService
+from app.infrastructure.email_validators import (
+    AllowAllEmailValidator,
+    DnsEmailValidator,
+)
+from app.infrastructure.jwt_password_reset_token_service import (
+    JwtPasswordResetTokenService,
+)
 from app.infrastructure.jwt_token_service import JwtTokenService
-from app.infrastructure.jwt_verification_token_service import JwtVerificationTokenService
+from app.infrastructure.jwt_verification_token_service import (
+    JwtVerificationTokenService,
+)
 from app.infrastructure.smtp_email_sender import SmtpEmailSender
 from app.infrastructure.scoring_strategies import SkillBasedScorer
+from app.infrastructure.daily_request_usage_reader import (
+    TokenAccountingDailyRequestUsageReader,
+)
 from app.infrastructure.translation_agents import build_polish_to_english_agent
 from app.observability.logging_config import configure_logging
 from app.presentation.api.routes import (
@@ -164,6 +199,8 @@ from app.presentation.api.routes import (
     get_org_usage_use_case,
     get_set_admin_key_use_case,
     get_set_api_key_budget_use_case,
+    get_daily_request_usage_use_case,
+    get_set_daily_request_limit_use_case,
     get_count_offers_use_case,
     get_list_available_models_use_case,
     get_list_offers_use_case,
@@ -184,6 +221,7 @@ from app.presentation.api.auth import (
     get_cookie_settings,
     get_current_user,
     get_rate_limiter,
+    get_readiness_probe,
     get_refresh_token_service,
     get_register_use_case,
     get_request_password_reset_use_case,
@@ -214,9 +252,16 @@ _llm_factory = build_llm_provider_factory(
     LLM_PROVIDER, OPENAI_API_KEY, OPENAI_ADMIN_KEY, GEMINI_API_KEY
 )
 
-_engine = build_engine(DATABASE_URL, pool_size=DB_POOL_SIZE, max_overflow=DB_MAX_OVERFLOW)
+_engine = build_engine(
+    DATABASE_URL, pool_size=DB_POOL_SIZE, max_overflow=DB_MAX_OVERFLOW
+)
 profile_repository = PostgresUserProfileRepository(_engine)
-offer_repository = PostgresOfferRepository(_engine)
+# Skill strings are collapsed to canonical concepts (alias map + case/diacritic/separator folding)
+# before any comparison, so "JS"/"JavaScript", "k8s"/"Kubernetes", and PL/EN variants match. Shared
+# by matching (via the canonicalizer) and browsing's tech filter (via the offer_skill index, rebuilt
+# by app.scripts.index_offer_skills). Unknown tokens log on "app.skills". See docs/skills-normalization.md.
+_skill_normalizer = AliasMapSkillNormalizer.from_default()
+offer_repository = PostgresOfferRepository(_engine, normalizer=_skill_normalizer)
 filter_chain = FilterChain(
     [SkillFilter(), LocationFilter(), SalaryFilter(), ExpiredFilter(), LevelFilter()]
 )
@@ -230,12 +275,12 @@ save_profile_use_case = SaveUserProfileUseCase(profile_repository)
 get_user_profile_use_case = GetUserProfileUseCase(profile_repository)
 count_offers_use_case = CountOffersUseCase(offer_repository)
 list_offers_use_case = ListOffersUseCase(offer_repository)
-# Skill strings are collapsed to canonical concepts (alias map + case/diacritic/separator
-# folding) before any comparison, so "JS"/"JavaScript", "k8s"/"Kubernetes", and PL/EN variants
-# match. Unknown tokens are logged on "app.skills" to grow the map. See docs/skills-normalization.md.
-_skill_canonicalizer = SkillCanonicalizer(AliasMapSkillNormalizer.from_default())
+_skill_canonicalizer = SkillCanonicalizer(_skill_normalizer)
 match_offers_use_case = MatchOffersUseCase(
-    offer_repository, SkillBasedScorer(), filter_chain, canonicalizer=_skill_canonicalizer
+    offer_repository,
+    SkillBasedScorer(),
+    filter_chain,
+    canonicalizer=_skill_canonicalizer,
 )
 # Scorers record token usage into this request-scoped tracker; the AI match use case opens
 # a fresh scope per request (begin()), then drains it, stamps the calling user, and persists
@@ -246,7 +291,9 @@ _in_memory_tracker = RequestScopedModelUsageTracker()
 
 _ai_score_repository = PostgresAiScoreRepository(_engine)
 _selected_model_repository = PostgresSelectedModelRepository(_engine)
-_budget_repository = PostgresBudgetRepository(_engine, default_limit_usd=DEFAULT_BUDGET_USD)
+_budget_repository = PostgresBudgetRepository(
+    _engine, default_limit_usd=DEFAULT_BUDGET_USD
+)
 # A user's budget is enforced from their own recorded token usage, summing the cost snapshotted
 # onto each row at write time.
 _user_spend_provider = TokenAccountingSpendProvider(model_usage_repository)
@@ -269,19 +316,29 @@ def _models_provider_for_key(provider: str, key: str):
     return OpenAIAvailableModelsProvider(key, timeout=LLM_TIMEOUT_SECONDS)
 
 
-_api_key_validator = ModelListingApiKeyValidator(provider_factory=_models_provider_for_key)
+_api_key_validator = ModelListingApiKeyValidator(
+    provider_factory=_models_provider_for_key
+)
 # Each key's usage is derived per provider from the user's recorded usage, summing each row's
 # write-time cost snapshot for that provider's models.
 _provider_spend_provider = TokenAccountingProviderSpendProvider(model_usage_repository)
-_list_api_keys_use_case = ListApiKeysUseCase(_api_key_repository, _provider_spend_provider)
-_set_api_key_budget_use_case = SetApiKeyBudgetUseCase(_api_key_repository, _provider_spend_provider)
+_list_api_keys_use_case = ListApiKeysUseCase(
+    _api_key_repository, _provider_spend_provider
+)
+_set_api_key_budget_use_case = SetApiKeyBudgetUseCase(
+    _api_key_repository, _provider_spend_provider
+)
 # Scoring resolves the calling user's own key on demand (require own key — no env fallback).
 _api_key_resolver = UserApiKeyResolver(_api_key_repository, _key_cipher)
 # The model picker is per-user: discovered from the user's own keys, cached per user.
 _user_available_models_provider = CachingUserAvailableModelsProvider(
-    KeyedUserAvailableModelsProvider(_api_key_repository, _key_cipher, _models_provider_for_key),
+    KeyedUserAvailableModelsProvider(
+        _api_key_repository, _key_cipher, _models_provider_for_key
+    ),
     ttl_seconds=MODELS_CACHE_TTL_SECONDS,
 )
+
+
 # Adding/removing/rotating a key changes which providers the user can pick AND any cached AI
 # use case bound to a now-stale key, so a key change must invalidate both per-user caches:
 # the model picker (else a freshly added provider stays hidden until the TTL) and the AI
@@ -347,7 +404,9 @@ def _usage_provider_for_user(user_id: str):
 
         from app.infrastructure.openai_usage_provider import OpenAIExternalUsageProvider
 
-        return OpenAIExternalUsageProvider(OpenAI(api_key=key, timeout=LLM_TIMEOUT_SECONDS))
+        return OpenAIExternalUsageProvider(
+            OpenAI(api_key=key, timeout=LLM_TIMEOUT_SECONDS)
+        )
     return _env_org_usage_provider
 
 
@@ -367,14 +426,19 @@ def _build_budget_gate(api_provider: str | None) -> CompositeBudgetStatusReader:
     readers: list = []
     if api_provider is not None:
         readers.append(
-            ApiKeyBudgetStatusReader(_api_key_repository, _provider_spend_provider, api_provider)
+            ApiKeyBudgetStatusReader(
+                _api_key_repository, _provider_spend_provider, api_provider
+            )
         )
     readers.append(_org_spend_backstop)
     return CompositeBudgetStatusReader(readers)
 
+
 _user_repository = PostgresUserRepository(_engine)
 _password_hasher = Argon2PasswordHasher()
-_token_service = JwtTokenService(JWT_SECRET, ttl=timedelta(minutes=ACCESS_TOKEN_TTL_MINUTES))
+_token_service = JwtTokenService(
+    JWT_SECRET, ttl=timedelta(minutes=ACCESS_TOKEN_TTL_MINUTES)
+)
 # Email confirmation: unverified accounts receive a single-purpose token by email; following
 # the link verifies the account and logs the user in (see /auth/verify-email).
 _verification_token_service = JwtVerificationTokenService(
@@ -396,7 +460,9 @@ _email_sender = (
     if SMTP_HOST
     else ConsoleEmailSender()
 )
-_email_validator = DnsEmailValidator() if EMAIL_CHECK_DELIVERABILITY else AllowAllEmailValidator()
+_email_validator = (
+    DnsEmailValidator() if EMAIL_CHECK_DELIVERABILITY else AllowAllEmailValidator()
+)
 
 
 def _verification_link(token: str) -> str:
@@ -411,7 +477,9 @@ _register_use_case = RegisterUserUseCase(
     email_sender=_email_sender,
     link_builder=_verification_link,
 )
-_authenticate_use_case = AuthenticateUserUseCase(_user_repository, _password_hasher, _token_service)
+_authenticate_use_case = AuthenticateUserUseCase(
+    _user_repository, _password_hasher, _token_service
+)
 _verify_email_use_case = VerifyEmailUseCase(
     _user_repository, _verification_token_service, _token_service
 )
@@ -444,6 +512,8 @@ _refresh_token_service = RefreshTokenService(
     PostgresRefreshTokenRepository(_engine),
     ttl=timedelta(days=REFRESH_TOKEN_TTL_DAYS),
 )
+
+
 # Brute-force throttle for /auth/login + /auth/forgot-password. In-memory is per-process
 # (single-worker correct); RATE_LIMITER_BACKEND=redis swaps in a store shared across all
 # workers/instances. Same port either way — only the adapter changes.
@@ -484,6 +554,12 @@ def _provider_for_model(model: str) -> str:
 # each (user, model) paces independently, sized to that model's real RPM (a flat rate would
 # over-pace the slow models, e.g. 2.5-pro=5 / 1.5-pro=2 RPM, straight into 429s).
 _model_limits_registry = HardcodedModelLimitsRegistry()
+# Per-day request budget (the free-tier-friendly alternative to the USD budget): counts the
+# user's requests for a model's provider since the daily Pacific reset, against that model's
+# free-tier requests-per-day (or the user's override on the key).
+_daily_request_usage_reader = TokenAccountingDailyRequestUsageReader(
+    _api_key_repository, model_usage_repository, _model_limits_registry
+)
 _google_rate_limiters: dict[tuple[str, str], AsyncRateLimiter] = {}
 
 
@@ -495,7 +571,9 @@ def _google_rate_limiter_for(user_id: str, model: str) -> AsyncRateLimiter | Non
         return None
     cache_key = (user_id, model)
     if cache_key not in _google_rate_limiters:
-        limiter = build_google_pace_limiter(model, _model_limits_registry, GOOGLE_RPM_LIMIT)
+        limiter = build_google_pace_limiter(
+            model, _model_limits_registry, GOOGLE_RPM_LIMIT
+        )
         assert limiter is not None  # GOOGLE_RPM_LIMIT > 0 here, so pacing is enabled
         _google_rate_limiters[cache_key] = limiter
     return _google_rate_limiters[cache_key]
@@ -506,11 +584,16 @@ def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
     if model:
         provider = _provider_for_model(model)
         key = _api_key_resolver.key_for_provider(user_id, provider)  # require own key
-        chat_model = build_chat_model_with_key(model, api_key=key, timeout=LLM_TIMEOUT_SECONDS)
-        budget_gate = _build_budget_gate(provider)
+        chat_model = build_chat_model_with_key(
+            model, api_key=key, timeout=LLM_TIMEOUT_SECONDS
+        )
         if company_from_model(model) == "Google":
-            # pace under this model's free-tier RPM cap
+            # Google's free tier is budgeted by requests/day, not dollars, so it is gated by the
+            # daily-request reader alone — no USD budget gate. Pace under its free-tier RPM cap.
+            budget_gate = None
             rate_limiter = _google_rate_limiter_for(user_id, model)
+        else:
+            budget_gate = _build_budget_gate(provider)
     else:
         chat_model = None
         budget_gate = _build_budget_gate(None)
@@ -536,6 +619,8 @@ def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
         max_concurrency=AI_MATCH_CONCURRENCY,
         fail_closed=BUDGET_FAIL_CLOSED,
         canonicalizer=_skill_canonicalizer,
+        daily_request_reader=_daily_request_usage_reader,
+        scoring_model=model,
     )
 
 
@@ -550,7 +635,9 @@ _ai_scoring_context = AiScoringContext(
 )
 
 
-def _ai_use_case_for_request(user: User = Depends(get_current_user)) -> MatchOffersWithAiUseCase:
+def _ai_use_case_for_request(
+    user: User = Depends(get_current_user),
+) -> MatchOffersWithAiUseCase:
     """Resolve the AI match use case for the calling user's selected model (per-user)."""
     return _ai_scoring_context.use_case_for(user.id)
 
@@ -559,6 +646,10 @@ calculate_salary_use_case = CalculateNetSalaryUseCase(SalaryCalculator())
 get_model_usage_summary_use_case_instance = GetModelUsageSummaryUseCase(
     model_usage_repository, _model_limits_registry
 )
+_get_daily_request_usage_use_case = GetDailyRequestUsageUseCase(
+    _selected_model_repository, _daily_request_usage_reader
+)
+_set_daily_request_limit_use_case = SetDailyRequestLimitUseCase(_api_key_repository)
 
 app = FastAPI(title="Job Offer Matcher")
 # Defense-in-depth response headers (HSTS only when cookies are Secure, i.e. served over HTTPS).
@@ -581,6 +672,10 @@ app.include_router(public_router)
 app.include_router(private_router, dependencies=_auth_guard)
 app.include_router(router, dependencies=_auth_guard)
 register_exception_handlers(app)
+# Readiness probe (`GET /health/ready`): a real `SELECT 1` so the endpoint returns 503 while
+# the database is unreachable. `/health` stays liveness-only (dependency-free).
+_readiness_probe = EngineReadinessProbe(_engine)
+app.dependency_overrides[get_readiness_probe] = lambda: _readiness_probe
 app.dependency_overrides[get_register_use_case] = lambda: _register_use_case
 app.dependency_overrides[get_authenticate_use_case] = lambda: _authenticate_use_case
 app.dependency_overrides[get_verify_email_use_case] = lambda: _verify_email_use_case
@@ -589,19 +684,29 @@ app.dependency_overrides[get_token_service] = lambda: _token_service
 app.dependency_overrides[get_refresh_token_service] = lambda: _refresh_token_service
 app.dependency_overrides[get_cookie_settings] = lambda: _cookie_settings
 app.dependency_overrides[get_rate_limiter] = lambda: _rate_limiter
-app.dependency_overrides[get_change_password_use_case] = lambda: _change_password_use_case
-app.dependency_overrides[get_request_password_reset_use_case] = lambda: _request_password_reset_use_case
+app.dependency_overrides[get_change_password_use_case] = lambda: (
+    _change_password_use_case
+)
+app.dependency_overrides[get_request_password_reset_use_case] = lambda: (
+    _request_password_reset_use_case
+)
 app.dependency_overrides[get_reset_password_use_case] = lambda: _reset_password_use_case
 app.dependency_overrides[get_save_profile_use_case] = lambda: save_profile_use_case
 app.dependency_overrides[get_profile_use_case] = lambda: get_user_profile_use_case
 app.dependency_overrides[get_match_offers_use_case] = lambda: match_offers_use_case
 app.dependency_overrides[get_match_offers_ai_use_case] = _ai_use_case_for_request
 app.dependency_overrides[get_ai_scoring_context] = lambda: _ai_scoring_context
-app.dependency_overrides[get_list_available_models_use_case] = lambda: ListAvailableModelsUseCase(_user_available_models_provider)
+app.dependency_overrides[get_list_available_models_use_case] = lambda: (
+    ListAvailableModelsUseCase(_user_available_models_provider)
+)
 app.dependency_overrides[get_count_offers_use_case] = lambda: count_offers_use_case
 app.dependency_overrides[get_list_offers_use_case] = lambda: list_offers_use_case
-app.dependency_overrides[get_calculate_salary_use_case] = lambda: calculate_salary_use_case
-app.dependency_overrides[get_model_usage_summary_use_case] = lambda: get_model_usage_summary_use_case_instance
+app.dependency_overrides[get_calculate_salary_use_case] = lambda: (
+    calculate_salary_use_case
+)
+app.dependency_overrides[get_model_usage_summary_use_case] = lambda: (
+    get_model_usage_summary_use_case_instance
+)
 app.dependency_overrides[get_budget_service] = lambda: _budget_service
 # Org readouts are resolved per request from the caller's admin key (env fallback), so these
 # overrides are dependency functions, not constants.
@@ -609,11 +714,21 @@ app.dependency_overrides[get_org_spend_use_case] = _org_spend_use_case_for_reque
 app.dependency_overrides[get_org_usage_use_case] = _org_usage_use_case_for_request
 app.dependency_overrides[get_add_api_key_use_case] = lambda: _add_api_key_use_case
 app.dependency_overrides[get_list_api_keys_use_case] = lambda: _list_api_keys_use_case
-app.dependency_overrides[get_set_api_key_budget_use_case] = lambda: _set_api_key_budget_use_case
+app.dependency_overrides[get_set_api_key_budget_use_case] = lambda: (
+    _set_api_key_budget_use_case
+)
+app.dependency_overrides[get_daily_request_usage_use_case] = lambda: (
+    _get_daily_request_usage_use_case
+)
+app.dependency_overrides[get_set_daily_request_limit_use_case] = lambda: (
+    _set_daily_request_limit_use_case
+)
 app.dependency_overrides[get_delete_api_key_use_case] = lambda: _delete_api_key_use_case
 app.dependency_overrides[get_admin_key_use_case] = lambda: _get_admin_key_use_case
 app.dependency_overrides[get_set_admin_key_use_case] = lambda: _set_admin_key_use_case
-app.dependency_overrides[get_delete_admin_key_use_case] = lambda: _delete_admin_key_use_case
+app.dependency_overrides[get_delete_admin_key_use_case] = lambda: (
+    _delete_admin_key_use_case
+)
 
 
 def main() -> None:

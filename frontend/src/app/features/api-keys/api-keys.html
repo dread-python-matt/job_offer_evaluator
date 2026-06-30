@@ -2,7 +2,10 @@
   <mat-card-header>
     <div mat-card-avatar class="section-avatar"><mat-icon>vpn_key</mat-icon></div>
     <mat-card-title>Provider API keys</mat-card-title>
-    <mat-card-subtitle>Add your own provider keys to enable AI matching. Each key has its own spend budget.</mat-card-subtitle>
+    <mat-card-subtitle
+      >Add your own provider keys to enable AI matching. OpenAI keys have their own dollar budget;
+      Google keys are capped by the per-day request budget.</mat-card-subtitle
+    >
   </mat-card-header>
 
   <mat-card-content class="keys-content">
@@ -44,43 +47,56 @@
             </button>
           </div>
 
-          <div class="key-budget">
-            <div class="budget-amounts">
-              <span class="budget-spent">${{ key.used_usd | number:'1.4-4' }}</span>
-              <span class="budget-limit">of ${{ key.limit_usd | number:'1.2-2' }}</span>
-              <span class="budget-pct" [class]="barClass(key)">{{ usedPct(key) | number:'1.0-1' }}%</span>
+          @if (isRequestBudgeted(key.api_provider)) {
+            <p class="key-note">
+              <mat-icon>event_repeat</mat-icon>
+              Capped by daily requests — set the limit in “Daily request budget”.
+            </p>
+          } @else {
+            <div class="key-budget">
+              <div class="budget-amounts">
+                <span class="budget-spent">${{ key.used_usd | number: '1.4-4' }}</span>
+                <span class="budget-limit">of ${{ key.limit_usd | number: '1.2-2' }}</span>
+                <span class="budget-pct" [class]="barClass(key)"
+                  >{{ usedPct(key) | number: '1.0-1' }}%</span
+                >
+              </div>
+              <div class="budget-bar-track">
+                <div
+                  class="budget-bar-fill"
+                  [class]="barClass(key)"
+                  [style.width.%]="usedPct(key)"
+                ></div>
+              </div>
             </div>
-            <div class="budget-bar-track">
-              <div class="budget-bar-fill" [class]="barClass(key)" [style.width.%]="usedPct(key)"></div>
-            </div>
-          </div>
 
-          <div class="budget-edit">
-            <mat-form-field class="budget-field" subscriptSizing="dynamic">
-              <mat-label>Budget</mat-label>
-              <span matTextPrefix>$&nbsp;</span>
-              <input
-                #limitInput
-                matInput
-                type="number"
-                min="0"
-                step="0.5"
-                [value]="key.limit_usd"
-                (keydown.enter)="saveBudget(key, +limitInput.value)"
-              />
-            </mat-form-field>
-            <button
-              mat-stroked-button
-              (click)="saveBudget(key, +limitInput.value)"
-              [disabled]="busyProvider() !== null"
-            >
-              <mat-icon>save</mat-icon>
-              Save
-            </button>
-            @if (busyProvider() === key.api_provider) {
-              <mat-spinner diameter="20" />
-            }
-          </div>
+            <div class="budget-edit">
+              <mat-form-field class="budget-field" subscriptSizing="dynamic">
+                <mat-label>Budget</mat-label>
+                <span matTextPrefix>$&nbsp;</span>
+                <input
+                  #limitInput
+                  matInput
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  [value]="key.limit_usd"
+                  (keydown.enter)="saveBudget(key, +limitInput.value)"
+                />
+              </mat-form-field>
+              <button
+                mat-stroked-button
+                (click)="saveBudget(key, +limitInput.value)"
+                [disabled]="busyProvider() !== null"
+              >
+                <mat-icon>save</mat-icon>
+                Save
+              </button>
+              @if (busyProvider() === key.api_provider) {
+                <mat-spinner diameter="20" />
+              }
+            </div>
+          }
         </div>
       }
 
@@ -106,14 +122,22 @@
 
             <mat-form-field class="key-field">
               <mat-label>API key</mat-label>
-              <input matInput type="password" autocomplete="off" formControlName="key" placeholder="Paste your key" />
+              <input
+                matInput
+                type="password"
+                autocomplete="off"
+                formControlName="key"
+                placeholder="Paste your key"
+              />
             </mat-form-field>
 
-            <mat-form-field class="add-budget-field">
-              <mat-label>Budget</mat-label>
-              <span matTextPrefix>$&nbsp;</span>
-              <input matInput type="number" min="0" step="0.5" formControlName="limit" />
-            </mat-form-field>
+            @if (!isRequestBudgeted(selectedAddProvider() ?? '')) {
+              <mat-form-field class="add-budget-field">
+                <mat-label>Budget</mat-label>
+                <span matTextPrefix>$&nbsp;</span>
+                <input matInput type="number" min="0" step="0.5" formControlName="limit" />
+              </mat-form-field>
+            }
 
             <button mat-flat-button color="primary" type="submit" [disabled]="adding()">
               <mat-icon>add</mat-icon>

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.application.ports import SelectedModelRepository
 from app.infrastructure.db import resolve_engine
-from app.infrastructure.orm_models import Base, SelectedModelRow
+from app.infrastructure.orm_models import SelectedModelRow
 
 
 class PostgresSelectedModelRepository(SelectedModelRepository):
@@ -11,7 +11,6 @@ class PostgresSelectedModelRepository(SelectedModelRepository):
 
     def __init__(self, database_or_engine: str | Engine) -> None:
         self._engine = resolve_engine(database_or_engine)
-        Base.metadata.create_all(self._engine, tables=[SelectedModelRow.__table__])
 
     def get(self, user_id: str) -> str | None:
         with Session(self._engine) as session:

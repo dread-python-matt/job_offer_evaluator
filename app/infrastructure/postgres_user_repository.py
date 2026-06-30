@@ -4,13 +4,12 @@ from sqlalchemy.orm import Session
 from app.application.ports import UserRepository
 from app.domain.auth import User
 from app.infrastructure.db import resolve_engine
-from app.infrastructure.orm_models import Base, UserRow
+from app.infrastructure.orm_models import UserRow
 
 
 class PostgresUserRepository(UserRepository):
     def __init__(self, database_or_engine: str | Engine) -> None:
         self._engine = resolve_engine(database_or_engine)
-        Base.metadata.create_all(self._engine, tables=[UserRow.__table__])
 
     def add(self, user: User) -> None:
         with Session(self._engine) as session:

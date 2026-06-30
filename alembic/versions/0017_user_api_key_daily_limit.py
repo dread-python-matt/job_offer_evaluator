@@ -1,13 +1,16 @@
 """user_api_key.daily_request_limit (optional per-day request cap override)
 
-Revision ID: 0017_user_api_key_daily_request_limit
+Revision ID: 0017_user_api_key_daily_limit
 Revises: 0016_openai_admin_key
 Create Date: 2026-06-30
+
+Note: the revision id is kept <=32 chars so it fits Alembic's default
+`alembic_version.version_num VARCHAR(32)` on a fresh database.
 """
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0017_user_api_key_daily_request_limit"
+revision = "0017_user_api_key_daily_limit"
 down_revision = "0016_openai_admin_key"
 branch_labels = None
 depends_on = None
