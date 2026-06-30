@@ -112,6 +112,45 @@ def test_gemini_provider_returns_gemini_models_only():
     assert "embedding-001" not in ids
 
 
+def test_gemini_provider_excludes_non_text_generation_models():
+    """Embedding / image / TTS / audio / live / computer-use / robotics models can't back the
+    chat + json_schema scorer, so they must not be advertised even though their ids start with
+    'gemini-'. (Ids taken from a real 2026 API listing.)"""
+    with patch("app.infrastructure.gemini_available_models_provider.OpenAI") as mock_cls:
+        mock_cls.return_value.models.list.return_value = [
+            _model("gemini-2.5-flash"),
+            _model("gemini-3.5-flash"),
+            _model("gemini-flash-latest"),
+            _model("gemini-embedding-001"),
+            _model("gemini-2.5-flash-image"),
+            _model("gemini-2.5-flash-preview-tts"),
+            _model("gemini-2.5-flash-native-audio-latest"),
+            _model("gemini-3.1-flash-live-preview"),
+            _model("gemini-2.5-computer-use-preview-10-2025"),
+            _model("gemini-robotics-er-1.6-preview"),
+        ]
+        provider = GeminiAvailableModelsProvider(api_key="test-key")
+        models = provider.list_models()
+
+    assert [m.model for m in models] == [
+        "gemini-2.5-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+    ]
+
+
+def test_gemini_provider_still_lists_text_models_it_cannot_know_are_quota_limited():
+    # The picker filters by capability, not account-specific quota: a text model retired from
+    # the free tier (gemini-2.0-flash-lite -> limit:0) is still a text model, so it stays listed
+    # and the scorer surfaces the quota error. Documents the deliberate boundary.
+    with patch("app.infrastructure.gemini_available_models_provider.OpenAI") as mock_cls:
+        mock_cls.return_value.models.list.return_value = [_model("gemini-2.0-flash-lite")]
+        provider = GeminiAvailableModelsProvider(api_key="test-key")
+        models = provider.list_models()
+
+    assert [m.model for m in models] == ["gemini-2.0-flash-lite"]
+
+
 def test_gemini_provider_strips_models_prefix_from_id():
     with patch("app.infrastructure.gemini_available_models_provider.OpenAI") as mock_cls:
         mock_cls.return_value.models.list.return_value = [

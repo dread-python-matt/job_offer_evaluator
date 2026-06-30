@@ -118,3 +118,24 @@ def test_overall_score_equals_the_skills_score_when_it_is_the_only_component():
     score = SkillBasedScorer().score(profile, offer)
 
     assert score.overall_score == pytest.approx(1.0)
+
+
+def test_skill_based_score_counts_an_evidenced_but_unrated_skill():
+    # Practiced in a real project but never self-rated: it must still count (it used to
+    # contribute 0 — exactly backwards, since evidence is the trustworthy signal).
+    # EVIDENCED_BASELINE (0.8) doubled for evidence = 1.6.
+    profile = _rated_profile({}, projects=[_project(["Python"])])
+    offer = _offer(["Python"])
+
+    assert SkillBasedScorer().score(profile, offer).get("skills") == pytest.approx(1.6)
+
+
+def test_evidenced_skill_outweighs_an_unevidenced_self_claim():
+    evidenced = _rated_profile({}, projects=[_project(["Go"])])
+    self_claimed = _rated_profile({"Go": 5})
+    offer = _offer(["Go"])
+
+    evidenced_score = SkillBasedScorer().score(evidenced, offer).get("skills")
+    self_claimed_score = SkillBasedScorer().score(self_claimed, offer).get("skills")
+
+    assert evidenced_score > self_claimed_score  # 1.6 > 1.0

@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
 
+from app.application.admin_key_use_cases import AdminKeyView
 from app.application.api_key_use_cases import ApiKeyView
 from app.application.ports import ModelUsageSummary, ModelUsageWithLimits
 from app.application.use_cases import OrgSpend, OrgUsage
@@ -471,6 +472,22 @@ class AddApiKeyRequestSchema(BaseModel):
 
 class SetApiKeyBudgetRequestSchema(BaseModel):
     limit_usd: float = Field(ge=0)
+
+
+class AdminKeySchema(BaseModel):
+    """A stored OpenAI admin key as the user may see it: never the key itself, only a
+    masked hint and when it was saved."""
+
+    key_hint: str
+    created_at: datetime
+
+    @classmethod
+    def from_view(cls, view: "AdminKeyView") -> "AdminKeySchema":
+        return cls(key_hint=view.key_hint, created_at=view.created_at)
+
+
+class SetAdminKeyRequestSchema(BaseModel):
+    key: str = Field(min_length=1)
 
 
 class ModelLimitsSchema(BaseModel):

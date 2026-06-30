@@ -17,6 +17,23 @@ class BudgetExceededError(Exception):
         self.limit_usd = limit_usd
 
 
+class DailyRequestLimitExceededError(Exception):
+    """The user has reached their per-day request cap for a provider key (the free-tier
+    requests-per-day, or their own override). Distinct from the USD `BudgetExceededError`
+    so the message is request-framed rather than dollar-framed; both gate the AI match and
+    map to HTTP 402."""
+
+    def __init__(self, used: int, limit: int, model: str = "") -> None:
+        target = f" for {model}" if model else ""
+        super().__init__(
+            f"Daily request limit reached{target}: {used} of {limit} requests today. "
+            f"It resets at midnight US/Pacific; raise the limit or wait for the reset."
+        )
+        self.used = used
+        self.limit = limit
+        self.model = model
+
+
 class EmailAlreadyRegisteredError(Exception):
     def __init__(self, email: str) -> None:
         super().__init__(f"Email already registered: {email}")
@@ -99,6 +116,19 @@ class ApiKeyNotFoundError(Exception):
     def __init__(self, provider: str) -> None:
         super().__init__(f"No API key for {provider}")
         self.provider = provider
+
+
+class InvalidAdminKeyError(Exception):
+    """An OpenAI admin key the user supplied was rejected by the provider when reading the
+    organization costs/usage API (e.g. a 401/403, or a key missing the `api.usage.read`
+    scope). Surfaced when saving the admin key so a wrong or under-scoped key fails fast
+    before it is stored."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "The OpenAI admin key was rejected; it must be an organization admin key "
+            "with the api.usage.read scope"
+        )
 
 
 class MissingProviderApiKeyError(Exception):

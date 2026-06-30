@@ -14,6 +14,12 @@ from app.application.auth_use_cases import (
     ResetPasswordUseCase,
     VerifyEmailUseCase,
 )
+from app.application.admin_key_resolver import AdminKeyResolver
+from app.application.admin_key_use_cases import (
+    DeleteAdminKeyUseCase,
+    GetAdminKeyUseCase,
+    SetAdminKeyUseCase,
+)
 from app.application.api_key_use_cases import (
     AddApiKeyUseCase,
     DeleteApiKeyUseCase,
@@ -22,6 +28,7 @@ from app.application.api_key_use_cases import (
 )
 from app.application.api_key_resolver import UserApiKeyResolver
 from app.application.budget_service import BudgetService
+from app.application.skill_canonicalization import SkillCanonicalizer
 from app.application.refresh_tokens import RefreshTokenService
 from app.application.use_cases import (
     CalculateNetSalaryUseCase,
@@ -93,6 +100,7 @@ from app.application.ports import RateLimiter
 from app.infrastructure.in_memory_rate_limiter import InMemoryRateLimiter
 from app.infrastructure.redis_rate_limiter import RedisRateLimiter
 from app.infrastructure.agent_models import build_chat_model_with_key
+from app.infrastructure.alias_map_skill_normalizer import AliasMapSkillNormalizer
 from app.infrastructure.api_key_budget_status_reader import ApiKeyBudgetStatusReader
 from app.infrastructure.caching_ai_scorer import CachingAiScorer
 from app.infrastructure.keyed_user_available_models_provider import (
@@ -128,6 +136,8 @@ from app.infrastructure.postgres_user_repository import PostgresUserRepository
 from app.infrastructure.argon2_password_hasher import Argon2PasswordHasher
 from app.infrastructure.fernet_key_cipher import FernetKeyCipher
 from app.infrastructure.model_listing_api_key_validator import ModelListingApiKeyValidator
+from app.infrastructure.openai_admin_key_validator import OpenAIAdminKeyValidator
+from app.infrastructure.postgres_admin_key_repository import PostgresAdminKeyRepository
 from app.infrastructure.postgres_api_key_repository import PostgresApiKeyRepository
 from app.infrastructure.token_accounting_provider_spend_provider import (
     TokenAccountingProviderSpendProvider,
@@ -143,13 +153,16 @@ from app.infrastructure.translation_agents import build_polish_to_english_agent
 from app.observability.logging_config import configure_logging
 from app.presentation.api.routes import (
     get_add_api_key_use_case,
+    get_admin_key_use_case,
     get_ai_scoring_context,
     get_calculate_salary_use_case,
     get_budget_service,
+    get_delete_admin_key_use_case,
     get_delete_api_key_use_case,
     get_list_api_keys_use_case,
     get_org_spend_use_case,
     get_org_usage_use_case,
+    get_set_admin_key_use_case,
     get_set_api_key_budget_use_case,
     get_count_offers_use_case,
     get_list_available_models_use_case,
@@ -217,7 +230,13 @@ save_profile_use_case = SaveUserProfileUseCase(profile_repository)
 get_user_profile_use_case = GetUserProfileUseCase(profile_repository)
 count_offers_use_case = CountOffersUseCase(offer_repository)
 list_offers_use_case = ListOffersUseCase(offer_repository)
-match_offers_use_case = MatchOffersUseCase(offer_repository, SkillBasedScorer(), filter_chain)
+# Skill strings are collapsed to canonical concepts (alias map + case/diacritic/separator
+# folding) before any comparison, so "JS"/"JavaScript", "k8s"/"Kubernetes", and PL/EN variants
+# match. Unknown tokens are logged on "app.skills" to grow the map. See docs/skills-normalization.md.
+_skill_canonicalizer = SkillCanonicalizer(AliasMapSkillNormalizer.from_default())
+match_offers_use_case = MatchOffersUseCase(
+    offer_repository, SkillBasedScorer(), filter_chain, canonicalizer=_skill_canonicalizer
+)
 # Scorers record token usage into this request-scoped tracker; the AI match use case opens
 # a fresh scope per request (begin()), then drains it, stamps the calling user, and persists
 # it. Request scoping (contextvars) keeps concurrent matches from mis-attributing tokens
@@ -287,14 +306,61 @@ _delete_api_key_use_case = DeleteApiKeyUseCase(
 # limit) plus a global org-spend backstop that protects the owner's actual provider bill
 # (active only when an admin key is configured). The per-key reader is bound per build (it
 # depends on the scored model's provider); the org backstop is user-independent, built once.
-_org_spend_provider = _llm_factory.build_spend_provider()
-_org_spend_backstop = OrgSpendBackstop(_org_spend_provider, DEFAULT_BUDGET_USD)
-# Org-level real-$ spend readout (admin key); None provider → endpoint returns null.
-_get_org_spend_use_case = GetOrgSpendUseCase(_org_spend_provider)
+# The backstop stays on the env admin key (it protects the deployment owner's bill).
+_env_org_spend_provider = _llm_factory.build_spend_provider()
+_org_spend_backstop = OrgSpendBackstop(_env_org_spend_provider, DEFAULT_BUDGET_USD)
 # Org-level provider-authoritative token-usage readout from the admin usage API (OpenAI
-# only; None when no admin key → endpoint returns null). Org-wide, not per-user.
-_org_external_usage_provider = _llm_factory.build_external_usage_provider()
-_get_org_usage_use_case = GetOrgUsageUseCase(_org_external_usage_provider)
+# only; None when no env admin key). Org-wide, not per-user.
+_env_org_usage_provider = _llm_factory.build_external_usage_provider()
+
+# --- User-supplied OpenAI admin key (powers the org spend/usage readouts) ---
+# Stored encrypted, one per user. The readouts resolve the calling user's own admin key
+# first and fall back to the env OPENAI_ADMIN_KEY, so the panels work whether the key is
+# configured per-user in the app or globally in the environment.
+_admin_key_repository = PostgresAdminKeyRepository(_engine)
+_admin_key_validator = OpenAIAdminKeyValidator(timeout=LLM_TIMEOUT_SECONDS)
+_admin_key_resolver = AdminKeyResolver(_admin_key_repository, _key_cipher)
+_get_admin_key_use_case = GetAdminKeyUseCase(_admin_key_repository)
+_set_admin_key_use_case = SetAdminKeyUseCase(
+    _admin_key_repository, _key_cipher, _admin_key_validator
+)
+_delete_admin_key_use_case = DeleteAdminKeyUseCase(_admin_key_repository)
+
+
+def _spend_provider_for_user(user_id: str):
+    """The org-spend provider for a user: their own admin key if set, else the env key
+    (None when neither is configured → the readout returns null)."""
+    key = _admin_key_resolver.key_for_user(user_id)
+    if key:
+        from app.infrastructure.openai_spend_provider import OpenAISpendProvider
+
+        return OpenAISpendProvider(api_key=key, timeout=LLM_TIMEOUT_SECONDS)
+    return _env_org_spend_provider
+
+
+def _usage_provider_for_user(user_id: str):
+    """The org-usage provider for a user: their own admin key if set, else the env key
+    (None when neither is configured → the readout returns null)."""
+    key = _admin_key_resolver.key_for_user(user_id)
+    if key:
+        from openai import OpenAI
+
+        from app.infrastructure.openai_usage_provider import OpenAIExternalUsageProvider
+
+        return OpenAIExternalUsageProvider(OpenAI(api_key=key, timeout=LLM_TIMEOUT_SECONDS))
+    return _env_org_usage_provider
+
+
+def _org_spend_use_case_for_request(
+    user: User = Depends(get_current_user),
+) -> GetOrgSpendUseCase:
+    return GetOrgSpendUseCase(_spend_provider_for_user(user.id))
+
+
+def _org_usage_use_case_for_request(
+    user: User = Depends(get_current_user),
+) -> GetOrgUsageUseCase:
+    return GetOrgUsageUseCase(_usage_provider_for_user(user.id))
 
 
 def _build_budget_gate(api_provider: str | None) -> CompositeBudgetStatusReader:
@@ -469,6 +535,7 @@ def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
         budget=budget_gate,
         max_concurrency=AI_MATCH_CONCURRENCY,
         fail_closed=BUDGET_FAIL_CLOSED,
+        canonicalizer=_skill_canonicalizer,
     )
 
 
@@ -536,12 +603,17 @@ app.dependency_overrides[get_list_offers_use_case] = lambda: list_offers_use_cas
 app.dependency_overrides[get_calculate_salary_use_case] = lambda: calculate_salary_use_case
 app.dependency_overrides[get_model_usage_summary_use_case] = lambda: get_model_usage_summary_use_case_instance
 app.dependency_overrides[get_budget_service] = lambda: _budget_service
-app.dependency_overrides[get_org_spend_use_case] = lambda: _get_org_spend_use_case
-app.dependency_overrides[get_org_usage_use_case] = lambda: _get_org_usage_use_case
+# Org readouts are resolved per request from the caller's admin key (env fallback), so these
+# overrides are dependency functions, not constants.
+app.dependency_overrides[get_org_spend_use_case] = _org_spend_use_case_for_request
+app.dependency_overrides[get_org_usage_use_case] = _org_usage_use_case_for_request
 app.dependency_overrides[get_add_api_key_use_case] = lambda: _add_api_key_use_case
 app.dependency_overrides[get_list_api_keys_use_case] = lambda: _list_api_keys_use_case
 app.dependency_overrides[get_set_api_key_budget_use_case] = lambda: _set_api_key_budget_use_case
 app.dependency_overrides[get_delete_api_key_use_case] = lambda: _delete_api_key_use_case
+app.dependency_overrides[get_admin_key_use_case] = lambda: _get_admin_key_use_case
+app.dependency_overrides[get_set_admin_key_use_case] = lambda: _set_admin_key_use_case
+app.dependency_overrides[get_delete_admin_key_use_case] = lambda: _delete_admin_key_use_case
 
 
 def main() -> None:

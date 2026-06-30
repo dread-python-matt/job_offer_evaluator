@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from app.application.ports import (
     AvailableModel,
     BudgetStatusReader,
+    DailyRequestUsageReader,
     ExternalUsageProvider,
     ModelLimitsRegistry,
     ModelUsage,
@@ -20,10 +21,20 @@ from app.application.ports import (
     UserAvailableModelsProvider,
     UserProfileRepository,
 )
-from app.domain.errors import AiScoringError, BudgetExceededError, CostUnavailableError
+from app.application.skill_canonicalization import SkillCanonicalizer
+from app.domain.errors import (
+    AiScoringError,
+    BudgetExceededError,
+    CostUnavailableError,
+    DailyRequestLimitExceededError,
+)
 from app.domain.entities import Offer, TaxSituation, UserProfile
 from app.domain.filters import FilterChain, MatchCriteria, OfferBrowseFilters
-from app.domain.salary_calculator import ContractType, NetSalaryBreakdown, SalaryCalculator
+from app.domain.salary_calculator import (
+    ContractType,
+    NetSalaryBreakdown,
+    SalaryCalculator,
+)
 from app.domain.scoring import AiInsight, MatchedOffer, MatchScore, OfferScorer
 from app.domain.sorting import MatchSortBy, SortOrder, sort_matched_offers
 
@@ -94,31 +105,48 @@ class ListOffersUseCase:
 
 
 class _BaseMatchOffersUseCase(ABC):
-    def __init__(self, offer_repository: OfferRepository, filter_chain: FilterChain) -> None:
+    def __init__(
+        self,
+        offer_repository: OfferRepository,
+        filter_chain: FilterChain,
+        canonicalizer: SkillCanonicalizer | None = None,
+    ) -> None:
         self._offer_repository = offer_repository
         self._filter_chain = filter_chain
+        # Skill tokens are collapsed to canonical concepts before any comparison, so e.g. "JS"
+        # matches "JavaScript". Defaults to a no-op canonicalizer, so callers/tests that don't
+        # wire a normalizer keep exact literal behavior; production injects a real one (main.py).
+        self._canonicalizer = canonicalizer or SkillCanonicalizer()
 
-    def _load_candidates(self, criteria: MatchCriteria) -> list[Offer]:
-        # The repository pushes the structural filters into the data store (so the whole
-        # offers table is never materialized); the FilterChain then applies exact domain
-        # semantics, including the candidate-specific SkillFilter that can't go to SQL.
-        return [
-            offer
-            for offer in self._offer_repository.candidate_offers(criteria)
-            if self._filter_chain.passes(offer, criteria)
-        ]
+    def _passing_candidates(
+        self, criteria: MatchCriteria, canon_criteria: MatchCriteria
+    ) -> list[tuple[Offer, Offer]]:
+        # The repository pushes the structural filters into the data store using the ORIGINAL
+        # criteria (so the whole offers table is never materialized); the FilterChain then
+        # applies exact domain semantics — incl. the candidate SkillFilter — on the CANONICAL
+        # offer/candidate, so skill overlap is judged by concept. Each surviving offer is kept
+        # as (original, canonical): the original is shown to the user, the canonical is scored.
+        pairs: list[tuple[Offer, Offer]] = []
+        for offer in self._offer_repository.candidate_offers(criteria):
+            canon_offer = self._canonicalizer.canonicalize_offer(offer)
+            if self._filter_chain.passes(canon_offer, canon_criteria):
+                pairs.append((offer, canon_offer))
+        return pairs
 
     def _make_matched(
         self,
         offer: Offer,
         score: float,
-        criteria: MatchCriteria,
+        canon_candidate: UserProfile,
+        canon_offer: Offer,
         ai_insight: AiInsight | None = None,
     ) -> MatchedOffer:
         return MatchedOffer(
             offer=offer,
             score=score,
-            matched_skills=criteria.candidate.skill_names() & offer.skill_set(),
+            # Concept overlap, so it reflects true matches regardless of how either side spelled
+            # them (e.g. "JS" vs "JavaScript").
+            matched_skills=canon_candidate.skill_names() & canon_offer.skill_set(),
             ai_insight=ai_insight,
         )
 
@@ -140,8 +168,9 @@ class MatchOffersUseCase(_BaseMatchOffersUseCase):
         offer_repository: OfferRepository,
         offer_scorer: OfferScorer,
         filter_chain: FilterChain,
+        canonicalizer: SkillCanonicalizer | None = None,
     ) -> None:
-        super().__init__(offer_repository, filter_chain)
+        super().__init__(offer_repository, filter_chain, canonicalizer)
         self._offer_scorer = offer_scorer
 
     def execute(
@@ -151,12 +180,20 @@ class MatchOffersUseCase(_BaseMatchOffersUseCase):
         sort_by: MatchSortBy = "score",
         sort_order: SortOrder = "desc",
     ) -> list[MatchedOffer]:
-        candidates = self._load_candidates(criteria)
+        canon_candidate = self._canonicalizer.canonicalize_candidate(criteria.candidate)
+        canon_criteria = replace(criteria, candidate=canon_candidate)
         matched = [
-            self._make_matched(offer, self._offer_scorer.score(criteria.candidate, offer).overall_score, criteria)
-            for offer in candidates
+            self._make_matched(
+                offer,
+                self._offer_scorer.score(canon_candidate, canon_offer).overall_score,
+                canon_candidate,
+                canon_offer,
+            )
+            for offer, canon_offer in self._passing_candidates(criteria, canon_criteria)
         ]
-        return self._finalize(matched, criteria.min_score, sort_by, sort_order, offers_limit)
+        return self._finalize(
+            matched, criteria.min_score, sort_by, sort_order, offers_limit
+        )
 
 
 class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
@@ -187,8 +224,11 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         budget: BudgetStatusReader | None = None,
         max_concurrency: int = 10,
         fail_closed: bool = False,
+        canonicalizer: SkillCanonicalizer | None = None,
+        daily_request_reader: DailyRequestUsageReader | None = None,
+        scoring_model: str = "",
     ) -> None:
-        super().__init__(offer_repository, filter_chain)
+        super().__init__(offer_repository, filter_chain, canonicalizer)
         self._ranking_scorer = ranking_scorer
         self._ai_scorer = ai_scorer
         self._usage_tracker = usage_tracker
@@ -196,6 +236,10 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         self._budget = budget
         self._max_concurrency = max_concurrency
         self._fail_closed = fail_closed
+        # Optional per-day request gate (free-tier-friendly), enforced for `scoring_model`
+        # alongside the USD budget. No-op when unset or when the reader reports no daily cap.
+        self._daily_request_reader = daily_request_reader
+        self._scoring_model = scoring_model
 
     def execute(
         self,
@@ -210,10 +254,17 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         """Synchronous entry point (tests and sync callers). Runs the AI scoring in a
         private event loop; prefer `execute_async` from an async route so the slow
         round-trips don't pin a worker thread."""
-        ranked = self._prepare(criteria, offers_to_score, user_id)
-        scored = asyncio.run(self._score_concurrently(criteria.candidate, ranked))
+        canon_candidate = self._canonicalizer.canonicalize_candidate(criteria.candidate)
+        ranked = self._prepare(criteria, canon_candidate, offers_to_score, user_id)
+        scored = asyncio.run(self._score_concurrently(canon_candidate, ranked))
         return self._build_result(
-            scored, criteria, ai_min_score, sort_by, sort_order, offers_limit, user_id
+            scored,
+            canon_candidate,
+            ai_min_score,
+            sort_by,
+            sort_order,
+            offers_limit,
+            user_id,
         )
 
     async def execute_async(
@@ -230,17 +281,29 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         spinning up a private loop inside a worker thread, so many matches can be in flight
         at once without exhausting the server's thread pool while each waits on its LLM
         round-trips."""
-        ranked = self._prepare(criteria, offers_to_score, user_id)
-        scored = await self._score_concurrently(criteria.candidate, ranked)
+        canon_candidate = self._canonicalizer.canonicalize_candidate(criteria.candidate)
+        ranked = self._prepare(criteria, canon_candidate, offers_to_score, user_id)
+        scored = await self._score_concurrently(canon_candidate, ranked)
         return self._build_result(
-            scored, criteria, ai_min_score, sort_by, sort_order, offers_limit, user_id
+            scored,
+            canon_candidate,
+            ai_min_score,
+            sort_by,
+            sort_order,
+            offers_limit,
+            user_id,
         )
 
     def _prepare(
-        self, criteria: MatchCriteria, offers_to_score: int, user_id: str
-    ) -> list[Offer]:
+        self,
+        criteria: MatchCriteria,
+        canon_candidate: UserProfile,
+        offers_to_score: int,
+        user_id: str,
+    ) -> list[tuple[Offer, Offer]]:
         """Shared pre-scoring steps for both entry points: the budget gate, opening a fresh
-        usage scope, and loading + ranking candidates down to the top `offers_to_score`."""
+        usage scope, and loading + ranking candidates down to the top `offers_to_score`.
+        Returns (original, canonical) offer pairs."""
         if self._budget:
             status = self._budget.status(user_id)
             if status.exceeded:
@@ -250,23 +313,32 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
                     "AI spend is currently unavailable and the budget is fail-closed; "
                     "refusing to score."
                 )
+        # Per-day request gate (e.g. Gemini free-tier RPD), independent of the USD budget.
+        if self._daily_request_reader is not None and self._scoring_model:
+            daily = self._daily_request_reader.status_for(user_id, self._scoring_model)
+            if daily is not None and daily.exceeded:
+                raise DailyRequestLimitExceededError(
+                    daily.used, daily.limit, self._scoring_model
+                )
         # Open a fresh usage scope for this request, in this context, before any concurrent
         # scoring tasks are spawned — so usage is attributed to this user only (no cross-
         # tenant bleed) and nothing from a prior aborted request leaks in.
         if self._usage_tracker is not None:
             self._usage_tracker.begin()
-        candidates = self._load_candidates(criteria)
+        canon_criteria = replace(criteria, candidate=canon_candidate)
         ranked = sorted(
-            candidates,
-            key=lambda offer: self._ranking_scorer.score(criteria.candidate, offer).overall_score,
+            self._passing_candidates(criteria, canon_criteria),
+            key=lambda pair: (
+                self._ranking_scorer.score(canon_candidate, pair[1]).overall_score
+            ),
             reverse=True,
         )
         return ranked[:offers_to_score]
 
     def _build_result(
         self,
-        scored: list[tuple[Offer, MatchScore]],
-        criteria: MatchCriteria,
+        scored: list[tuple[Offer, Offer, MatchScore]],
+        canon_candidate: UserProfile,
         ai_min_score: float,
         sort_by: MatchSortBy,
         sort_order: SortOrder,
@@ -277,13 +349,19 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         and finalize (min-score filter, sort, limit)."""
         matched = [
             self._make_matched(
-                offer, score.overall_score, criteria, ai_insight=score.metadata("ai_insight")
+                offer,
+                score.overall_score,
+                canon_candidate,
+                canon_offer,
+                ai_insight=score.metadata("ai_insight"),
             )
-            for offer, score in scored
+            for offer, canon_offer, score in scored
         ]
         usage = self._persist_usage(user_id)
         return AiMatchResult(
-            matches=self._finalize(matched, ai_min_score, sort_by, sort_order, offers_limit),
+            matches=self._finalize(
+                matched, ai_min_score, sort_by, sort_order, offers_limit
+            ),
             usage=usage,
         )
 
@@ -300,22 +378,26 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         return usage
 
     async def _score_concurrently(
-        self, candidate: UserProfile, offers: list[Offer]
-    ) -> list[tuple[Offer, MatchScore]]:
+        self, canon_candidate: UserProfile, pairs: list[tuple[Offer, Offer]]
+    ) -> list[tuple[Offer, Offer, MatchScore]]:
         semaphore = asyncio.Semaphore(self._max_concurrency)
 
-        async def score_one(offer: Offer) -> tuple[Offer, MatchScore]:
+        async def score_one(
+            pair: tuple[Offer, Offer],
+        ) -> tuple[Offer, Offer, MatchScore]:
+            original, canon_offer = pair
             async with semaphore:
-                return offer, await self._ai_scorer.score_async(candidate, offer)
+                score = await self._ai_scorer.score_async(canon_candidate, canon_offer)
+                return original, canon_offer, score
 
         results = await asyncio.gather(
-            *(score_one(offer) for offer in offers), return_exceptions=True
+            *(score_one(pair) for pair in pairs), return_exceptions=True
         )
         scored = [r for r in results if not isinstance(r, BaseException)]
         failures = [r for r in results if isinstance(r, BaseException)]
         for exc in failures:
             _logger.warning("Skipping offer; AI scoring failed: %s", exc)
-        if offers and not scored:
+        if pairs and not scored:
             raise failures[0]
         return scored
 

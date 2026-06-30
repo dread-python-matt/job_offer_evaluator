@@ -184,6 +184,28 @@ class UserApiKeyRow(Base):
     limit_usd: Mapped[Decimal] = mapped_column(Numeric)
     tracking_since: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Optional per-day request cap (free-tier-friendly budget). NULL = use the model's
+    # free-tier requests-per-day default; a value is the user's own override.
+    daily_request_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class OpenAiAdminKeyRow(Base):
+    """A user's OpenAI organization admin key, used to read org-wide spend/usage. At most
+    one per user — `UNIQUE(user_id)` enforces it. Unlike a provider key it has no provider
+    or budget. The key is stored only as ciphertext (encrypted by a server-held secret,
+    never one-way hashed — it must be replayed to the provider); `key_hint` is a non-secret
+    masked display string."""
+
+    __tablename__ = "openai_admin_key"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_openai_admin_key_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    key_ciphertext: Mapped[str] = mapped_column(Text)
+    key_hint: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class UserProfileRow(Base):

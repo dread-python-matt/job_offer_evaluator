@@ -25,3 +25,23 @@ class BudgetStatus:
     @property
     def exceeded(self) -> bool:
         return self.used_usd is not None and self.used_usd >= self.limit_usd
+
+
+@dataclass(frozen=True)
+class DailyRequestStatus:
+    """A point-in-time view of a provider key's *daily request* budget (a free-tier-friendly
+    alternative to the USD budget): how many requests the user has made today, the effective
+    daily cap, and the free-tier default the cap derives from. Unlike spend, the count comes
+    from this app's own records, so it is always known (never None).
+
+    `limit` is the effective cap actually enforced — the user's override when set, otherwise
+    `default_limit` (the model's free-tier requests-per-day). `default_limit` is None when the
+    model's RPD is unknown (then a status is only produced if the user set an override)."""
+
+    used: int
+    limit: int
+    default_limit: int | None
+
+    @property
+    def exceeded(self) -> bool:
+        return self.used >= self.limit

@@ -26,6 +26,7 @@ class PostgresApiKeyRepository(ApiKeyRepository):
                     limit_usd=record.limit_usd,
                     tracking_since=record.tracking_since,
                     created_at=record.created_at,
+                    daily_request_limit=record.daily_request_limit,
                 )
             )
             session.commit()
@@ -65,6 +66,19 @@ class PostgresApiKeyRepository(ApiKeyRepository):
             session.commit()
             return result.rowcount > 0
 
+    def update_daily_request_limit(
+        self, user_id: str, api_provider: str, limit: int | None
+    ) -> bool:
+        with Session(self._engine) as session:
+            result = session.execute(
+                update(UserApiKeyRow)
+                .where(UserApiKeyRow.user_id == user_id)
+                .where(UserApiKeyRow.api_provider == api_provider)
+                .values(daily_request_limit=limit)
+            )
+            session.commit()
+            return result.rowcount > 0
+
     @staticmethod
     def _by_user_provider(user_id: str, api_provider: str):
         return (
@@ -83,4 +97,5 @@ class PostgresApiKeyRepository(ApiKeyRepository):
             limit_usd=float(row.limit_usd),
             tracking_since=row.tracking_since,
             created_at=row.created_at,
+            daily_request_limit=row.daily_request_limit,
         )

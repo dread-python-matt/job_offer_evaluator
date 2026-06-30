@@ -151,9 +151,10 @@ def test_skills_score_comes_from_the_skill_based_scorer():
 
     score = strategy.score(_candidate(), _offer())
 
-    # Python rated 5/5, practiced in a project/experience -> doubled weight -> 2.0
-    # Postgres is nice-to-have but not a rated skill -> contributes 0.0
-    assert score.get("skills") == pytest.approx(2.0)
+    # Required Python: rated 5/5 and practiced -> doubled -> 2.0.
+    # Nice-to-have Postgres: practiced in a project but unrated -> evidenced baseline (0.8)
+    # doubled for evidence -> 1.6 (it used to be dropped to 0). Skills = 2.0 + 1.6 = 3.6.
+    assert score.get("skills") == pytest.approx(3.6)
 
 
 def test_overall_score_weighs_skills_to_description_4_to_1():
@@ -162,7 +163,7 @@ def test_overall_score_weighs_skills_to_description_4_to_1():
 
     score = strategy.score(_candidate(), _offer())
 
-    assert score.overall_score == pytest.approx((2.0 * 4 + 1.0) / 5)
+    assert score.overall_score == pytest.approx((3.6 * 4 + 1.0) / 5)
 
 
 def test_prompt_includes_summary_project_summaries_and_job_description():

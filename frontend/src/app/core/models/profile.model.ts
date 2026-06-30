@@ -181,3 +181,8 @@ export interface OrgSpend {
   spend_usd: number;
   since: string;
 }
+
+export interface AdminKey {
+  key_hint: string;
+  created_at: string;
+}

@@ -19,6 +19,7 @@ import {
   OrgSpend,
 } from '../../core/models/profile.model';
 import { ApiKeys } from '../api-keys/api-keys';
+import { AdminKey } from '../admin-key/admin-key';
 
 @Component({
   selector: 'app-model-usage',
@@ -35,6 +36,7 @@ import { ApiKeys } from '../api-keys/api-keys';
     MatSelectModule,
     MatTooltipModule,
     ApiKeys,
+    AdminKey,
   ],
   templateUrl: './model-usage.html',
   styleUrl: './model-usage.scss',

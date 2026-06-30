@@ -7,7 +7,12 @@ inherits string-match errors; canonicalizing once at the boundary fixes all of t
 
 > Scope: backend matching pipeline (`app/domain`, `app/application`, `app/infrastructure`). The
 > `offers` table is **scraper-owned and read-only** here, which shapes *where* normalization can
-> run — see §4. This is a plan, not yet implemented.
+> run — see §4.
+>
+> **Status:** Phase 1 (deterministic Tier 0 — `SkillNormalizer` port + `AliasMapSkillNormalizer`
+> + seeded `skill_aliases.json` + canonicalization at the matching boundary + the evidence-aware
+> scoring fix) is **implemented**. Tiers 1–2 (embedding-assisted curation tooling, optional
+> semantic fallback) remain planned (§7–§8, §12).
 
 ---
 

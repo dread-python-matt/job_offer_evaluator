@@ -91,6 +91,7 @@ app/
 │   ├── auth.py               #   User (id, email, password_hash, token_version, email_verified)
 │   ├── budget.py             #   BudgetSettings, BudgetStatus(.exceeded)
 │   ├── scoring.py            #   MatchScore, ScoreComponent, MatchedOffer, AiInsight, OfferScorer (port)
+│   ├── skills.py             #   CanonicalSkill + SkillNormalizer (port) — one concept per skill
 │   ├── filters.py            #   MatchCriteria, OfferBrowseFilters, OfferFilter (port), FilterChain, predicates
 │   ├── sorting.py            #   Sort keys/types: sort_offers, sort_matched_offers
 │   ├── salary_calculator.py  #   Net PL salary (B2B / employment / civil strategies) + net helpers
@@ -103,13 +104,15 @@ app/
 │   ├── auth_use_cases.py     #   Register, Authenticate, VerifyEmail, ChangePassword, Request/ResetPassword
 │   ├── refresh_tokens.py     #   RefreshTokenService + RefreshTokenRepository port (rotation, reuse detection)
 │   ├── budget_service.py     #   BudgetService (per-user limit + token-accounted spend, cached)
+│   ├── skill_canonicalization.py # Rewrite a profile/offer's skills → canonical concepts (matching boundary)
 │   └── ai_scoring_context.py #   AiScoringContext: resolves a user's model → AI use case (cached per model)
 │
 ├── infrastructure/           # Adapters implementing the ports (the only layer with I/O)
 │   ├── db.py, orm_models.py  #   Engine builder (tunable connection pool) + SQLAlchemy ORM rows for app-owned + scraper tables
 │   ├── postgres_*_repository.py   # user, user_profile, selected_model, model_usage, ai_score, budget, offer
 │   ├── markdown_profile_repository.py  # Legacy profile adapter (test-only; not wired in main.py)
-│   ├── scoring_strategies.py # SkillBasedScorer (deterministic); skill_utils.py = weighting math
+│   ├── scoring_strategies.py # SkillBasedScorer (deterministic); skill_utils.py = evidence-aware weighting
+│   ├── alias_map_skill_normalizer.py, data/skill_aliases.json  # Deterministic skill canonicalization + seed map
 │   ├── llm_scoring_strategy.py     # LLMScoringStrategy (Agents SDK, retries/backoff, usage tracking)
 │   ├── caching_ai_scorer.py  #   Content-addressed AI-score cache wrapper (skips re-paying for repeats)
 │   ├── translation_agents.py #   Polish→English agent run on the offer description before scoring
@@ -149,6 +152,13 @@ app/
   `AI_MATCH_CONCURRENCY`) and is best-effort (a failed offer is dropped unless *all* fail). The
   AI match route is **async** and awaits scoring (`execute_async`), so the slow LLM round-trips
   don't pin a thread-pool worker for the whole request.
+- **Skill normalization.** Before any skill comparison, raw tokens (candidate skills + offer
+  tech stacks) are collapsed to canonical concepts by a `SkillNormalizer` (deterministic alias
+  map + case/diacritic/separator folding) at the matching boundary, on scoring-only copies — so
+  "JS"/"JavaScript", "k8s"/"Kubernetes" and PL/EN variants match while the originals stay intact
+  for display. Unknown tokens are logged on `app.skills` to grow the map, and scoring weights
+  **evidenced** skills (used in a real project/experience) above self-claimed ratings. See
+  `docs/skills-normalization.md`.
 
 ---
 
@@ -207,7 +217,9 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send r
   (`gemini` default, or `openai`) selects only the *org-level* usage/cost wiring; the **scoring
   model is chosen per user** via the API and built with its own client, so selection never
   mutates global SDK state. Available models are listed from whichever provider keys are set
-  (Gemini and/or OpenAI), then cached.
+  (Gemini and/or OpenAI), filtered to **scoring-capable** models (structured-output-capable
+  OpenAI models; text-generation Gemini models only — embeddings, image/audio/TTS, live,
+  computer-use and robotics models are excluded), then cached.
 - **Pipeline.** For an AI match: fetch candidates (filters pushed into SQL) → apply the
   `FilterChain` → rank with `SkillBasedScorer` → send the top `offers_to_score` to the LLM →
   (optionally) translate the offer description to English → score → cache the result

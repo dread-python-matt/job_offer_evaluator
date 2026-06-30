@@ -21,6 +21,8 @@ function init(
   // The embedded <app-api-keys> child loads its own data.
   httpMock.expectOne((r) => r.url.endsWith('/api-keys/providers')).flush([]);
   httpMock.expectOne((r) => r.url.endsWith('/api-keys')).flush([]);
+  // The embedded <app-admin-key> child loads its own data.
+  httpMock.expectOne((r) => r.url.endsWith('/admin-key')).flush(null);
   fixture.detectChanges();
 }
 
@@ -62,6 +64,7 @@ describe('ModelUsage', () => {
       .flush({ spend_usd: 4.2, since: '2026-06-25T00:00:00Z' });
     httpMock.expectOne((r) => r.url.endsWith('/api-keys/providers')).flush([]);
     httpMock.expectOne((r) => r.url.endsWith('/api-keys')).flush([]);
+    httpMock.expectOne((r) => r.url.endsWith('/admin-key')).flush(null);
     fixture.detectChanges();
 
     expect(fixture.componentInstance.orgSpend()?.spend_usd).toBe(4.2);

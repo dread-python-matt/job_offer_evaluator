@@ -2,6 +2,9 @@ from dataclasses import replace
 from datetime import datetime
 
 from app.application.ports import (
+    AdminKeyRecord,
+    AdminKeyRepository,
+    AdminKeyValidator,
     ApiKeyRecord,
     ApiKeyRepository,
     BudgetRepository,
@@ -29,6 +32,7 @@ from app.domain.budget import BudgetSettings
 from app.domain.entities import Offer, UserProfile
 from app.domain.errors import (
     AuthenticationError,
+    InvalidAdminKeyError,
     InvalidPasswordResetTokenError,
     InvalidVerificationTokenError,
 )
@@ -88,6 +92,38 @@ class InMemoryApiKeyRepository(ApiKeyRepository):
             return False
         self._by_key[(user_id, api_provider)] = replace(existing, limit_usd=limit_usd)
         return True
+
+
+class InMemoryAdminKeyRepository(AdminKeyRepository):
+    """In-memory OpenAI admin keys keyed by user_id (at most one per user, mirroring the
+    unique constraint: `upsert` replaces an existing key rather than erroring)."""
+
+    def __init__(self) -> None:
+        self._by_user: dict[str, AdminKeyRecord] = {}
+
+    def get(self, user_id: str) -> AdminKeyRecord | None:
+        return self._by_user.get(user_id)
+
+    def upsert(self, record: AdminKeyRecord) -> None:
+        self._by_user[record.user_id] = record
+
+    def delete(self, user_id: str) -> bool:
+        return self._by_user.pop(user_id, None) is not None
+
+
+class FakeAdminKeyValidator(AdminKeyValidator):
+    """Admin-key validator that accepts everything by default, or rejects a configured set
+    of keys with InvalidAdminKeyError — so use-case tests can assert validation gates the
+    save without hitting the network."""
+
+    def __init__(self, reject: set[str] | None = None) -> None:
+        self._reject = reject or set()
+        self.validated: list[str] = []
+
+    def validate(self, key: str) -> None:
+        self.validated.append(key)
+        if key in self._reject:
+            raise InvalidAdminKeyError()
 
 
 class FixedUserSpendProvider(UserSpendProvider):

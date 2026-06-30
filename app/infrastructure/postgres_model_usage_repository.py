@@ -34,6 +34,17 @@ class PostgresModelUsageRepository(ModelUsageRepository):
     def usage_since(self, user_id: str, start: datetime) -> list[ModelUsageSummary]:
         return self._aggregate(user_id, since=start)
 
+    def count_requests_since(self, user_id: str, company: str, start: datetime) -> int:
+        query = (
+            select(func.count())
+            .select_from(ModelUsageRow)
+            .where(ModelUsageRow.user_id == user_id)
+            .where(ModelUsageRow.company == company)
+            .where(ModelUsageRow.created_at >= start)
+        )
+        with Session(self._engine) as session:
+            return int(session.scalar(query) or 0)
+
     def _aggregate(self, user_id: str, since: datetime | None) -> list[ModelUsageSummary]:
         query = (
             select(

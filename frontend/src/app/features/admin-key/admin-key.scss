@@ -1,0 +1,107 @@
+.admin-card {
+  margin-bottom: var(--app-space-5);
+}
+
+.admin-content {
+  padding-top: var(--app-space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-4);
+}
+
+.section-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--mat-sys-secondary-container);
+  color: var(--mat-sys-on-secondary-container);
+  mat-icon {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+  }
+}
+
+.status-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--app-space-2);
+  padding: var(--app-space-5);
+  color: var(--mat-sys-on-surface-variant);
+  text-align: center;
+}
+.error-block {
+  color: var(--mat-sys-error);
+}
+.status-icon {
+  font-size: 32px;
+  width: 32px;
+  height: 32px;
+}
+
+// ── A stored admin key ─────────────────────────────────────────────────────────
+
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-3);
+  padding: var(--app-space-4);
+  border-radius: var(--app-radius-md);
+  border: 1px solid var(--mat-sys-outline-variant);
+  background: var(--mat-sys-surface-container-low);
+}
+
+.key-id {
+  display: flex;
+  align-items: baseline;
+  gap: var(--app-space-3);
+  flex-wrap: wrap;
+  flex: 1;
+}
+.key-hint {
+  font-family: monospace;
+  font-size: 0.85em;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--mat-sys-surface-container-high);
+  color: var(--mat-sys-on-surface-variant);
+}
+.key-since {
+  font-size: 0.85em;
+  color: var(--mat-sys-on-surface-variant);
+}
+.key-delete {
+  color: var(--mat-sys-error);
+}
+
+// ── Add-key form ───────────────────────────────────────────────────────────────
+
+.add-fields {
+  display: flex;
+  align-items: center;
+  gap: var(--app-space-3);
+  flex-wrap: wrap;
+}
+.key-field {
+  flex: 1;
+  min-width: 240px;
+}
+
+.action-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 0.85em;
+  color: var(--mat-sys-error);
+  mat-icon {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+  }
+}

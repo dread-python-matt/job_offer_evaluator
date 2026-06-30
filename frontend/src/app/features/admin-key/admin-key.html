@@ -1,0 +1,85 @@
+<mat-card appearance="outlined" class="admin-card">
+  <mat-card-header>
+    <div mat-card-avatar class="section-avatar"><mat-icon>admin_panel_settings</mat-icon></div>
+    <mat-card-title>OpenAI admin key</mat-card-title>
+    <mat-card-subtitle>
+      An organization admin key (with <code>api.usage.read</code>) powers the organization spend
+      &amp; usage readouts below.
+    </mat-card-subtitle>
+  </mat-card-header>
+
+  <mat-card-content class="admin-content">
+    @if (loading()) {
+      <div class="status-block">
+        <mat-spinner diameter="28" />
+        <p>Loading…</p>
+      </div>
+    } @else if (error()) {
+      <div class="status-block error-block">
+        <mat-icon class="status-icon">error_outline</mat-icon>
+        <p>Failed to load the admin key.</p>
+        <button mat-stroked-button (click)="load()">Try again</button>
+      </div>
+    } @else if (adminKey(); as key) {
+      <div class="key-row">
+        <div class="key-id">
+          <code class="key-hint">{{ key.key_hint }}</code>
+          <span class="key-since">saved {{ key.created_at | date: 'mediumDate' }}</span>
+        </div>
+        <button
+          mat-icon-button
+          class="key-delete"
+          (click)="remove()"
+          [disabled]="removing()"
+          aria-label="Remove admin key"
+          matTooltip="Remove admin key"
+        >
+          <mat-icon>delete_outline</mat-icon>
+        </button>
+        @if (removing()) {
+          <mat-spinner diameter="20" />
+        }
+      </div>
+    } @else {
+      <form class="add-form" (ngSubmit)="save()">
+        <div class="add-fields">
+          <mat-form-field class="key-field">
+            <mat-label>Admin key</mat-label>
+            <input
+              matInput
+              [type]="showKey() ? 'text' : 'password'"
+              autocomplete="off"
+              [formControl]="keyControl"
+              placeholder="Paste your OpenAI admin key"
+            />
+            <button
+              mat-icon-button
+              matSuffix
+              type="button"
+              (click)="toggleShowKey()"
+              [attr.aria-label]="showKey() ? 'Hide key' : 'Show key'"
+              [attr.aria-pressed]="showKey()"
+            >
+              <mat-icon>{{ showKey() ? 'visibility_off' : 'visibility' }}</mat-icon>
+            </button>
+          </mat-form-field>
+
+          <button mat-flat-button color="primary" type="submit" [disabled]="saving()">
+            <mat-icon>save</mat-icon>
+            Save key
+          </button>
+          @if (saving()) {
+            <mat-spinner diameter="20" />
+          }
+        </div>
+      </form>
+    }
+
+    @if (actionError(); as err) {
+      <p class="action-error">
+        <mat-icon>error_outline</mat-icon>
+        {{ err }}
+      </p>
+    }
+  </mat-card-content>
+</mat-card>

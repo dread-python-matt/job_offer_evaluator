@@ -1,5 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
+from app.application.admin_key_use_cases import (
+    DeleteAdminKeyUseCase,
+    GetAdminKeyUseCase,
+    SetAdminKeyUseCase,
+)
 from app.application.ai_scoring_context import AiScoringContext
 from app.application.api_key_use_cases import (
     AddApiKeyUseCase,
@@ -28,6 +33,7 @@ from app.domain.errors import (
     ApiKeyAlreadyExistsError,
     ApiKeyNotFoundError,
     BudgetExceededError,
+    InvalidAdminKeyError,
     InvalidApiKeyError,
     UnsupportedApiProviderError,
 )
@@ -37,12 +43,14 @@ from app.domain.sorting import SortBy, SortOrder
 from app.infrastructure.llm_utils import company_from_model
 from app.presentation.api.schemas import (
     AddApiKeyRequestSchema,
+    AdminKeySchema,
     AiMatchResponseSchema,
     AiUsageSchema,
     ApiKeySchema,
     ApiProviderSchema,
     AvailableModelsSchema,
     BudgetSchema,
+    SetAdminKeyRequestSchema,
     SetApiKeyBudgetRequestSchema,
     CompanyModelsSchema,
     CurrentModelSchema,
@@ -131,6 +139,18 @@ def get_set_api_key_budget_use_case() -> SetApiKeyBudgetUseCase:
 
 
 def get_delete_api_key_use_case() -> DeleteApiKeyUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_admin_key_use_case() -> GetAdminKeyUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_set_admin_key_use_case() -> SetAdminKeyUseCase:
+    raise NotImplementedError("override with a configured use case")
+
+
+def get_delete_admin_key_use_case() -> DeleteAdminKeyUseCase:
     raise NotImplementedError("override with a configured use case")
 
 
@@ -419,4 +439,40 @@ def delete_api_key(
         use_case.execute(user.id, api_provider)
     except ApiKeyNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(status_code=204)
+
+
+@router.get("/admin-key", response_model=AdminKeySchema | None)
+def get_admin_key(
+    user: User = Depends(get_current_user),
+    use_case: GetAdminKeyUseCase = Depends(get_admin_key_use_case),
+) -> AdminKeySchema | None:
+    """The user's saved OpenAI admin key as a masked hint, or null when none is set. Powers
+    the organization spend/usage readouts (falling back to the env admin key when unset)."""
+    view = use_case.execute(user.id)
+    return AdminKeySchema.from_view(view) if view is not None else None
+
+
+@router.put("/admin-key", response_model=AdminKeySchema)
+def set_admin_key(
+    payload: SetAdminKeyRequestSchema,
+    user: User = Depends(get_current_user),
+    use_case: SetAdminKeyUseCase = Depends(get_set_admin_key_use_case),
+) -> AdminKeySchema:
+    """Save (or rotate) the user's OpenAI admin key. The key is verified against the org
+    costs API before storing; a bad or under-scoped key is rejected with 400."""
+    try:
+        view = use_case.execute(user.id, payload.key)
+    except InvalidAdminKeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return AdminKeySchema.from_view(view)
+
+
+@router.delete("/admin-key", status_code=204)
+def delete_admin_key(
+    user: User = Depends(get_current_user),
+    use_case: DeleteAdminKeyUseCase = Depends(get_delete_admin_key_use_case),
+) -> Response:
+    """Remove the user's saved admin key. Idempotent — returns 204 even if none was set."""
+    use_case.execute(user.id)
     return Response(status_code=204)

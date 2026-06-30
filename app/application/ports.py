@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from app.domain.auth import User
-from app.domain.budget import BudgetSettings, BudgetStatus
+from app.domain.budget import BudgetSettings, BudgetStatus, DailyRequestStatus
 from app.domain.entities import Offer, UserProfile
 from app.domain.scoring import MatchScore
 
@@ -125,6 +125,11 @@ class ModelUsageRepository(ABC):
     def usage_since(self, user_id: str, start: datetime) -> list[ModelUsageSummary]:
         """Per-model token totals for a user since `start` (used for budget accounting)."""
 
+    @abstractmethod
+    def count_requests_since(self, user_id: str, company: str, start: datetime) -> int:
+        """How many usage rows (LLM calls) the user recorded for a company since `start`.
+        Backs the per-day request budget — one row is one request to the provider."""
+
 
 class ModelLimitsRegistry(ABC):
     @abstractmethod
@@ -204,6 +209,9 @@ class ApiKeyRecord:
     limit_usd: float
     tracking_since: datetime
     created_at: datetime
+    # Optional per-day request cap (the free-tier-friendly budget). None = use the model's
+    # free-tier requests-per-day default; an int is the user's own override.
+    daily_request_limit: int | None = None
 
 
 class ApiKeyRepository(ABC):
@@ -229,6 +237,13 @@ class ApiKeyRepository(ABC):
         """Change only the spend limit for an existing key (leaving the usage anchor and
         the key itself untouched). Returns True if a row was updated."""
 
+    @abstractmethod
+    def update_daily_request_limit(
+        self, user_id: str, api_provider: str, limit: int | None
+    ) -> bool:
+        """Set (int) or clear (None → revert to the free-tier default) the key's per-day
+        request cap, leaving everything else untouched. Returns True if a row was updated."""
+
 
 class UserProviderSpendProvider(ABC):
     """How much a single user has spent on one provider (company) since an instant. Used
@@ -236,6 +251,47 @@ class UserProviderSpendProvider(ABC):
 
     @abstractmethod
     def spend_since(self, user_id: str, company: str, start: datetime) -> float: ...
+
+
+@dataclass(frozen=True)
+class AdminKeyRecord:
+    """A persisted OpenAI organization admin key (one per user). It powers the org-wide
+    spend/usage readouts, not scoring, so unlike `ApiKeyRecord` it carries no provider or
+    budget. `key_ciphertext` is the encrypted key (the only stored form); `key_hint` is a
+    non-secret masked display string."""
+
+    user_id: str
+    key_ciphertext: str
+    key_hint: str
+    created_at: datetime
+
+
+class AdminKeyRepository(ABC):
+    """Persists each user's OpenAI admin key — at most one per user. Stores only
+    ciphertext, never plaintext."""
+
+    @abstractmethod
+    def get(self, user_id: str) -> AdminKeyRecord | None: ...
+
+    @abstractmethod
+    def upsert(self, record: AdminKeyRecord) -> None:
+        """Insert the user's admin key, or replace it if one already exists (saving a new
+        key rotates the old one rather than erroring)."""
+
+    @abstractmethod
+    def delete(self, user_id: str) -> bool:
+        """Remove the user's admin key. Returns True if a row was deleted."""
+
+
+class AdminKeyValidator(ABC):
+    """Confirms a user-supplied OpenAI admin key actually works before it is stored, by
+    making a read-only call to the organization costs/usage API."""
+
+    @abstractmethod
+    def validate(self, key: str) -> None:
+        """Raise `InvalidAdminKeyError` if the provider rejects the key (bad key, or one
+        without the `api.usage.read` scope). Transient or unexpected failures propagate so
+        an outage is never misreported as a bad key."""
 
 
 class BudgetRepository(ABC):
@@ -255,6 +311,17 @@ class BudgetStatusReader(ABC):
 
     @abstractmethod
     def status(self, user_id: str) -> BudgetStatus: ...
+
+
+class DailyRequestUsageReader(ABC):
+    """Reads a user's per-day request budget for a given model: how many requests they've
+    made today against the model's provider versus the effective daily cap (their override,
+    else the model's free-tier requests-per-day). Returns None when the model has no daily
+    cap to enforce — a non-keyable provider, no stored key, or an unknown model with no
+    override — so the AI match gate leaves those ungated (fail-open)."""
+
+    @abstractmethod
+    def status_for(self, user_id: str, model: str) -> DailyRequestStatus | None: ...
 
 
 class AiScoreCacheRepository(ABC):

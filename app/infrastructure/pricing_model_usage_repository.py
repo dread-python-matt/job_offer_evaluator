@@ -35,3 +35,6 @@ class PricingModelUsageRepository(ModelUsageRepository):
 
     def usage_since(self, user_id: str, start: datetime) -> list[ModelUsageSummary]:
         return self._inner.usage_since(user_id, start)
+
+    def count_requests_since(self, user_id: str, company: str, start: datetime) -> int:
+        return self._inner.count_requests_since(user_id, company, start)

@@ -4,6 +4,7 @@ import { Observable, map } from 'rxjs';
 
 import { environment } from '../../../environments/environment';
 import {
+  AdminKey,
   AiMatchResult,
   ApiKey,
   ApiProvider,
@@ -167,6 +168,18 @@ export class ApiService {
 
   deleteApiKey(apiProvider: string): Observable<void> {
     return this.http.delete<void>(`${this.baseUrl}/api-keys/${apiProvider}`);
+  }
+
+  getAdminKey(): Observable<AdminKey | null> {
+    return this.http.get<AdminKey | null>(`${this.baseUrl}/admin-key`);
+  }
+
+  setAdminKey(key: string): Observable<AdminKey> {
+    return this.http.put<AdminKey>(`${this.baseUrl}/admin-key`, { key });
+  }
+
+  deleteAdminKey(): Observable<void> {
+    return this.http.delete<void>(`${this.baseUrl}/admin-key`);
   }
 
   getOffers(limit: number, offset: number, filters: OfferFilters): Observable<OffersPage> {

@@ -3,7 +3,9 @@
     <div class="page-header-icon"><mat-icon>monitoring</mat-icon></div>
     <div>
       <h2>Model usage</h2>
-      <p class="hint">Cumulative LLM token consumption aggregated by model, persisted across sessions.</p>
+      <p class="hint">
+        Cumulative LLM token consumption aggregated by model, persisted across sessions.
+      </p>
     </div>
     @if (currentModel(); as cm) {
       <div class="active-model-badge">
@@ -14,7 +16,13 @@
         <span class="active-model-company">{{ cm.company }}</span>
       </div>
     }
-    <button mat-icon-button (click)="load()" [disabled]="loading()" aria-label="Refresh usage data" class="refresh-btn">
+    <button
+      mat-icon-button
+      (click)="load()"
+      [disabled]="loading()"
+      aria-label="Refresh usage data"
+      class="refresh-btn"
+    >
       <mat-icon [class.spin]="loading()">refresh</mat-icon>
     </button>
   </div>
@@ -79,22 +87,27 @@
 
   <app-api-keys (changed)="load()" />
 
+  <app-admin-key (changed)="load()" />
+
   <mat-card appearance="outlined" class="org-spend-card">
     <mat-card-header>
       <div mat-card-avatar class="section-avatar"><mat-icon>account_balance</mat-icon></div>
       <mat-card-title>Organization spend (today)</mat-card-title>
-      <mat-card-subtitle>Actual USD billed by OpenAI org-wide, via the admin key.</mat-card-subtitle>
+      <mat-card-subtitle
+        >Actual USD billed by OpenAI org-wide, via the admin key.</mat-card-subtitle
+      >
     </mat-card-header>
     <mat-card-content class="org-spend-content">
       @if (orgSpend(); as spend) {
         <div class="org-spend-amounts">
-          <span class="org-spend-value">${{ spend.spend_usd | number:'1.2-2' }}</span>
-          <span class="org-spend-since">since {{ spend.since | date:'mediumDate' }} (UTC)</span>
+          <span class="org-spend-value">${{ spend.spend_usd | number: '1.2-2' }}</span>
+          <span class="org-spend-since">since {{ spend.since | date: 'mediumDate' }} (UTC)</span>
         </div>
       } @else {
         <p class="org-spend-unavailable">
           <mat-icon>info_outline</mat-icon>
-          Real-spend tracking requires <code>OPENAI_ADMIN_KEY</code> (with <code>api.usage.read</code>) and <code>LLM_PROVIDER=openai</code>.
+          Real-spend tracking needs an OpenAI admin key (with <code>api.usage.read</code>) — add one
+          above, or set <code>OPENAI_ADMIN_KEY</code> in the environment.
         </p>
       }
     </mat-card-content>
@@ -112,7 +125,6 @@
       @for (item of items(); track item.model) {
         <mat-card appearance="outlined" class="usage-card" [class.active-card]="isActive(item)">
           <mat-card-content>
-
             <div class="card-header">
               <div>
                 <p class="model-company">{{ item.company }}</p>
@@ -131,7 +143,9 @@
             <div class="usage-bar-wrap">
               <div
                 class="usage-bar"
-                [matTooltip]="(item.input_tokens | number) + ' in · ' + (item.output_tokens | number) + ' out'"
+                [matTooltip]="
+                  (item.input_tokens | number) + ' in · ' + (item.output_tokens | number) + ' out'
+                "
               >
                 <div class="bar-segment bar-input" [style.width.%]="inputPct(item)"></div>
                 <div class="bar-segment bar-output" [style.width.%]="100 - inputPct(item)"></div>
@@ -156,15 +170,20 @@
                   Free-tier limits
                 </p>
                 <div class="limits-row">
-                  <span class="limit-chip" matTooltip="Requests per minute">{{ item.limits.rpm | number }} rpm</span>
-                  <span class="limit-chip" matTooltip="Tokens per minute">{{ item.limits.tpm | number }} tpm</span>
-                  <span class="limit-chip" matTooltip="Requests per day">{{ item.limits.rpd | number }} rpd</span>
+                  <span class="limit-chip" matTooltip="Requests per minute"
+                    >{{ item.limits.rpm | number }} rpm</span
+                  >
+                  <span class="limit-chip" matTooltip="Tokens per minute"
+                    >{{ item.limits.tpm | number }} tpm</span
+                  >
+                  <span class="limit-chip" matTooltip="Requests per day"
+                    >{{ item.limits.rpd | number }} rpd</span
+                  >
                 </div>
               </div>
             } @else {
               <p class="no-limits">Limits unavailable for this model</p>
             }
-
           </mat-card-content>
         </mat-card>
       }
