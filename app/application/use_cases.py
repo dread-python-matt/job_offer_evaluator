@@ -308,6 +308,7 @@ class MatchOffersWithAiUseCase(_BaseMatchOffersUseCase):
         if self._budget:
             status = self._budget.status(user_id)
             if status.exceeded:
+                assert status.used_usd is not None  # `exceeded` is only true once spend is known
                 raise BudgetExceededError(status.used_usd, status.limit_usd)
             if self._fail_closed and status.used_usd is None:
                 raise AiScoringError(
@@ -416,11 +417,16 @@ def _start_of_utc_day(now: datetime) -> datetime:
     return now.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
+def _start_of_utc_month(now: datetime) -> datetime:
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
 class GetOrgSpendUseCase:
-    """Reads the organization's real provider spend for the current UTC day from the admin
-    usage API (e.g. OpenAI's costs endpoint, via the admin key). Returns None when no spend
-    provider is configured (no admin key) or the figure is currently unavailable, so the UI
-    can degrade gracefully rather than error."""
+    """Reads the organization's real provider spend month-to-date (UTC) from the admin usage
+    API (e.g. OpenAI's costs endpoint, via the admin key) — windowed to the calendar month so
+    the figure lines up with OpenAI's usage page "this month" total. Returns None when no spend
+    provider is configured (no admin key) or the figure is currently unavailable, so the UI can
+    degrade gracefully rather than error."""
 
     def __init__(
         self,
@@ -433,7 +439,7 @@ class GetOrgSpendUseCase:
     def execute(self) -> OrgSpend | None:
         if self._spend_provider is None:
             return None
-        since = _start_of_utc_day(self._clock())
+        since = _start_of_utc_month(self._clock())
         try:
             spend = self._spend_provider.spend_since(since)
         except CostUnavailableError:
@@ -513,6 +519,7 @@ class GetModelUsageSummaryUseCase:
                 model=s.model,
                 input_tokens=s.input_tokens,
                 output_tokens=s.output_tokens,
+                cost_usd=s.cost_usd,
                 limits=self._limits_registry.get_limits(s.model),
             )
             for s in summaries

@@ -27,7 +27,23 @@ redis = ["redis>=5.0"]
 [dependency-groups]
 dev = [
     "httpx2>=2.4",
+    "mypy>=1.13",
     "pytest>=9.1.0",
     "pytest-cov>=7.1.0",
     "ruff>=0.15.17",
 ]
+
+[tool.ruff]
+# Pin the width so `ruff format` is consistent across machines. E501 (line-too-long) is
+# deliberately NOT added to the lint selection — enforcing it would churn many existing lines;
+# this just fixes the formatter's target width.
+line-length = 100
+
+[tool.mypy]
+python_version = "3.13"
+files = ["app", "main.py"]
+# Third-party SDKs (openai-agents, etc.) ship without stubs; don't fail on their missing types.
+ignore_missing_imports = true
+# Pragmatic baseline for a previously-unchecked codebase: type-check annotated code without
+# demanding annotations everywhere. Tighten incrementally.
+check_untyped_defs = true

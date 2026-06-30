@@ -52,6 +52,6 @@ class PostgresBudgetRepository(BudgetRepository):
             if row is None:
                 row = BudgetRow(user_id=user_id)
                 session.add(row)
-            row.limit_usd = settings.limit_usd
+            row.limit_usd = settings.limit_usd  # type: ignore[assignment]  # float -> Numeric column
             row.tracking_since = settings.tracking_since
             session.commit()

@@ -29,8 +29,8 @@ async function setup() {
 function fillValid(component: Register): void {
   component.form.setValue({
     email: 'a@b.com',
-    password: 'longenoughpw',
-    confirmPassword: 'longenoughpw',
+    password: 'Longenoughpw1!',
+    confirmPassword: 'Longenoughpw1!',
   });
 }
 
@@ -54,8 +54,8 @@ describe('Register', () => {
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({
       email: 'a@b.com',
-      password: 'longenoughpw',
-      confirm_password: 'longenoughpw',
+      password: 'Longenoughpw1!',
+      confirm_password: 'Longenoughpw1!',
     });
     // Registration does not issue a session — the account stays unverified.
     req.flush({ email: 'a@b.com', message: 'Check your email to confirm your account.' });

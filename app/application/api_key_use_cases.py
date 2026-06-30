@@ -130,6 +130,10 @@ class SetApiKeyBudgetUseCase:
         if not self._repository.update_budget(user_id, api_provider, limit_usd):
             raise ApiKeyNotFoundError(api_provider)
         record = self._repository.get(user_id, api_provider)
+        if record is None:
+            # Deleted between the update and this read (rare race): nothing to return, so
+            # report it as missing rather than dereferencing None into a 500.
+            raise ApiKeyNotFoundError(api_provider)
         return _view_with_usage(record, self._spend)
 
 

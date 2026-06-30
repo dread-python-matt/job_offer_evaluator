@@ -2,9 +2,10 @@ from datetime import datetime, timezone
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import OperationalError
 
 from app.application.ports import ApiKeyRecord
+from app.domain.errors import ApiKeyAlreadyExistsError
 from app.infrastructure.orm_models import Base, UserApiKeyRow
 from app.infrastructure.postgres_api_key_repository import PostgresApiKeyRepository
 from app.infrastructure.postgres_user_repository import PostgresUserRepository
@@ -100,10 +101,12 @@ def test_list_for_user_returns_only_that_users_keys():
 
 
 def test_add_rejects_a_second_key_for_the_same_provider():
+    # The unique (user_id, api_provider) violation is mapped to the domain error (→ 409),
+    # not surfaced as a raw IntegrityError (→ 500). See L-2.
     repo = PostgresApiKeyRepository(DATABASE_URL)
     repo.add(_record(_USER_ID, "openai"))
 
-    with pytest.raises(IntegrityError):
+    with pytest.raises(ApiKeyAlreadyExistsError):
         repo.add(_record(_USER_ID, "openai"))
 
 

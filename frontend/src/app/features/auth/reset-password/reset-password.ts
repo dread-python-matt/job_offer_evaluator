@@ -15,11 +15,13 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 import { AuthService } from '../../../core/services/auth.service';
+import {
+  MIN_PASSWORD_LENGTH,
+  PASSWORD_REQUIREMENTS_HINT,
+  passwordStrength,
+} from '../../../core/validators/password';
 import { AuthShell } from '../auth-shell/auth-shell';
 import { AuthLogo } from '../auth-logo/auth-logo';
-
-// Mirrors the backend minimum (ResetPasswordRequestSchema); the server enforces it too.
-const MIN_PASSWORD_LENGTH = 10;
 
 // Group-level validator: the retyped new password must match. Same pattern as register.ts.
 function passwordsMatch(group: AbstractControl): ValidationErrors | null {
@@ -53,6 +55,7 @@ export class ResetPassword {
   private readonly route = inject(ActivatedRoute);
 
   readonly minPasswordLength = MIN_PASSWORD_LENGTH;
+  readonly passwordHint = PASSWORD_REQUIREMENTS_HINT;
   readonly submitting = signal(false);
   readonly error = signal<string | null>(null);
   // The token comes from the emailed link (?token=...); empty when the link is malformed.
@@ -80,7 +83,11 @@ export class ResetPassword {
     {
       newPassword: this.fb.control('', {
         nonNullable: true,
-        validators: [Validators.required, Validators.minLength(MIN_PASSWORD_LENGTH)],
+        validators: [
+          Validators.required,
+          Validators.minLength(MIN_PASSWORD_LENGTH),
+          passwordStrength,
+        ],
       }),
       confirmPassword: this.fb.control('', {
         nonNullable: true,

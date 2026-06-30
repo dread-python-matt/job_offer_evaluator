@@ -45,6 +45,13 @@
       "Bash(uv run python *scratchpad*/*.py)",
       "Bash(uv run python \"*scratchpad*/*.py\")",
       "Bash(uv run python \"*scratchpad*\\*.py\")",
+      "Bash(uv run python *scratchpad*.py*)",
+      "Bash(uv run python *Temp*claude*scratchpad*.py*)",
+      "Bash(uv run python *AppData*Local*Temp*claude*scratchpad*.py*)",
+
+      "Bash(uv run --directory * python *scratchpad*.py*)",
+      "Bash(uv run --directory * python *Temp*claude*scratchpad*.py*)",
+      "Bash(uv run --directory * python *AppData*Local*Temp*claude*scratchpad*.py*)",
 
       "Bash(uv run --directory * python *scratchpad/*.py)",
       "Bash(uv run --directory * python *scratchpad*/*.py)",

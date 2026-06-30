@@ -1,6 +1,10 @@
 from collections import Counter
 
-from app.application.skill_corpus import render_coverage, summarize_skill_corpus
+from app.application.skill_corpus import (
+    collect_unknown_tokens,
+    render_coverage,
+    summarize_skill_corpus,
+)
 from app.domain.skills import CanonicalSkill, SkillNormalizer
 
 
@@ -56,3 +60,34 @@ def test_render_handles_full_coverage_without_listing_tokens():
 
     assert "100.0%" in out
     assert "(unmapped: 0)" in out
+
+
+def test_collect_unknown_tokens_ranks_by_frequency_with_raw_samples():
+    counts = Counter({"CobolX": 3, "cobolx": 1, "Python": 9, "Whitespace": 5})
+
+    tokens = collect_unknown_tokens(counts, _FakeNormalizer({"python"}))
+
+    # Python is recognized (excluded); "CobolX"/"cobolx" merge to normalized "cobolx" (4).
+    assert [(t.normalized, t.occurrences) for t in tokens] == [
+        ("whitespace", 5),
+        ("cobolx", 4),
+    ]
+    cobolx = next(t for t in tokens if t.normalized == "cobolx")
+    assert set(cobolx.raw_samples) == {"CobolX", "cobolx"}
+
+
+class _ConstNormalizer(SkillNormalizer):
+    """Every token is an unknown passthrough under one shared id, to exercise sample-capping."""
+
+    def normalize(self, raw: str) -> CanonicalSkill:
+        return CanonicalSkill(id="x", source="passthrough")
+
+
+def test_collect_unknown_tokens_caps_raw_samples():
+    counts = Counter({f"raw{i}": 1 for i in range(10)})
+
+    tokens = collect_unknown_tokens(counts, _ConstNormalizer(), max_samples=3)
+
+    assert len(tokens) == 1
+    assert tokens[0].occurrences == 10  # all 10 raw tokens merged under one id
+    assert len(tokens[0].raw_samples) == 3  # samples capped

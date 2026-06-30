@@ -81,6 +81,27 @@
 
 // ── Add-key form ───────────────────────────────────────────────────────────────
 
+.add-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 var(--app-space-3);
+  font-size: 0.85em;
+  color: var(--mat-sys-on-surface-variant);
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+  code {
+    font-family: monospace;
+  }
+  a {
+    color: var(--mat-sys-primary);
+  }
+}
+
 .add-fields {
   display: flex;
   align-items: center;

@@ -91,29 +91,54 @@
 
   <app-admin-key (changed)="reloadAll()" />
 
-  <mat-card appearance="outlined" class="org-spend-card">
-    <mat-card-header>
-      <div mat-card-avatar class="section-avatar"><mat-icon>account_balance</mat-icon></div>
-      <mat-card-title>Organization spend (today)</mat-card-title>
-      <mat-card-subtitle
-        >Actual USD billed by OpenAI org-wide, via the admin key.</mat-card-subtitle
-      >
-    </mat-card-header>
-    <mat-card-content class="org-spend-content">
-      @if (orgSpend(); as spend) {
-        <div class="org-spend-amounts">
-          <span class="org-spend-value">${{ spend.spend_usd | number: '1.2-2' }}</span>
-          <span class="org-spend-since">since {{ spend.since | date: 'mediumDate' }} (UTC)</span>
-        </div>
-      } @else {
-        <p class="org-spend-unavailable">
-          <mat-icon>info_outline</mat-icon>
-          Real-spend tracking needs an OpenAI admin key (with <code>api.usage.read</code>) — add one
-          above, or set <code>OPENAI_ADMIN_KEY</code> in the environment.
-        </p>
-      }
-    </mat-card-content>
-  </mat-card>
+  <!-- OpenAI cost. Two deliberately separate figures: the admin-key "actual" spend this month
+       (billed truth, matches OpenAI's usage page) and the app's own approximate estimate. -->
+  <section class="openai-cost">
+    <mat-card appearance="outlined" class="cost-card actual-card">
+      <mat-card-header>
+        <div mat-card-avatar class="section-avatar"><mat-icon>account_balance</mat-icon></div>
+        <mat-card-title>OpenAI spend · this month</mat-card-title>
+        <mat-card-subtitle>Actual USD billed by OpenAI, org-wide — via the admin key.</mat-card-subtitle>
+      </mat-card-header>
+      <mat-card-content class="cost-content">
+        @if (orgSpend(); as spend) {
+          <div class="cost-amounts">
+            <span class="cost-value actual-value">${{ spend.spend_usd | number: '1.2-2' }}</span>
+            <span class="cost-meta actual-meta">
+              <mat-icon>verified</mat-icon>
+              Actual · since {{ spend.since | date: 'mediumDate' }} (UTC)
+            </span>
+          </div>
+        } @else {
+          <p class="cost-unavailable">
+            <mat-icon>info_outline</mat-icon>
+            Accurate spend needs an OpenAI admin key (with <code>api.usage.read</code>) — add one
+            above, or set <code>OPENAI_ADMIN_KEY</code> in the environment. Until then, only the
+            estimate is available.
+          </p>
+        }
+      </mat-card-content>
+    </mat-card>
+
+    @if (hasOpenAiUsage()) {
+      <mat-card appearance="outlined" class="cost-card estimated-card">
+        <mat-card-header>
+          <div mat-card-avatar class="section-avatar"><mat-icon>calculate</mat-icon></div>
+          <mat-card-title>OpenAI cost · estimated</mat-card-title>
+          <mat-card-subtitle>This app's own estimate, totalled since you added your OpenAI key.</mat-card-subtitle>
+        </mat-card-header>
+        <mat-card-content class="cost-content">
+          <div class="cost-amounts">
+            <span class="cost-value estimated-value">≈ ${{ estimatedOpenAiCost() | number: '1.2-2' }}</span>
+            <span class="cost-meta estimated-meta">
+              <mat-icon>info_outline</mat-icon>
+              Estimated from token counts at approximate list prices — not exact billing.
+            </span>
+          </div>
+        </mat-card-content>
+      </mat-card>
+    }
+  </section>
 
   @if (!loading() && !error() && items().length === 0) {
     <div class="status-block">
@@ -164,6 +189,14 @@
                 </span>
               </div>
             </div>
+
+            @if (isOpenAi(item)) {
+              <p class="est-cost-line" matTooltip="Estimated at approximate list prices — not exact billing">
+                <mat-icon>calculate</mat-icon>
+                ≈ ${{ item.cost_usd | number: '1.2-4' }}
+                <span class="est-tag">est.</span>
+              </p>
+            }
 
             @if (item.limits) {
               <div class="limits-section">

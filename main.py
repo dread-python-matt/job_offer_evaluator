@@ -76,6 +76,7 @@ from app.config import (
     MODELS_CACHE_TTL_SECONDS,
     OPENAI_ADMIN_KEY,
     OPENAI_API_KEY,
+    ORG_DAILY_BUDGET_USD,
     PASSWORD_RESET_TTL_HOURS,
     PORT,
     RATE_LIMITER_BACKEND,
@@ -95,7 +96,8 @@ from app.domain.errors import MissingProviderApiKeyError
 from app.domain.filters import FilterChain
 from app.domain.salary_calculator import SalaryCalculator
 from app.infrastructure.llm_utils import company_from_model
-from app.infrastructure.rate_limiting import AsyncRateLimiter, build_google_pace_limiter
+from app.infrastructure.rate_limiting import AsyncRateLimiter
+from app.infrastructure.google_pace_limiter_cache import GooglePaceLimiterCache
 from app.infrastructure.composite_budget_status_reader import (
     CompositeBudgetStatusReader,
 )
@@ -365,7 +367,7 @@ _delete_api_key_use_case = DeleteApiKeyUseCase(
 # depends on the scored model's provider); the org backstop is user-independent, built once.
 # The backstop stays on the env admin key (it protects the deployment owner's bill).
 _env_org_spend_provider = _llm_factory.build_spend_provider()
-_org_spend_backstop = OrgSpendBackstop(_env_org_spend_provider, DEFAULT_BUDGET_USD)
+_org_spend_backstop = OrgSpendBackstop(_env_org_spend_provider, ORG_DAILY_BUDGET_USD)
 # Org-level provider-authoritative token-usage readout from the admin usage API (OpenAI
 # only; None when no env admin key). Org-wide, not per-user.
 _env_org_usage_provider = _llm_factory.build_external_usage_provider()
@@ -404,8 +406,9 @@ def _usage_provider_for_user(user_id: str):
 
         from app.infrastructure.openai_usage_provider import OpenAIExternalUsageProvider
 
+        # Admin/organization usage routes authenticate with `admin_api_key`, not `api_key`.
         return OpenAIExternalUsageProvider(
-            OpenAI(api_key=key, timeout=LLM_TIMEOUT_SECONDS)
+            OpenAI(admin_api_key=key, timeout=LLM_TIMEOUT_SECONDS)
         )
     return _env_org_usage_provider
 
@@ -560,23 +563,12 @@ _model_limits_registry = HardcodedModelLimitsRegistry()
 _daily_request_usage_reader = TokenAccountingDailyRequestUsageReader(
     _api_key_repository, model_usage_repository, _model_limits_registry
 )
-_google_rate_limiters: dict[tuple[str, str], AsyncRateLimiter] = {}
-
-
-def _google_rate_limiter_for(user_id: str, model: str) -> AsyncRateLimiter | None:
-    """The user's Google pacing limiter for `model`, sized to that model's real free-tier RPM,
-    or None when pacing is disabled (GOOGLE_RPM_LIMIT=0). OpenAI scoring is never paced — only
-    Google's stricter free tier needs it."""
-    if GOOGLE_RPM_LIMIT <= 0:
-        return None
-    cache_key = (user_id, model)
-    if cache_key not in _google_rate_limiters:
-        limiter = build_google_pace_limiter(
-            model, _model_limits_registry, GOOGLE_RPM_LIMIT
-        )
-        assert limiter is not None  # GOOGLE_RPM_LIMIT > 0 here, so pacing is enabled
-        _google_rate_limiters[cache_key] = limiter
-    return _google_rate_limiters[cache_key]
+# Per-(user, model) Google pacing limiters: bounded LRU (so the dict can't grow without limit)
+# and RPM split across WORKERS (each process paces to its share so the fleet stays under the one
+# per-project provider cap). OpenAI scoring is never paced — only Google's stricter free tier is.
+_google_pace_limiters = GooglePaceLimiterCache(
+    _model_limits_registry, GOOGLE_RPM_LIMIT, workers=WORKERS
+)
 
 
 def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
@@ -591,7 +583,7 @@ def _build_ai_use_case(user_id: str, model: str) -> MatchOffersWithAiUseCase:
             # Google's free tier is budgeted by requests/day, not dollars, so it is gated by the
             # daily-request reader alone — no USD budget gate. Pace under its free-tier RPM cap.
             budget_gate = None
-            rate_limiter = _google_rate_limiter_for(user_id, model)
+            rate_limiter = _google_pace_limiters.get(user_id, model)
         else:
             budget_gate = _build_budget_gate(provider)
     else:

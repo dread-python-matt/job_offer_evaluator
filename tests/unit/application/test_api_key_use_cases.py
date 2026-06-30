@@ -200,6 +200,26 @@ def test_set_budget_on_a_missing_key_raises():
         )
 
 
+class _RowVanishesAfterUpdate(InMemoryApiKeyRepository):
+    """Models the rare race where the budget update matches a row but it's deleted before the
+    follow-up read: update_budget → True, then get → None."""
+
+    def update_budget(self, user_id, api_provider, limit_usd):
+        return True
+
+    def get(self, user_id, api_provider):
+        return None
+
+
+def test_set_budget_raises_not_found_when_the_row_vanishes_after_the_update():
+    # Guards against dereferencing None into a 500 (L-2): a concurrent delete between the
+    # update and the read surfaces as a clean ApiKeyNotFoundError (404), not a crash.
+    use_case = SetApiKeyBudgetUseCase(_RowVanishesAfterUpdate(), _FixedProviderSpend())
+
+    with pytest.raises(ApiKeyNotFoundError):
+        use_case.execute(_USER, "openai", 25.0)
+
+
 # --- SetDailyRequestLimitUseCase ---
 
 

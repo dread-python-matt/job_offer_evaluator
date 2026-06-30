@@ -44,8 +44,8 @@ from tests.fakes import (
     FakeVerificationTokenService,
 )
 
-_PASSWORD = "correct horse battery"
-_NEW_PASSWORD = "a brand new passphrase"
+_PASSWORD = "Correct horse battery1!"
+_NEW_PASSWORD = "A brand new passphrase2!"
 _VERIFY_LINK = "http://app.test/verify-email?token="
 _RESET_LINK = "http://app.test/reset-password?token="
 _RATE_LIMIT_ATTEMPTS = 3
@@ -204,6 +204,15 @@ def test_register_rejects_too_short_password():
     client = TestClient(_build_app().app)
 
     response = _register(client, password="short")
+
+    assert response.status_code == 422
+
+
+def test_register_rejects_password_missing_a_character_class():
+    # Long enough, but no uppercase, digit, or special character.
+    client = TestClient(_build_app().app)
+
+    response = _register(client, password="onlylowercaseletters")
 
     assert response.status_code == 422
 
@@ -627,7 +636,9 @@ def test_reset_password_link_cannot_be_reused():
 
     assert _reset(client, token).status_code == 200
     # The first reset bumped token_version, so the same link is now rejected (single-use).
-    assert _reset(client, token, new_password="a third passphrase entirely").status_code == 400
+    assert (
+        _reset(client, token, new_password="A third passphrase3!").status_code == 400
+    )
 
 
 def test_reset_password_rejects_mismatched_passwords():

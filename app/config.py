@@ -10,9 +10,13 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 # WORKERS * (DB_POOL_SIZE + DB_MAX_OVERFLOW) under the database's max connections.
 DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))
 DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "10"))
-# Deployment environment. "production" turns on fail-fast config validation (see
-# app/config_validation.py): the app refuses to boot with insecure defaults.
-APP_ENV = os.environ.get("APP_ENV", "development").strip().lower()
+# Deployment environment. Anything other than an explicit dev/test value (see
+# app/config_validation.py) is treated as production and turns on fail-fast config validation:
+# the app refuses to boot with insecure defaults. The default is "production" so that
+# *forgetting* to set APP_ENV fails closed (secure by default) rather than silently running
+# with the committed dev secrets. Local dev / CI must opt in with APP_ENV=development (the
+# docker-compose services and .env.example set it).
+APP_ENV = os.environ.get("APP_ENV", "production").strip().lower()
 # --- Logging / observability ---
 # Root log level (standard names: DEBUG, INFO, WARNING, ERROR, CRITICAL). Keep at INFO/WARNING
 # in production; drop to DEBUG only for temporary troubleshooting.
@@ -28,6 +32,12 @@ OPENAI_ADMIN_KEY = os.environ.get("OPENAI_ADMIN_KEY", "")
 # Seeds the budget limit only on first run; afterwards the limit is owned by the DB
 # and changed via the API.
 DEFAULT_BUDGET_USD = float(os.environ.get("DEFAULT_BUDGET_USD", os.environ.get("DAILY_BUDGET_USD", "5.0")))
+# Org-wide daily spend backstop (only active when an OpenAI admin key is configured): caps the
+# organization's *total* provider spend per UTC day across all users, protecting the owner's real
+# bill. Distinct from the per-user `DEFAULT_BUDGET_USD` (it's a different scope — all tenants
+# summed, not one user). Defaults to `DEFAULT_BUDGET_USD` for backwards compatibility; raise it
+# for multi-tenant OpenAI deployments so one shared $5 cap doesn't block everyone.
+ORG_DAILY_BUDGET_USD = float(os.environ.get("ORG_DAILY_BUDGET_USD", str(DEFAULT_BUDGET_USD)))
 
 # --- Email confirmation ---
 # Base URL of the frontend; the registration confirmation link points at its

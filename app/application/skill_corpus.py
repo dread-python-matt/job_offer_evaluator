@@ -10,6 +10,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from app.application.ports import UnknownSkillToken
 from app.domain.skills import SkillNormalizer
 
 
@@ -24,9 +25,7 @@ class CorpusCoverage:
     @property
     def recognized_ratio(self) -> float:
         return (
-            self.recognized_occurrences / self.total_occurrences
-            if self.total_occurrences
-            else 0.0
+            self.recognized_occurrences / self.total_occurrences if self.total_occurrences else 0.0
         )
 
     @property
@@ -58,6 +57,32 @@ def summarize_skill_corpus(
     )
 
 
+def collect_unknown_tokens(
+    token_counts: Mapping[str, int],
+    normalizer: SkillNormalizer,
+    *,
+    max_samples: int = 5,
+) -> list[UnknownSkillToken]:
+    """The unmapped (Tier-0 miss) tail as persistable records: each normalized token with its
+    total occurrences and up to `max_samples` example raw forms, most frequent first. Mirrors
+    `summarize_skill_corpus`'s classification (a `passthrough` result is unknown) while keeping
+    a few raw samples for human review."""
+    occurrences: Counter[str] = Counter()
+    samples: dict[str, list[str]] = {}
+    for raw, count in token_counts.items():
+        result = normalizer.normalize(raw)
+        if result.source != "passthrough":
+            continue
+        occurrences[result.id] += count
+        bucket = samples.setdefault(result.id, [])
+        if raw not in bucket and len(bucket) < max_samples:
+            bucket.append(raw)
+    return [
+        UnknownSkillToken(normalized=token, occurrences=count, raw_samples=samples[token])
+        for token, count in occurrences.most_common()
+    ]
+
+
 def render_coverage(report: CorpusCoverage, *, top: int = 50) -> str:
     lines = [
         "Skill corpus coverage",
@@ -70,8 +95,5 @@ def render_coverage(report: CorpusCoverage, *, top: int = 50) -> str:
             "",
             f"Top {min(top, report.distinct_unknown)} unmapped tokens (add to skill_aliases.json):",
         ]
-        lines += [
-            f"  {count:>6,}  {token}"
-            for token, count in report.unknown_by_frequency[:top]
-        ]
+        lines += [f"  {count:>6,}  {token}" for token, count in report.unknown_by_frequency[:top]]
     return "\n".join(lines)

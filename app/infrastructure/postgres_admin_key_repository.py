@@ -47,7 +47,7 @@ class PostgresAdminKeyRepository(AdminKeyRepository):
                 delete(OpenAiAdminKeyRow).where(OpenAiAdminKeyRow.user_id == user_id)
             )
             session.commit()
-            return result.rowcount > 0
+            return result.rowcount > 0  # type: ignore[attr-defined]  # DML CursorResult has rowcount
 
     @staticmethod
     def _to_record(row: OpenAiAdminKeyRow) -> AdminKeyRecord:

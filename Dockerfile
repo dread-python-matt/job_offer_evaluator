@@ -28,5 +28,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# Apply migrations, then start the API.
-CMD ["sh", "-c", "uv run alembic upgrade head && uv run python main.py"]
+# Apply migrations, (re)build the offer_skill concept index, then start the API. The index build
+# is best-effort (`|| true`): a failed/empty build degrades only the browse tech filter, so it
+# must never block boot, whereas migrations must succeed. The indexer no-ops if the scraper-owned
+# `offers` table isn't present yet, so this is safe on a brand-new database.
+CMD ["sh", "-c", "uv run alembic upgrade head && (uv run python -m app.scripts.index_offer_skills || true) && uv run python main.py"]

@@ -384,8 +384,9 @@ def get_org_spend(
     user: User = Depends(get_current_user),
     use_case: GetOrgSpendUseCase = Depends(get_org_spend_use_case),
 ) -> OrgSpendSchema | None:
-    """The organization's actual provider spend today (real money, from the admin usage
-    API). Null when no admin key is configured or the figure is unavailable."""
+    """The organization's actual provider spend month-to-date (UTC, real money, from the admin
+    usage API) — matches OpenAI's usage page. Null when no admin key is configured or the
+    figure is unavailable."""
     spend = use_case.execute()
     return OrgSpendSchema.from_domain(spend) if spend is not None else None
 

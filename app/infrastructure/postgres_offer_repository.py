@@ -20,6 +20,21 @@ _SALARY_SORT_COLUMNS = {
     "salary_max": "net_max",
 }
 
+# Backslash is the escape char passed to LIKE (`escape="\\"`) below.
+_LIKE_ESCAPE = "\\"
+
+
+def _like_escape(value: str) -> str:
+    """Escape LIKE wildcards in user input so they match literally — a user searching `c%` or
+    `a_b` should match those characters, not "anything". The escape char itself is escaped first.
+    Pair with `.like(pattern, escape="\\\\")`. (Values are already bound parameters, so this is a
+    search-semantics fix, not an injection one.)"""
+    return (
+        value.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2)
+        .replace("%", _LIKE_ESCAPE + "%")
+        .replace("_", _LIKE_ESCAPE + "_")
+    )
+
 
 class PostgresOfferRepository(OfferRepository):
     """Read-only adapter over the existing `offers` table owned by the scraper."""
@@ -122,22 +137,24 @@ class PostgresOfferRepository(OfferRepository):
         if not filters.include_expired:
             query = query.where(OfferRow.expired == False)  # noqa: E712
         if filters.search:
-            term = f"%{filters.search.lower()}%"
+            term = f"%{_like_escape(filters.search.lower())}%"
             query = query.where(
                 or_(
-                    func.lower(OfferRow.title).like(term),
-                    func.lower(OfferRow.company).like(term),
+                    func.lower(OfferRow.title).like(term, escape=_LIKE_ESCAPE),
+                    func.lower(OfferRow.company).like(term, escape=_LIKE_ESCAPE),
                 )
             )
         if filters.location:
             query = query.where(
                 func.lower(cast(OfferRow.locations, Text)).like(
-                    f"%{filters.location.lower()}%"
+                    f"%{_like_escape(filters.location.lower())}%", escape=_LIKE_ESCAPE
                 )
             )
         if filters.level:
             level_conds = [
-                func.lower(cast(OfferRow.levels, Text)).like(f'%"{level.lower()}"%')
+                func.lower(cast(OfferRow.levels, Text)).like(
+                    f'%"{_like_escape(level.lower())}"%', escape=_LIKE_ESCAPE
+                )
                 for level in filters.level
             ]
             query = query.where(or_(*level_conds))
@@ -151,12 +168,14 @@ class PostgresOfferRepository(OfferRepository):
         "Kubernetes"); without one, fall back to raw substring matching on the stored stacks."""
         if self._normalizer is None:
             for tech in techs:
-                pattern = f"%{tech.lower()}%"
+                pattern = f"%{_like_escape(tech.lower())}%"
                 query = query.where(
                     or_(
-                        func.lower(cast(OfferRow.tech_stack, Text)).like(pattern),
+                        func.lower(cast(OfferRow.tech_stack, Text)).like(
+                            pattern, escape=_LIKE_ESCAPE
+                        ),
                         func.lower(cast(OfferRow.tech_stack_nice_to_have, Text)).like(
-                            pattern
+                            pattern, escape=_LIKE_ESCAPE
                         ),
                     )
                 )
@@ -175,7 +194,7 @@ class PostgresOfferRepository(OfferRepository):
         return query
 
     def _order_clause(self, filters: OfferBrowseFilters, salary_sq=None):
-        column_name = _SALARY_SORT_COLUMNS.get(filters.sort_by)
+        column_name = _SALARY_SORT_COLUMNS.get(filters.sort_by or "")
         if column_name is not None and salary_sq is not None:
             column = salary_sq.c[column_name]
         else:

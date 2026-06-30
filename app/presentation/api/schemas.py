@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import AfterValidator, BaseModel, EmailStr, Field, model_validator
+
+from app.domain.password_policy import validate_password_strength
 
 from app.application.admin_key_use_cases import AdminKeyView
 from app.application.api_key_use_cases import ApiKeyView
@@ -422,8 +425,9 @@ class SetDailyRequestLimitRequestSchema(BaseModel):
 
 
 class OrgSpendSchema(BaseModel):
-    """The organization's actual provider spend (real money, from the admin usage API) for
-    the current UTC day. Returned as null when no admin key is configured."""
+    """The organization's actual provider spend (real money, from the admin usage API),
+    month-to-date in UTC — mirroring OpenAI's usage page "this month" total. `since` is the
+    first instant of the current UTC month. Returned as null when no admin key is configured."""
 
     spend_usd: float
     since: datetime
@@ -532,6 +536,9 @@ class ModelUsageSummaryItemSchema(BaseModel):
     model: str
     input_tokens: int
     output_tokens: int
+    # Estimated USD cost (approximate list prices, write-time snapshot). The frontend shows
+    # this only for OpenAI models; the authoritative figure is /usage/org-spend (admin key).
+    cost_usd: float
     limits: ModelLimitsSchema | None
 
     @classmethod
@@ -541,6 +548,7 @@ class ModelUsageSummaryItemSchema(BaseModel):
             model=item.model,
             input_tokens=item.input_tokens,
             output_tokens=item.output_tokens,
+            cost_usd=item.cost_usd,
             limits=ModelLimitsSchema(
                 rpm=item.limits.rpm, tpm=item.limits.tpm, rpd=item.limits.rpd
             )
@@ -549,13 +557,21 @@ class ModelUsageSummaryItemSchema(BaseModel):
         )
 
 
-# Minimum is enforced server-side regardless of any client-side validation.
-_MIN_PASSWORD_LENGTH = 10
+def _check_password_strength(value: str) -> str:
+    validate_password_strength(value)
+    return value
+
+
+# Server-side strength gate (length + character classes), enforced regardless of any
+# client-side validation. `max_length` is a DoS guard on the bcrypt/argon2 hash input.
+StrongPassword = Annotated[
+    str, Field(max_length=128), AfterValidator(_check_password_strength)
+]
 
 
 class RegisterRequestSchema(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=_MIN_PASSWORD_LENGTH, max_length=128)
+    password: StrongPassword
     # Retyped password; must match `password`. Enforced server-side regardless of any
     # client-side check so the API never relies on the form alone.
     confirm_password: str
@@ -578,7 +594,7 @@ class VerifyEmailRequestSchema(BaseModel):
 
 class ChangePasswordRequestSchema(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=_MIN_PASSWORD_LENGTH, max_length=128)
+    new_password: StrongPassword
 
 
 class ForgotPasswordRequestSchema(BaseModel):
@@ -587,7 +603,7 @@ class ForgotPasswordRequestSchema(BaseModel):
 
 class ResetPasswordRequestSchema(BaseModel):
     token: str
-    new_password: str = Field(min_length=_MIN_PASSWORD_LENGTH, max_length=128)
+    new_password: StrongPassword
     # Retyped password; must match `new_password`. Enforced server-side too.
     confirm_password: str
 

@@ -18,15 +18,25 @@ from app.infrastructure.postgres_offer_skill_indexer import PostgresOfferSkillIn
 
 
 def main(argv: list[str] | None = None) -> int:
-    argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description="Rebuild the offer_skill concept index from the offers table."
-    ).parse_args(argv)
+    )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Print index freshness (built? stale vs. the current alias map?) without rebuilding.",
+    )
+    args = parser.parse_args(argv)
     normalizer = AliasMapSkillNormalizer.from_default(on_unknown=None)
     indexer = PostgresOfferSkillIndexer(build_engine(DATABASE_URL), normalizer)
+    if args.status:
+        print(indexer.status().describe(), file=sys.stderr)
+        return 0
     written = indexer.rebuild()
     print(
         f"Rebuilt offer_skill index: {written} (offer, concept) rows.", file=sys.stderr
     )
+    print(indexer.status().describe(), file=sys.stderr)
     return 0
 
 

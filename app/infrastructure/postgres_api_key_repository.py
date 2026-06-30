@@ -1,7 +1,9 @@
 from sqlalchemy import Engine, delete, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.application.ports import ApiKeyRecord, ApiKeyRepository
+from app.domain.errors import ApiKeyAlreadyExistsError
 from app.infrastructure.db import resolve_engine
 from app.infrastructure.orm_models import UserApiKeyRow
 
@@ -28,7 +30,13 @@ class PostgresApiKeyRepository(ApiKeyRepository):
                     daily_request_limit=record.daily_request_limit,
                 )
             )
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                # A concurrent insert won the unique (user_id, api_provider) race between the
+                # use case's existence check and this commit. Surface the clean domain error
+                # (mapped to 409) instead of letting IntegrityError bubble to a generic 500.
+                raise ApiKeyAlreadyExistsError(record.api_provider) from exc
 
     def list_for_user(self, user_id: str) -> list[ApiKeyRecord]:
         with Session(self._engine) as session:
@@ -52,7 +60,7 @@ class PostgresApiKeyRepository(ApiKeyRepository):
                 .where(UserApiKeyRow.api_provider == api_provider)
             )
             session.commit()
-            return result.rowcount > 0
+            return result.rowcount > 0  # type: ignore[attr-defined]  # DML CursorResult has rowcount
 
     def update_budget(self, user_id: str, api_provider: str, limit_usd: float) -> bool:
         with Session(self._engine) as session:
@@ -63,7 +71,7 @@ class PostgresApiKeyRepository(ApiKeyRepository):
                 .values(limit_usd=limit_usd)
             )
             session.commit()
-            return result.rowcount > 0
+            return result.rowcount > 0  # type: ignore[attr-defined]  # DML CursorResult has rowcount
 
     def update_daily_request_limit(
         self, user_id: str, api_provider: str, limit: int | None
@@ -76,7 +84,7 @@ class PostgresApiKeyRepository(ApiKeyRepository):
                 .values(daily_request_limit=limit)
             )
             session.commit()
-            return result.rowcount > 0
+            return result.rowcount > 0  # type: ignore[attr-defined]  # DML CursorResult has rowcount
 
     @staticmethod
     def _by_user_provider(user_id: str, api_provider: str):

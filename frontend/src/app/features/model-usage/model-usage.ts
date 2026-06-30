@@ -160,4 +160,23 @@ export class ModelUsage implements OnInit {
     const cm = this.currentModel();
     return cm != null && cm.model === item.model;
   }
+
+  /** OpenAI is the only provider with an authoritative spend path (admin key) and the only one
+   * we surface a $ figure for; Gemini cards stay tokens-only. */
+  isOpenAi(item: ModelUsageSummaryItem): boolean {
+    return item.company === 'OpenAI';
+  }
+
+  /** True once any OpenAI usage exists, so the OpenAI cost section is worth showing. */
+  hasOpenAiUsage(): boolean {
+    return this.items().some((item) => this.isOpenAi(item));
+  }
+
+  /** Estimated total OpenAI cost (approximate list prices) across all OpenAI models — the
+   * headline of the "estimated" section, distinct from the admin-key actual spend. */
+  estimatedOpenAiCost(): number {
+    return this.items()
+      .filter((item) => this.isOpenAi(item))
+      .reduce((sum, item) => sum + item.cost_usd, 0);
+  }
 }

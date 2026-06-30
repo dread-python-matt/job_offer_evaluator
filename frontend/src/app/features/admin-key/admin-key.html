@@ -3,8 +3,9 @@
     <div mat-card-avatar class="section-avatar"><mat-icon>admin_panel_settings</mat-icon></div>
     <mat-card-title>OpenAI admin key</mat-card-title>
     <mat-card-subtitle>
-      An organization admin key (with <code>api.usage.read</code>) powers the organization spend
-      &amp; usage readouts below.
+      An <strong>organization admin key</strong> (with <code>api.usage.read</code>) powers the
+      organization spend &amp; usage readouts below. This is not your regular project
+      <code>sk-…</code> API key.
     </mat-card-subtitle>
   </mat-card-header>
 
@@ -42,6 +43,20 @@
       </div>
     } @else {
       <form class="add-form" (ngSubmit)="save()">
+        <p class="add-note">
+          <mat-icon>info_outline</mat-icon>
+          <span>
+            Paste an <strong>Organization admin key</strong> — created by an org Owner with the
+            <code>api.usage.read</code> scope. A regular project <code>sk-…</code> key will be
+            rejected.
+            <a
+              href="https://platform.openai.com/settings/organization/admin-keys"
+              target="_blank"
+              rel="noopener noreferrer"
+              >Create an admin key</a
+            >.
+          </span>
+        </p>
         <div class="add-fields">
           <mat-form-field class="key-field">
             <mat-label>Admin key</mat-label>
@@ -50,7 +65,7 @@
               [type]="showKey() ? 'text' : 'password'"
               autocomplete="off"
               [formControl]="keyControl"
-              placeholder="Paste your OpenAI admin key"
+              placeholder="Paste your OpenAI organization admin key"
             />
             <button
               mat-icon-button

@@ -73,6 +73,7 @@ def effective_google_rpm(
     model: str,
     limits_registry: ModelLimitsRegistry,
     configured_rpm: int,
+    workers: int = 1,
 ) -> int | None:
     """Requests-per-minute a Google/Gemini model should be paced at, or None when pacing is
     disabled (`configured_rpm <= 0`).
@@ -81,25 +82,30 @@ def effective_google_rpm(
     gemini-2.5-pro 5, gemini-2.5-flash 10, flash-lite 30 — so one flat rate over-paces the slow
     models straight into 429s. The per-model cap comes from `limits_registry`; an unknown model
     falls back to `configured_rpm` (the GOOGLE_RPM_LIMIT knob, which also disables pacing at 0).
-    A ~10% safety margin absorbs boundary effects against the provider's hard cap."""
+    A ~10% safety margin absorbs boundary effects against the provider's hard cap.
+
+    The limiter is per process, but the provider cap is per project, so under `workers > 1` the
+    budget is split across workers (RPM // workers): each worker paces to its share so the
+    fleet's aggregate client-side rate stays under the one shared cap instead of `workers`x it."""
     if configured_rpm <= 0:
         return None
     limits = limits_registry.get_limits(model)
     rpm = limits.rpm if limits is not None else configured_rpm
-    return max(1, int(rpm * _RPM_SAFETY_MARGIN))
+    return max(1, int(rpm * _RPM_SAFETY_MARGIN) // max(1, workers))
 
 
 def build_google_pace_limiter(
     model: str,
     limits_registry: ModelLimitsRegistry,
     configured_rpm: int,
+    workers: int = 1,
 ) -> AsyncRateLimiter | None:
     """Client-side pacer for a Google/Gemini model, sized to that model's real free-tier RPM
-    (see `effective_google_rpm`) so a burst of scoring/translation calls can't trip a 429.
-    Returns None when pacing is disabled. Built with `max_burst=1` so calls stay evenly spaced
-    and the per-minute cap holds from the first call (a full-capacity bucket would otherwise let
-    ~2x the cap through in the first 60s)."""
-    rpm = effective_google_rpm(model, limits_registry, configured_rpm)
+    (see `effective_google_rpm`, including the per-worker split) so a burst of scoring/translation
+    calls can't trip a 429. Returns None when pacing is disabled. Built with `max_burst=1` so
+    calls stay evenly spaced and the per-minute cap holds from the first call (a full-capacity
+    bucket would otherwise let ~2x the cap through in the first 60s)."""
+    rpm = effective_google_rpm(model, limits_registry, configured_rpm, workers)
     if rpm is None:
         return None
     return TokenBucketRateLimiter(rpm, max_burst=1)

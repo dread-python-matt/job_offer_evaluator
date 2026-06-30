@@ -41,9 +41,13 @@
             >
               <mat-icon>{{ isRevealed('password') ? 'visibility_off' : 'visibility' }}</mat-icon>
             </button>
-            <mat-hint>At least {{ minPasswordLength }} characters.</mat-hint>
+            <mat-hint>{{ passwordHint }}</mat-hint>
             @if (form.controls.password.touched && form.controls.password.hasError('minlength')) {
               <mat-error>Use at least {{ minPasswordLength }} characters.</mat-error>
+            } @else if (
+              form.controls.password.touched && form.controls.password.hasError('passwordStrength')
+            ) {
+              <mat-error>{{ passwordHint }}</mat-error>
             }
           </mat-form-field>
 

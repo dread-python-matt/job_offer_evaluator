@@ -15,11 +15,16 @@ from app.config import (
 
 _logger = logging.getLogger(__name__)
 
+# Environments where the strict production checks are relaxed for zero-config local dev / CI.
+# Everything else — including an unset APP_ENV (which defaults to "production") — is treated as
+# production, so forgetting to set it fails closed rather than booting with the dev secrets.
+_NON_PRODUCTION_ENVS = frozenset({"development", "dev", "test", "local"})
+
 
 class InsecureConfigurationError(RuntimeError):
-    """Raised at startup when APP_ENV=production but the configuration is unsafe to run with
-    (e.g. the dev JWT secret, non-secure cookies). The app refuses to boot rather than serve
-    traffic with a known-insecure setup."""
+    """Raised at startup when running in a production-grade environment but the configuration is
+    unsafe (e.g. the committed dev JWT/Fernet secret, non-secure cookies, wildcard CORS). The app
+    refuses to boot rather than serve traffic with a known-insecure setup."""
 
 
 def validate_runtime_config(
@@ -35,12 +40,17 @@ def validate_runtime_config(
 ) -> None:
     """Fail fast on insecure production configuration; warn on risky-but-valid settings.
 
-    In production (`APP_ENV=production`) this raises `InsecureConfigurationError`, listing
-    every problem found, when any of these hold:
+    Unless `app_env` is an explicit non-production value (`development`/`dev`/`test`/`local`),
+    the configuration is treated as production and this raises `InsecureConfigurationError`,
+    listing every problem found, when any of these hold:
       - `JWT_SECRET` is still the dev default or shorter than `MIN_JWT_SECRET_LENGTH`
         (a guessable secret lets anyone forge sessions);
+      - `API_KEY_ENCRYPTION_KEY` is still the public dev default (anyone could decrypt stored keys);
       - cookies are not marked Secure (`COOKIE_SECURE` is false) — they could ride plaintext;
       - a wildcard (`*`) CORS origin is configured alongside credentialed requests.
+
+    Because `APP_ENV` defaults to `production`, a deployment that forgets to set it is validated
+    (fails closed) rather than silently booting with the committed dev secrets.
 
     Regardless of environment, it logs a warning when `WORKERS > 1` while still on the
     per-process in-memory rate limiter, since the throttle would then be multiplied per
@@ -54,7 +64,7 @@ def validate_runtime_config(
             workers,
         )
 
-    if app_env != "production":
+    if app_env in _NON_PRODUCTION_ENVS:
         return
 
     problems: list[str] = []

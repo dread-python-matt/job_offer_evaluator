@@ -6,6 +6,7 @@ from sqlalchemy.exc import OperationalError
 
 from app.config import DATABASE_URL
 from app.domain.auth import User
+from app.domain.errors import EmailAlreadyRegisteredError
 from app.infrastructure.postgres_user_repository import PostgresUserRepository
 
 
@@ -77,3 +78,21 @@ def test_mark_email_verified_is_idempotent():
     repo.mark_email_verified(_USER_ID)
 
     assert repo.get_by_id(_USER_ID).email_verified is True
+
+
+def test_add_rejects_a_duplicate_email():
+    # The unique-email violation is mapped to the domain error (→ 409), not surfaced as a raw
+    # IntegrityError (→ 500). See L-2.
+    repo = PostgresUserRepository(DATABASE_URL)
+    repo.add(_user(email_verified=True))
+
+    duplicate = User(
+        id="44444444-4444-4444-4444-444444444444",
+        email=f"{_USER_ID}@example.test",  # same email as _user(...)
+        password_hash="hashed",
+        token_version=0,
+        created_at=datetime(2026, 6, 25, tzinfo=timezone.utc),
+        email_verified=False,
+    )
+    with pytest.raises(EmailAlreadyRegisteredError):
+        repo.add(duplicate)

@@ -11,9 +11,12 @@ inherits string-match errors; canonicalizing once at the boundary fixes all of t
 >
 > **Status:** Phase 1 (deterministic Tier 0 — `SkillNormalizer` port + `AliasMapSkillNormalizer`
 > + seeded `skill_aliases.json` + canonicalization at the matching boundary + the evidence-aware
-> scoring fix) is **implemented**, along with **Phase 2**: the corpus-mining / coverage tool
+> scoring fix, including the un-evidenced self-claim cap from §9) is **implemented**, along with
+> **Phase 2**: the corpus-mining / coverage tool
 > (`app/scripts/mine_skill_corpus.py` + pure core `app/application/skill_corpus.py`) that surveys
-> the offers' skill tokens and lists the unmapped tail by frequency, and the **embedding-assisted
+> the offers' skill tokens and lists the unmapped tail by frequency (and, with `--persist`,
+> snapshots it into the app-owned `unknown_skill_token` table, migration `0020`, that the suggester
+> can read via `--from-db`), and the **embedding-assisted
 > alias suggester** (`app/scripts/suggest_skill_aliases.py` + pure core
 > `app/application/skill_suggestions.py`) that ranks that tail against the canonical concepts —
 > lexical (stdlib `difflib`) by default, with an optional embedding-cosine blend behind a
@@ -22,8 +25,12 @@ inherits string-match errors; canonicalizing once at the boundary fixes all of t
 > `offer_skill` index table (ORM `OfferSkillRow`, migration `0018`, rebuilt by
 > `app/scripts/index_offer_skills.py` via `PostgresOfferSkillIndexer`) projects each offer's
 > skills onto canonical concepts, so browsing's tech filter matches by concept in SQL
-> (`PostgresOfferRepository` is concept-aware when a normalizer is wired). Only the optional
-> semantic *runtime* fallback (Tier 2 pgvector, §7–§8) remains planned.
+> (`PostgresOfferRepository` is concept-aware when a normalizer is wired). The index now
+> **rebuilds itself at container start** (Dockerfile, after migrations, best-effort) and records
+> the alias-map version it was built from in `offer_skill_index_meta` (migration `0019`), so a
+> stale or unbuilt index is observable (`index_offer_skills --status`) instead of silently
+> matching nothing. Only the optional semantic *runtime* fallback (Tier 2 pgvector, §7–§8) remains
+> planned.
 
 ---
 
@@ -180,8 +187,13 @@ Every Tier-0 miss is recorded so the map can be grown from *our* corpus:
 - **Structured log** (reuse the new logging stack): `logging.getLogger("app.skills").info("unknown
   skill token", extra={"event": "unknown_skill_token", "token": raw, "normalized": s})` — queryable
   in the aggregator.
-- **Aggregation table** `unknown_skill_token(normalized PK, raw_samples[], count, first_seen,
-  last_seen)` (app-owned, Alembic migration) so curation can sort the tail by frequency.
+- **Aggregation table** `unknown_skill_token(normalized PK, occurrences, raw_samples, updated_at)`
+  (app-owned, migration `0020`) so curation can sort the tail by frequency — **implemented**.
+  Populated by a **corpus snapshot** (`mine_skill_corpus --persist` → `replace_all`), so counts
+  reflect the current corpus and are never double-counted across runs; the alias suggester reads it
+  with `suggest_skill_aliases --from-db`. (The live request path still only logs; buffering live
+  misses into this table is a possible later addition, and `first_seen` was dropped as it isn't
+  meaningful under snapshot-replace.)
 
 A skill that recurs a lot but stays unknown is the highest-ROI map entry to add.
 
@@ -234,8 +246,9 @@ Scoring changes (all in the **pure domain**, behind the same `OfferScorer` inter
 
 - **Evidenced skills outweigh self-claimed.** Tunable weights, e.g. `contribution = base ×
   evidence_factor × match_confidence`, where `evidence_factor` is high when evidenced and an
-  un-evidenced high self-rating is **capped** (juniors over-claim). Weights live in config/constants
-  so they can be calibrated.
+  un-evidenced high self-rating is **capped** (juniors over-claim) — implemented as the tunable
+  `UNEVIDENCED_SELF_RATING_CAP` (default 0.6 ≈ 3/5) in `skill_utils.py`. Weights live in
+  config/constants so they can be calibrated.
 - **Fix the evidenced-but-unrated gap.** A canonical skill practiced in a project but absent from
   the self-rated `skills` list should get a **baseline weight** (today it scores 0). This alone is
   a meaningful accuracy win.
@@ -313,9 +326,11 @@ the map from the unknown-token log. Optionally persist profile/offer canonical p
 
 **Phase 3 — scale / semantic fallback.** The `offer_skill` index that pushes canonical tech
 filtering into SQL for browse is **done** (`OfferSkillRow` + migration `0018` +
-`PostgresOfferSkillIndexer`, rebuilt by `app.scripts.index_offer_skills`). Still planned (only if
-metrics justify it): pgvector `canonical_skill_embedding` + a confidence-weighted Tier-2 runtime
-fallback, and incremental index refresh keyed on `offers.scraped_at` (the current rebuild is full).
+`PostgresOfferSkillIndexer`, rebuilt by `app.scripts.index_offer_skills`); the index also rebuilds
+at container start and stamps its build version in `offer_skill_index_meta` (migration `0019`) for
+staleness detection (`--status`). Still planned (only if metrics justify it): pgvector
+`canonical_skill_embedding` + a confidence-weighted Tier-2 runtime fallback, and incremental index
+refresh keyed on `offers.scraped_at` (the current rebuild is full).
 
 ---
 
@@ -363,7 +378,9 @@ match-score deltas on a labelled sample, and a manual precision check on a sampl
 3. **Embeddings provider for curation** — provider API (no heavy dep, tiny one-off cost) vs. local
    `sentence-transformers` (offline/private). Recommend provider API to start.
 4. **Scoring re-calibration appetite** — how aggressively to down-weight un-evidenced self-claims
-   (changes scores for existing users).
+   (changes scores for existing users). *Resolved for now:* a hard cap `UNEVIDENCED_SELF_RATING_CAP`
+   defaulting to 0.6 (≈ 3/5) — raise toward 1.0 to trust self-claims more, lower to demand evidence,
+   1.0 disables it.
 
 ---
 

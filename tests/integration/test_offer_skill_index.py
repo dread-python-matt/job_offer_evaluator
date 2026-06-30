@@ -12,7 +12,7 @@ from app.config import DATABASE_URL
 from app.domain.filters import OfferBrowseFilters
 from app.infrastructure.alias_map_skill_normalizer import AliasMapSkillNormalizer
 from app.infrastructure.db import build_engine
-from app.infrastructure.orm_models import OfferSkillRow
+from app.infrastructure.orm_models import OfferSkillIndexMeta, OfferSkillRow
 from app.infrastructure.postgres_offer_repository import PostgresOfferRepository
 from app.infrastructure.postgres_offer_skill_indexer import PostgresOfferSkillIndexer
 from app.scripts.seed_offers import SeedOffer, seed_database
@@ -42,9 +42,9 @@ def _seed_offer(
 
 def _engine():
     engine = build_engine(DATABASE_URL)
-    OfferSkillRow.__table__.create(
-        engine, checkfirst=True
-    )  # no-op once the migration has run
+    # no-ops once the migrations have run
+    OfferSkillRow.__table__.create(engine, checkfirst=True)
+    OfferSkillIndexMeta.__table__.create(engine, checkfirst=True)
     return engine
 
 

@@ -29,6 +29,10 @@ services:
       # Reach Postgres over the compose network (not localhost) and bind all interfaces.
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       HOST: 0.0.0.0
+      # The demo runs with the committed dev secrets, so it must opt into development mode.
+      # APP_ENV defaults to "production" (fail-closed), which would refuse to boot with them.
+      # A real deployment leaves this unset (or =production) and supplies strong secrets.
+      APP_ENV: development
     ports:
       - "8000:8000"
     depends_on:

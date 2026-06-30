@@ -336,7 +336,8 @@ def test_match_offers_returns_offers_sorted_by_score():
     assert response.status_code == 200
     body = response.json()
     assert [offer["link"] for offer in body] == ["b", "a"]
-    assert body[0]["score"] == pytest.approx(0.9)
+    # Python 5/5 + FastAPI 4/5, both un-evidenced and capped to 0.6: "b" = (0.6 + 0.6) / 2 = 0.6.
+    assert body[0]["score"] == pytest.approx(0.6)
 
 
 def test_match_offers_returns_all_matches_when_offers_limit_is_omitted():
@@ -1462,7 +1463,8 @@ def test_org_spend_returns_the_real_spend_when_available():
     assert response.status_code == 200
     body = response.json()
     assert body["spend_usd"] == 4.2
-    assert body["since"].startswith("2026-06-25T00:00:00")
+    # Month-to-date (UTC): clock is 2026-06-25, so the window starts on the 1st.
+    assert body["since"].startswith("2026-06-01T00:00:00")
 
 
 def test_org_spend_returns_null_without_an_admin_key():
@@ -1553,6 +1555,7 @@ def test_usage_summary_returns_model_usage_with_limits():
                 model="gemini-2.0-flash",
                 input_tokens=1000,
                 output_tokens=200,
+                cost_usd=0.0123,
             ),
         ]
     )
@@ -1567,6 +1570,7 @@ def test_usage_summary_returns_model_usage_with_limits():
     assert item["model"] == "gemini-2.0-flash"
     assert item["input_tokens"] == 1000
     assert item["output_tokens"] == 200
+    assert item["cost_usd"] == 0.0123
     assert item["limits"]["rpm"] == 15
     assert item["limits"]["tpm"] == 1_000_000
     assert item["limits"]["rpd"] == 1500

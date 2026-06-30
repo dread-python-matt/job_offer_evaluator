@@ -69,6 +69,8 @@ class AliasMapSkillNormalizer(SkillNormalizer):
     def __init__(
         self, spec: dict, on_unknown: UnknownSink | None = log_unknown_skill_token
     ) -> None:
+        # Map version (the JSON `version`), surfaced for index/cache staleness detection.
+        self._version: str = str(spec.get("version", "unknown"))
         # id -> display label, kept so tooling (the alias suggester) can match unmapped tokens
         # against canonical labels, not just ids. Membership checks use the dict's keys.
         self._canonical: dict[str, str] = {
@@ -122,3 +124,9 @@ class AliasMapSkillNormalizer(SkillNormalizer):
     def canonical_labels(self) -> dict[str, str]:
         """Canonical id → display label, for tooling (e.g. the alias suggester)."""
         return dict(self._canonical)
+
+    @property
+    def map_version(self) -> str:
+        """Version of the loaded alias map (its JSON `version`), so a derived cache like the
+        offer-skill index can tell it was built from an older map and is stale."""
+        return self._version

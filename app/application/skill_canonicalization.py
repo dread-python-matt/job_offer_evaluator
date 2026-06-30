@@ -18,6 +18,7 @@ class SkillCanonicalizer:
         self._normalizer = normalizer
 
     def _canon(self, raw: str) -> str:
+        assert self._normalizer is not None  # callers guard the None case before reaching here
         return self._normalizer.normalize(raw).id
 
     def _canon_all(self, raws: list[str]) -> list[str]:

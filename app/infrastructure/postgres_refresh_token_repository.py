@@ -64,7 +64,7 @@ class PostgresRefreshTokenRepository(RefreshTokenRepository):
                 delete(RefreshTokenRow).where(RefreshTokenRow.expires_at < now)
             )
             session.commit()
-            return result.rowcount or 0
+            return result.rowcount or 0  # type: ignore[attr-defined]  # DML CursorResult has rowcount
 
     @staticmethod
     def _to_record(row: RefreshTokenRow) -> RefreshTokenRecord:

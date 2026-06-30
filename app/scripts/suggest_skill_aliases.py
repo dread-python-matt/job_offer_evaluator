@@ -9,6 +9,7 @@ also writes the suggestions as JSON for convenient review/diffing.
 Usage:
     uv run python -m app.scripts.suggest_skill_aliases [--threshold 0.84] [--min-occurrences 2]
     uv run python -m app.scripts.suggest_skill_aliases --embeddings --out suggestions.json
+    uv run python -m app.scripts.suggest_skill_aliases --from-db   # read the persisted tail
 """
 
 import argparse
@@ -42,6 +43,12 @@ def main(argv: list[str] | None = None) -> int:
         help="also use OpenAI embeddings for semantic matches (needs OPENAI_API_KEY)",
     )
     parser.add_argument("--out", help="optional path to also write suggestions as JSON")
+    parser.add_argument(
+        "--from-db",
+        action="store_true",
+        help="read the unmapped tail from the unknown_skill_token table (populated by "
+        "mine_skill_corpus --persist) instead of surveying offers live",
+    )
     args = parser.parse_args(argv)
 
     embedder = None
@@ -53,15 +60,32 @@ def main(argv: list[str] | None = None) -> int:
 
         embedder = OpenAISkillEmbedder.create(OPENAI_API_KEY)
 
-    counts = offer_token_counts(build_engine(DATABASE_URL))
-    if not counts:
-        print("No offer skill tokens found.", file=sys.stderr)
-        return 1
+    engine = build_engine(DATABASE_URL)
     # on_unknown=None: this tool classifies tokens itself; it must not also log every miss.
     normalizer = AliasMapSkillNormalizer.from_default(on_unknown=None)
-    report = summarize_skill_corpus(counts, normalizer)
+    if args.from_db:
+        from app.infrastructure.postgres_unknown_skill_token_repository import (
+            PostgresUnknownSkillTokenRepository,
+        )
+
+        tail = [
+            (token.normalized, token.occurrences)
+            for token in PostgresUnknownSkillTokenRepository(engine).top(1000)
+        ]
+        if not tail:
+            print(
+                "unknown_skill_token is empty — run `mine_skill_corpus --persist` first.",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        counts = offer_token_counts(engine)
+        if not counts:
+            print("No offer skill tokens found.", file=sys.stderr)
+            return 1
+        tail = summarize_skill_corpus(counts, normalizer).unknown_by_frequency
     suggestions = suggest_aliases(
-        report.unknown_by_frequency,
+        tail,
         normalizer.canonical_labels,
         threshold=args.threshold,
         embedder=embedder,

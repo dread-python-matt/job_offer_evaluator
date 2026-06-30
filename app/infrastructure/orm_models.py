@@ -135,6 +135,37 @@ class OfferSkillRow(Base):
     __table_args__ = (Index("ix_offer_skill_canonical_id", "canonical_id"),)
 
 
+class OfferSkillIndexMeta(Base):
+    """Single-row bookkeeping for the `offer_skill` index: the alias-map version it was built
+    from, when, and how many rows. Lets a stale index (the alias map changed but the indexer was
+    never re-run) be detected and surfaced instead of silently serving outdated concept filters.
+    Written in the same transaction as a rebuild, so it never disagrees with the index. `id` is a
+    fixed sentinel (always 1) enforcing the single-row invariant."""
+
+    __tablename__ = "offer_skill_index_meta"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    map_version: Mapped[str] = mapped_column(String, nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    built_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class UnknownSkillTokenRow(Base):
+    """App-owned record of the unmapped skill-token tail (Tier-0 normalizer misses): normalized
+    tokens the alias map doesn't recognize, with how often they occur in the corpus and a few
+    example raw forms. Snapshot-replaced by `mine_skill_corpus --persist` and read (ranked by
+    `occurrences`) by the alias suggester / curation — the highest-ROI map entries to add next."""
+
+    __tablename__ = "unknown_skill_token"
+
+    normalized: Mapped[str] = mapped_column(String, primary_key=True)
+    occurrences: Mapped[int] = mapped_column(Integer, nullable=False)
+    raw_samples: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("ix_unknown_skill_token_occurrences", "occurrences"),)
+
+
 class ModelUsageRow(Base):
     __tablename__ = "model_usage"
     # Spend is derived by summing a user's usage since an anchor timestamp
@@ -156,9 +187,7 @@ class ModelUsageRow(Base):
     output_tokens: Mapped[int]
     # True when the counts were estimated (provider reported no usage), so estimated and
     # measured usage stay distinguishable in the data.
-    estimated: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default=false()
-    )
+    estimated: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     # USD cost of this row's tokens, priced once at write time (PricingModelUsageRepository)
     # and frozen here, so spend reads sum this column and a later price change never rewrites
     # historical spend.
@@ -190,9 +219,7 @@ class UserApiKeyRow(Base):
     model usage for this provider since `tracking_since`."""
 
     __tablename__ = "user_api_key"
-    __table_args__ = (
-        UniqueConstraint("user_id", "api_provider", name="uq_user_api_key_provider"),
-    )
+    __table_args__ = (UniqueConstraint("user_id", "api_provider", name="uq_user_api_key_provider"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(
@@ -278,9 +305,7 @@ class UserRow(Base):
     password_hash: Mapped[str] = mapped_column(Text)
     token_version: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    email_verified: Mapped[bool] = mapped_column(
-        Boolean, default=False, server_default=false()
-    )
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
 
 class RefreshTokenRow(Base):
@@ -298,6 +323,4 @@ class RefreshTokenRow(Base):
     family_id: Mapped[str] = mapped_column(String(36), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    consumed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

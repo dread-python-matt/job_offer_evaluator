@@ -45,6 +45,11 @@ uv run python -m app.scripts.seed_offers    # load ~50 diverse demo offers
 uv run python main.py                       # API → http://localhost:8000/docs
 ```
 
+> **Local dev needs `APP_ENV=development` in `.env`.** `APP_ENV` defaults to `production`
+> (secure by default), which refuses to boot with the committed dev secrets / non-secure cookies.
+> Set `APP_ENV=development` in your `.env` so the zero-config local run works. (The Docker
+> Compose path sets it for you.)
+
 Frontend (optional, separate terminal): `npm --prefix frontend install` then
 `npm --prefix frontend start` → http://localhost:4200.
 
@@ -106,7 +111,7 @@ both for the `/salary/calculate` endpoint and to sort/filter offers by estimated
 | Persistence | PostgreSQL via SQLAlchemy 2.x + psycopg 3; **Alembic** migrations |
 | LLM | OpenAI **Agents SDK** (`openai-agents`); supports OpenAI **and** Google Gemini models |
 | Auth | PyJWT (HS256 access + rotating refresh tokens), argon2-cffi (hashing), email-validator, SMTP (stdlib) for confirm/reset email |
-| Lint / test | ruff, pytest (+ pytest-cov) |
+| Lint / type / test | ruff, mypy, pytest (+ pytest-cov) |
 | Frontend | Angular 22 (standalone components, signals), Angular Material 22 |
 | Frontend test | Vitest 4 (`ng test`), Prettier, TypeScript 6, npm |
 
@@ -214,13 +219,20 @@ app/
   tech stacks) are collapsed to canonical concepts by a `SkillNormalizer` (deterministic alias
   map + case/diacritic/separator folding) at the matching boundary, on scoring-only copies — so
   "JS"/"JavaScript", "k8s"/"Kubernetes" and PL/EN variants match while the originals stay intact
-  for display. Unknown tokens are logged on `app.skills` to grow the map, and scoring weights
-  **evidenced** skills (used in a real project/experience) above self-claimed ratings. The same
-  canonical map also powers **browsing's tech filter**: an `offer_skill` index (one row per
-  offer×concept, rebuilt by `uv run python -m app.scripts.index_offer_skills`) lets the offers
-  list filter by concept in SQL, so a `k8s` filter finds `Kubernetes` offers. Run the indexer
-  after a scrape or whenever the alias map changes (until it's built, the tech filter matches
-  nothing). See `docs/skills-normalization.md`.
+  for display. Unknown tokens are logged on `app.skills`, and the unmapped corpus tail is
+  persisted to an `unknown_skill_token` table (`mine_skill_corpus --persist`) ranked by frequency
+  so the map grows from real data (the suggester reads it via `suggest_skill_aliases --from-db`).
+  Scoring weights
+  **evidenced** skills (used in a real project/experience) above self-claimed ratings, and **caps**
+  an un-evidenced self-claim at `UNEVIDENCED_SELF_RATING_CAP` (the main calibration knob in
+  `skill_utils.py`) so a high rating needs evidence to count fully. The same canonical map also
+  powers **browsing's tech filter**: an `offer_skill` index (one row per offer×concept, rebuilt
+  by `uv run python -m app.scripts.index_offer_skills`) lets the offers list filter by concept in
+  SQL, so a `k8s` filter finds `Kubernetes` offers. The Docker image rebuilds the index on start
+  (after migrations, best-effort, and a no-op before the first scrape); each build stamps
+  `offer_skill_index_meta` with the alias-map version, so a stale or unbuilt index is visible via
+  `… index_offer_skills --status` rather than silently matching nothing. Rebuild after a scrape or
+  whenever the alias map changes. See `docs/skills-normalization.md`.
 
 ---
 
@@ -244,6 +256,10 @@ registration. `token_version` (in the JWT) gives instant revocation / logout-eve
   confirmation link, and issues **no** session (202). `login` returns **403** until the account
   is verified; following the emailed link (`verify-email`) marks it verified and logs the user
   in. Pre-existing accounts were grandfathered as verified (migration `0010`).
+- **Password strength.** New passwords (register, reset, change) must be **at least 8 characters
+  and include a lowercase letter, an uppercase letter, a number, and a special character**. The
+  rule lives in `app/domain/password_policy.py`, is enforced server-side by the auth request
+  schemas (422 on violation), and is mirrored by the Angular validators for instant feedback.
 - **Password reset & change.** `forgot-password` emails a single-purpose reset link and always
   returns the same **202** (enumeration-resistant); `reset-password` sets the new password,
   revokes the user's other sessions, and logs them in. `POST /auth/password` (authenticated)
@@ -318,10 +334,15 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send r
   it reads `input_tokens_details.cached_tokens` and prices prompt-cache hits at the model's
   discounted cached rate (the scoring prompt's constant instructions + candidate profile repeat
   across offers, so cache hits are common and full-input pricing would overstate cost). Gemini is
-  unchanged (no cached rate → priced at the normal input rate). When an **`OPENAI_ADMIN_KEY`** is
-  set, `/usage/org-spend` and `/usage/org-usage` expose the provider's *authoritative* org-wide
-  real-$ cost and per-model token usage from OpenAI's admin Usage/Costs API — queried per-model
-  (`group_by=["model"]`), in daily buckets, and paginated to completion.
+  unchanged (no cached rate → priced at the normal input rate). This figure is an **estimate**
+  (approximate list prices) and `/usage/summary` returns it per model as `cost_usd`; the frontend
+  surfaces it for OpenAI models only, clearly labelled as estimated (since the user added their
+  key). When an **`OPENAI_ADMIN_KEY`** (or the caller's saved admin key) is set, `/usage/org-spend`
+  exposes the **authoritative** org-wide real-$ spend **month-to-date (UTC)** — matching OpenAI's
+  usage page "this month" total — and `/usage/org-usage` the authoritative per-model token usage
+  (today), both from OpenAI's admin Usage/Costs API, queried per-model (`group_by=["model"]`), in
+  daily buckets, and paginated to completion. The admin client authenticates with `admin_api_key=`
+  (these org routes reject a normal `api_key=`).
 
 ---
 
@@ -338,13 +359,16 @@ encrypted provider keys and `openai_admin_key` the user's encrypted OpenAI admin
 `normalized_salary`. On a database without the scraper, populate them with demo data via
 `uv run python -m app.scripts.seed_offers` (see [Quickstart → Demo data](#demo-data-fixtures)).
 
-Migrations live in `alembic/versions/` (`0001`–`0018`): baseline → app tables (`user_profile`,
+Migrations live in `alembic/versions/` (`0001`–`0020`): baseline → app tables (`user_profile`,
 `ai_score`, `selected_model`, `users`) → per-user `user_id` FKs (`0006`–`0009`) →
 `users.email_verified` (`0010`) → `refresh_tokens` (`0011`) → `user_api_key` (`0012`) →
 `model_usage (user_id, created_at)` index (`0013`) → `model_usage.estimated` (`0014`) →
 `model_usage.cost` (`0015`) → `openai_admin_key` (`0016`) →
 `user_api_key.daily_request_limit` (`0017`, the optional per-day request cap) →
-`offer_skill` (`0018`, the app-owned canonical skill index for concept-based browse filtering).
+`offer_skill` (`0018`, the app-owned canonical skill index for concept-based browse filtering) →
+`offer_skill_index_meta` (`0019`, single-row bookkeeping recording which alias-map version built
+the index, for staleness detection) → `unknown_skill_token` (`0020`, the persisted unmapped
+skill-token tail, ranked by frequency, for alias-map curation).
 
 > **Alembic is the single source of truth for the app-owned schema.** Repositories no longer
 > create their tables at construction (`create_all` was removed), so the app can start and serve
@@ -390,10 +414,10 @@ the `X-CSRF-Token` header.
 | GET  | `/usage/cost` | ✓ | Budget spend vs limit (`null` when spend is unknown) |
 | PUT  | `/usage/limit` | ✓ | Set the caller's budget limit |
 | POST | `/usage/reset` | ✓ | Reset the caller's usage tracking anchor to now |
-| GET  | `/usage/summary` | ✓ | Per-model token totals for the caller (+ rate limits) |
+| GET  | `/usage/summary` | ✓ | Per-model token totals for the caller (+ rate limits + estimated `cost_usd` from approximate list prices; UI shows the $ for OpenAI models only) |
 | GET  | `/usage/daily-requests` | ✓ | Per-day request budget for the caller's selected model: requests used today vs the cap (the user's override, else the model's free-tier requests-per-day default). `null` when there's no cap to show (e.g. an OpenAI model, or a Gemini model with no stored key) |
 | PUT  | `/usage/daily-requests` | ✓ | Set (a number) or clear (`limit: null` → revert to the free-tier default) the per-day request cap on the key backing the selected model (404 if no keyable model is selected or no key exists) |
-| GET  | `/usage/org-spend` | ✓ | Org-wide real-$ provider spend today, from the OpenAI admin usage API. Uses the caller's saved admin key, else the env `OPENAI_ADMIN_KEY` (`null` when neither is set) |
+| GET  | `/usage/org-spend` | ✓ | Org-wide real-$ provider spend **month-to-date (UTC)** — matches OpenAI's usage page "this month" — from the OpenAI admin usage API. Uses the caller's saved admin key, else the env `OPENAI_ADMIN_KEY` (`null` when neither is set) |
 | GET  | `/usage/org-usage` | ✓ | Org-wide authoritative per-model token usage today, from the OpenAI admin usage API. Uses the caller's saved admin key, else the env `OPENAI_ADMIN_KEY` (`null` when neither is set) |
 | GET  | `/admin-key` | ✓ | The caller's saved OpenAI admin key as a masked hint (`null` when none is set) |
 | PUT  | `/admin-key` | ✓ | Save/rotate the caller's OpenAI admin key (verified against the org costs API; 400 if rejected) |
@@ -417,7 +441,8 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 | `GEMINI_API_KEY` | `""` | **Optional.** Org-level Gemini wiring only; the app boots without it and AI scoring uses each user's own key. Leave unset for the no-AI demo |
 | `OPENAI_API_KEY` | `""` | **Optional.** Org-level OpenAI wiring only; the app boots without it and AI scoring uses each user's own key. Leave unset for the no-AI demo |
 | `OPENAI_ADMIN_KEY` | `""` | **Optional, OpenAI only.** A fallback admin key (scope `api.usage.read`) unlocking the provider's *authoritative* org-wide figures: the real-$ **org-spend backstop**/readout (`/usage/org-spend`) and per-model **org token usage** (`/usage/org-usage`), both for the current UTC day. Users can also save their own admin key in-app (`PUT /admin-key`), which takes precedence over this for the readouts; this env key remains the backstop's source. Without either, those readouts return `null` and per-request local accounting is used instead. Org-wide — not attributable per user |
-| `JWT_SECRET` | dev default | **Override in prod.** Signs session JWTs |
+| `APP_ENV` | `production` | Deployment environment. Anything other than an explicit `development`/`dev`/`test`/`local` is treated as **production** and runs fail-fast config validation (`app/config_validation.py`): the app refuses to boot with the committed dev `JWT_SECRET`/`API_KEY_ENCRYPTION_KEY`, non-secure cookies, or wildcard CORS. **Defaults to `production` so forgetting to set it fails closed** — local dev / CI must opt in with `APP_ENV=development` (docker-compose sets it for the demo) |
+| `JWT_SECRET` | dev default | **Override in prod.** Signs session JWTs. The committed dev default is rejected at boot unless `APP_ENV` is an explicit dev/test value |
 | `ACCESS_TOKEN_TTL_MINUTES` | `15` | Access-token (JWT cookie) lifetime; refresh keeps the session alive |
 | `REFRESH_TOKEN_TTL_DAYS` | `14` | Refresh-token lifetime + auth-cookie `max_age`; rotated on each `/auth/refresh` |
 | `LOGIN_RATE_LIMIT_ATTEMPTS` | `5` | Wrong-credential attempts per (IP, email) before **429** |
@@ -438,9 +463,10 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 | `CORS_ORIGINS` | `http://localhost:4200` | Comma-separated allowed origins |
 | `HOST` / `PORT` | `127.0.0.1` / `8000` | Bind address (use `0.0.0.0` in containers) |
 | `WORKERS` | `1` | Uvicorn worker processes. DB-backed state (profiles, models, usage, refresh tokens) is shared, but the **in-memory login/forgot throttle and the model/use-case caches are per-process**: for `>1`, set `RATE_LIMITER_BACKEND=redis` so login throttling stays correct across workers (the app logs a startup warning otherwise) |
-| `DEFAULT_BUDGET_USD` | `5.0` | Seeds a user's budget limit on first use + the org backstop limit |
+| `DEFAULT_BUDGET_USD` | `5.0` | Seeds a user's budget limit on first use (and is the default for `ORG_DAILY_BUDGET_USD`) |
+| `ORG_DAILY_BUDGET_USD` | = `DEFAULT_BUDGET_USD` | Org-wide daily spend cap for the OpenAI **org-spend backstop** (all tenants summed; active only when an admin key is configured). Decoupled from the per-user default so a multi-tenant OpenAI deployment isn't capped by one shared $5/day |
 | `AI_MATCH_CONCURRENCY` | `3` | Max offers scored by the LLM in parallel per request (low by default to respect free-tier provider limits) |
-| `GOOGLE_RPM_LIMIT` | `10` | Client-side pacing for Google/Gemini calls. Known models are paced to their own free-tier RPM (from the model-limits registry); this is the fallback RPM for unknown models and the kill-switch (`0` disables Google pacing). OpenAI is never paced |
+| `GOOGLE_RPM_LIMIT` | `10` | Client-side pacing for Google/Gemini calls. Known models are paced to their own free-tier RPM (from the model-limits registry); this is the fallback RPM for unknown models and the kill-switch (`0` disables Google pacing). Under `WORKERS > 1` the per-model budget is split across workers so the fleet stays under the one per-project provider cap. OpenAI is never paced |
 | `LLM_TIMEOUT_SECONDS` | `60.0` | Timeout for outbound LLM/provider calls |
 | `BUDGET_SPEND_CACHE_TTL_SECONDS` | `60.0` | Cache TTL for the per-user spend figure |
 | `BUDGET_FAIL_CLOSED` | `false` | If `true`, block AI match when spend can't be read |

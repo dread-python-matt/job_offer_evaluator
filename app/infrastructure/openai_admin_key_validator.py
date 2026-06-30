@@ -22,14 +22,20 @@ class OpenAIAdminKeyValidator(AdminKeyValidator):
         self._timeout = timeout
 
     def validate(self, key: str) -> None:
-        client = OpenAI(api_key=key, timeout=self._timeout)
+        # Admin/organization endpoints authenticate with `admin_api_key`, NOT `api_key`. With
+        # `api_key` the SDK can't resolve auth for these routes and raises a TypeError at
+        # request-build time (not an OpenAIError), which would bubble as a 500 and make every
+        # save fail. Passing `admin_api_key` makes a bad key fail cleanly as a 401/403 instead.
+        client = OpenAI(admin_api_key=key, timeout=self._timeout)
         start_of_today = int(
             datetime.now(timezone.utc)
             .replace(hour=0, minute=0, second=0, microsecond=0)
             .timestamp()
         )
         try:
-            client.admin.organization.usage.costs(start_time=start_of_today, bucket_width="1d")
+            client.admin.organization.usage.costs(
+                start_time=start_of_today, bucket_width="1d"
+            )
         except openai.OpenAIError as exc:
             if getattr(exc, "status_code", None) in _KEY_REJECTION_STATUSES:
                 raise InvalidAdminKeyError() from exc

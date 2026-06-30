@@ -266,7 +266,7 @@ _SCRAPER_TABLES = [OfferRow.__table__, SalaryRow.__table__, NormalizedSalaryRow.
 def _ensure_tables(engine: Engine) -> None:
     """Create the scraper-owned tables if they don't exist yet (no-op when the real scraper
     schema is already present). These are intentionally not in Alembic — see module docstring."""
-    Base.metadata.create_all(engine, tables=_SCRAPER_TABLES)
+    Base.metadata.create_all(engine, tables=_SCRAPER_TABLES)  # type: ignore[arg-type]  # __table__ typed FromClause, is Table at runtime
 
 
 def _clear_previous_seed(session: Session) -> None:

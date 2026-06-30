@@ -1,3 +1,4 @@
+import threading
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
@@ -14,8 +15,11 @@ class InMemoryRateLimiter(RateLimiter):
 
     Correct for a single worker only: the counts live in this process, so a multi-worker
     deployment would let each worker throttle independently. Swap in a shared-store adapter
-    (e.g. Redis) for that — the `RateLimiter` port stays the same. The coarse counting here
-    relies only on CPython dict atomicity, which is sufficient for its purpose.
+    (e.g. Redis) for that — the `RateLimiter` port stays the same.
+
+    A `threading.Lock` guards the counter map: FastAPI runs sync route handlers in a threadpool,
+    so `record_failure` can be entered concurrently, and the increment is a read-modify-write
+    (not a single atomic op) that would otherwise lose updates and under-count attempts.
     """
 
     def __init__(
@@ -27,30 +31,34 @@ class InMemoryRateLimiter(RateLimiter):
         self._max_attempts = max_attempts
         self._window = window
         self._clock = clock
+        self._lock = threading.Lock()
         # key -> (window_start, failure_count)
         self._windows: dict[str, tuple[datetime, int]] = {}
 
     def check(self, key: str) -> None:
-        window = self._live_window(key)
-        if window is None:
-            return
-        start, count = window
-        if count >= self._max_attempts:
-            remaining = (start + self._window) - self._clock()
-            raise RateLimitExceededError(
-                retry_after_seconds=max(int(remaining.total_seconds()) + 1, 1)
-            )
+        with self._lock:
+            window = self._live_window(key)
+            if window is None:
+                return
+            start, count = window
+            if count >= self._max_attempts:
+                remaining = (start + self._window) - self._clock()
+                raise RateLimitExceededError(
+                    retry_after_seconds=max(int(remaining.total_seconds()) + 1, 1)
+                )
 
     def record_failure(self, key: str) -> None:
-        window = self._live_window(key)
-        if window is None:
-            self._windows[key] = (self._clock(), 1)
-        else:
-            start, count = window
-            self._windows[key] = (start, count + 1)
+        with self._lock:
+            window = self._live_window(key)
+            if window is None:
+                self._windows[key] = (self._clock(), 1)
+            else:
+                start, count = window
+                self._windows[key] = (start, count + 1)
 
     def reset(self, key: str) -> None:
-        self._windows.pop(key, None)
+        with self._lock:
+            self._windows.pop(key, None)
 
     def _live_window(self, key: str) -> tuple[datetime, int] | None:
         """The current (window_start, count) for `key`, or None when there is no window or

@@ -17,7 +17,9 @@ class OpenAISpendProvider(SpendProvider):
         self._timeout = timeout
 
     def spend_since(self, start: datetime) -> float:
-        client = OpenAI(api_key=self._api_key, timeout=self._timeout)
+        # The costs endpoint is an admin/organization route — authenticate with `admin_api_key`,
+        # not `api_key` (the latter makes the SDK raise a TypeError on these routes).
+        client = OpenAI(admin_api_key=self._api_key, timeout=self._timeout)
         start_time = int(start.timestamp())
         total = 0.0
         page: str | None = None
@@ -28,10 +30,10 @@ class OpenAISpendProvider(SpendProvider):
             while True:
                 extra = {"page": page} if page else {}
                 response = client.admin.organization.usage.costs(
-                    start_time=start_time, bucket_width="1d", **extra
+                    start_time=start_time, bucket_width="1d", **extra  # type: ignore[arg-type]  # optional page via **dict
                 )
                 total += sum(
-                    result.amount.value
+                    result.amount.value  # type: ignore[union-attr, misc]  # costs buckets carry an amount
                     for bucket in response.data
                     for result in bucket.results
                 )

@@ -1136,6 +1136,7 @@ def test_get_model_usage_summary_returns_summaries_with_known_limits():
                 model="gemini-2.0-flash",
                 input_tokens=1000,
                 output_tokens=200,
+                cost_usd=0.0123,
             ),
         ]
     )
@@ -1149,6 +1150,9 @@ def test_get_model_usage_summary_returns_summaries_with_known_limits():
     assert item.model == "gemini-2.0-flash"
     assert item.input_tokens == 1000
     assert item.output_tokens == 200
+    assert (
+        item.cost_usd == 0.0123
+    )  # the write-time cost snapshot flows through to the view
     assert item.limits is not None
     assert item.limits.rpm == 15
     assert item.limits.tpm == 1_000_000

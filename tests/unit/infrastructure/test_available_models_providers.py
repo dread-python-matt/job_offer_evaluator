@@ -1,10 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.application.ports import AvailableModel
 from app.infrastructure.openai_available_models_provider import OpenAIAvailableModelsProvider
 from app.infrastructure.gemini_available_models_provider import GeminiAvailableModelsProvider
-from app.infrastructure.composite_available_models_provider import CompositeAvailableModelsProvider
 
 
 def _model(id: str):
@@ -182,33 +180,3 @@ def test_gemini_provider_returns_sorted_models():
         models = provider.list_models()
 
     assert [m.model for m in models] == sorted(m.model for m in models)
-
-
-# --- Composite provider ---
-
-def test_composite_provider_combines_results_from_all_providers():
-    class FakeProvider:
-        def __init__(self, models):
-            self._models = models
-        def list_models(self):
-            return self._models
-
-    p1 = FakeProvider([AvailableModel(model="gpt-4o", company="OpenAI")])
-    p2 = FakeProvider([AvailableModel(model="gemini-2.0-flash", company="Google")])
-    composite = CompositeAvailableModelsProvider([p1, p2])
-
-    models = composite.list_models()
-
-    assert len(models) == 2
-    ids = [m.model for m in models]
-    assert "gpt-4o" in ids
-    assert "gemini-2.0-flash" in ids
-
-
-def test_composite_provider_returns_empty_when_all_providers_empty():
-    class EmptyProvider:
-        def list_models(self):
-            return []
-
-    composite = CompositeAvailableModelsProvider([EmptyProvider(), EmptyProvider()])
-    assert composite.list_models() == []

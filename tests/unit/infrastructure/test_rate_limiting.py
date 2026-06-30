@@ -124,6 +124,21 @@ def test_effective_google_rpm_is_none_when_pacing_is_disabled():
     assert effective_google_rpm("gemini-2.5-flash", registry, 0) is None
 
 
+def test_effective_google_rpm_splits_the_budget_across_workers():
+    registry = _FakeLimitsRegistry({"gemini-2.5-flash": ModelLimits(rpm=10, tpm=0, rpd=0)})
+
+    # Single worker: 10 RPM minus ~10% -> 9. Four workers each pace to a quarter of that (9 // 4)
+    # so the fleet's aggregate client-side rate stays under the one per-project provider cap.
+    assert effective_google_rpm("gemini-2.5-flash", registry, 10, workers=1) == 9
+    assert effective_google_rpm("gemini-2.5-flash", registry, 10, workers=4) == 2
+
+
+def test_effective_google_rpm_never_drops_below_one_even_with_many_workers():
+    registry = _FakeLimitsRegistry({"gemini-2.5-pro": ModelLimits(rpm=5, tpm=0, rpd=0)})
+
+    assert effective_google_rpm("gemini-2.5-pro", registry, 10, workers=100) == 1
+
+
 def test_build_google_pace_limiter_returns_a_limiter_for_a_configured_model():
     registry = _FakeLimitsRegistry({"gemini-2.5-pro": ModelLimits(rpm=5, tpm=0, rpd=0)})
 

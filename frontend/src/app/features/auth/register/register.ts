@@ -15,12 +15,13 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 
 import { AuthService } from '../../../core/services/auth.service';
+import {
+  MIN_PASSWORD_LENGTH,
+  PASSWORD_REQUIREMENTS_HINT,
+  passwordStrength,
+} from '../../../core/validators/password';
 import { AuthShell } from '../auth-shell/auth-shell';
 import { AuthLogo } from '../auth-logo/auth-logo';
-
-// Mirrors the backend's minimum so the user gets immediate feedback; the server
-// enforces it regardless.
-const MIN_PASSWORD_LENGTH = 10;
 
 // Group-level validator: the retyped password must match. Mirrors the server's check
 // (RegisterRequestSchema) so mismatches are caught before a request is made.
@@ -53,6 +54,7 @@ export class Register {
   private readonly auth = inject(AuthService);
 
   readonly minPasswordLength = MIN_PASSWORD_LENGTH;
+  readonly passwordHint = PASSWORD_REQUIREMENTS_HINT;
   readonly submitting = signal(false);
   readonly submitted = signal(false);
   readonly error = signal<string | null>(null);
@@ -83,7 +85,11 @@ export class Register {
       }),
       password: this.fb.control('', {
         nonNullable: true,
-        validators: [Validators.required, Validators.minLength(MIN_PASSWORD_LENGTH)],
+        validators: [
+          Validators.required,
+          Validators.minLength(MIN_PASSWORD_LENGTH),
+          passwordStrength,
+        ],
       }),
       confirmPassword: this.fb.control('', {
         nonNullable: true,

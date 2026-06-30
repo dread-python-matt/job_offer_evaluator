@@ -9,9 +9,10 @@ if TYPE_CHECKING:
 SortBy = Literal["recent", "salary_min", "salary_mid", "salary_max"]
 MatchSortBy = Literal["score", "recent", "score_recent", "salary_min", "salary_mid", "salary_max"]
 SortOrder = Literal["asc", "desc"]
+NetBound = Literal["min", "mid", "max"]
 
 # Salary sort keys -> the net bound they rank by.
-SALARY_SORT_BOUNDS: dict[str, str] = {
+SALARY_SORT_BOUNDS: dict[str, NetBound] = {
     "salary_min": "min",
     "salary_mid": "mid",
     "salary_max": "max",
@@ -35,7 +36,9 @@ def sort_offers(
     regardless of `sort_order`."""
     effective_sort: SortBy = sort_by or "recent"
 
-    def key(offer: Offer) -> float | str | None:
+    # `Any`: the key is float (salary) or str (date) depending on mode, but is homogeneous within
+    # a single sort; the None-valued offers are partitioned out below before sorting.
+    def key(offer: Offer) -> Any:
         return offer_sort_key(offer, effective_sort)
 
     with_value = [offer for offer in offers if key(offer) is not None]
@@ -63,7 +66,7 @@ def _build_match_sort_key(sort_by: MatchSortBy, reverse: bool) -> Callable[["Mat
         case _:  # salary_min | salary_mid | salary_max
             bound = SALARY_SORT_BOUNDS[sort_by]
             none_sentinel: float = float("-inf") if reverse else float("inf")
-            def _salary_key(m: "MatchedOffer", _s: float = none_sentinel, _b: str = bound) -> float:
+            def _salary_key(m: "MatchedOffer", _s: float = none_sentinel, _b: NetBound = bound) -> float:
                 amt = representative_net(m.offer, _b)
                 return amt if amt is not None else _s
             return _salary_key

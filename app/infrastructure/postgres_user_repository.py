@@ -1,8 +1,10 @@
 from sqlalchemy import Engine, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.application.ports import UserRepository
 from app.domain.auth import User
+from app.domain.errors import EmailAlreadyRegisteredError
 from app.infrastructure.db import resolve_engine
 from app.infrastructure.orm_models import UserRow
 
@@ -23,7 +25,13 @@ class PostgresUserRepository(UserRepository):
                     email_verified=user.email_verified,
                 )
             )
-            session.commit()
+            try:
+                session.commit()
+            except IntegrityError as exc:
+                # A concurrent registration won the unique-email race between the use case's
+                # existence check and this commit. Surface the clean domain error (mapped to
+                # 409) instead of letting IntegrityError bubble to a generic 500.
+                raise EmailAlreadyRegisteredError(user.email) from exc
 
     def mark_email_verified(self, user_id: str) -> None:
         with Session(self._engine) as session:

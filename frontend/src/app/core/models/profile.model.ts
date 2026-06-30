@@ -157,6 +157,9 @@ export interface ModelUsageSummaryItem {
   model: string;
   input_tokens: number;
   output_tokens: number;
+  // Estimated USD cost (approximate list prices). Displayed only for OpenAI models; the
+  // authoritative spend figure comes from OrgSpend (admin key).
+  cost_usd: number;
   limits: ModelLimits | null;
 }
 

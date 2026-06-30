@@ -9,8 +9,9 @@ _NOW = datetime(2026, 6, 26, 12, 0, tzinfo=timezone.utc)
 
 
 class FakeRedis:
-    """In-memory stand-in modelling INCR / EXPIRE / GET / TTL / DEL with a controllable
-    clock — enough to exercise the fixed-window limiter without a real Redis."""
+    """In-memory stand-in modelling EVAL (the limiter's atomic INCR+EXPIRE script) / GET / TTL /
+    DEL with a controllable clock — enough to exercise the fixed-window limiter without a real
+    Redis. Being single-threaded, its `eval` is naturally atomic, like Redis's."""
 
     def __init__(self, clock) -> None:
         self._clock = clock
@@ -23,17 +24,26 @@ class FakeRedis:
             self._store.pop(name, None)
             self._expire_at.pop(name, None)
 
-    def incr(self, name: str) -> int:
+    def _incr(self, name: str) -> int:
         self._evict_if_expired(name)
         self._store[name] = self._store.get(name, 0) + 1
         return self._store[name]
 
-    def expire(self, name: str, seconds: int) -> bool:
+    def _expire(self, name: str, seconds: int) -> bool:
         self._evict_if_expired(name)
         if name not in self._store:
             return False
         self._expire_at[name] = self._clock() + timedelta(seconds=seconds)
         return True
+
+    def eval(self, script: str, numkeys: int, *keys_and_args):
+        # Models _INCR_WITH_EXPIRE_LUA: INCR, then EXPIRE only on the first hit of a new window.
+        name = keys_and_args[0]
+        seconds = int(keys_and_args[1])
+        count = self._incr(name)
+        if count == 1:
+            self._expire(name, seconds)
+        return count
 
     def get(self, name: str):
         self._evict_if_expired(name)
@@ -129,3 +139,15 @@ def test_keys_are_namespaced_so_a_redis_instance_can_be_shared():
     limiter.record_failure("login:1.2.3.4:dev@example.com")
 
     assert "ratelimit:login:1.2.3.4:dev@example.com" in fake._store
+
+
+def test_first_failure_sets_an_expiry_atomically():
+    # The counter must always get a TTL in the same step it's created, so it can never get
+    # stuck without one (which would permanently lock the key out).
+    fake = FakeRedis(lambda: _NOW)
+    limiter = RedisRateLimiter(fake, max_attempts=3, window=timedelta(minutes=15))
+    key = "1.2.3.4:dev@example.com"
+
+    limiter.record_failure(key)
+
+    assert fake.ttl("ratelimit:" + key) > 0

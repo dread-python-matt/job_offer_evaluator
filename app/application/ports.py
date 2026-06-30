@@ -112,6 +112,9 @@ class ModelUsageWithLimits:
     input_tokens: int
     output_tokens: int
     limits: ModelLimits | None
+    # Estimated USD cost for this (company, model), from each row's write-time price snapshot.
+    # Approximate (list prices), surfaced for the per-model estimated-cost readout.
+    cost_usd: float = 0.0
 
 
 class ModelUsageRepository(ABC):
@@ -333,6 +336,29 @@ class AiScoreCacheRepository(ABC):
 
     @abstractmethod
     def put(self, key: str, score: MatchScore) -> None: ...
+
+
+@dataclass(frozen=True)
+class UnknownSkillToken:
+    """An unmapped skill token — a Tier-0 normalizer miss: its normalized surface form, how often
+    it occurs in the corpus, and a few example raw forms for human review."""
+
+    normalized: str
+    occurrences: int
+    raw_samples: list[str]
+
+
+class UnknownSkillTokenRepository(ABC):
+    """Persists the unmapped skill-token tail for curation — which normalized tokens the alias
+    map doesn't recognize and how often they occur — so the highest-ROI map entries to add are
+    obvious. `replace_all` swaps in a fresh corpus snapshot (counts reflect the current corpus and
+    are never double-counted across runs); `top` returns the most frequent unmapped tokens."""
+
+    @abstractmethod
+    def replace_all(self, tokens: list[UnknownSkillToken]) -> None: ...
+
+    @abstractmethod
+    def top(self, limit: int = 100) -> list[UnknownSkillToken]: ...
 
 
 class SelectedModelRepository(ABC):

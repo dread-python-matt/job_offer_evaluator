@@ -28,6 +28,7 @@ class OpenAIProviderFactory(LLMProviderFactory):
 
     def configure_sdk(self) -> None:
         from app.infrastructure.openai_client import configure_openai
+
         configure_openai(self._api_key)
 
     def build_external_usage_provider(self) -> ExternalUsageProvider | None:
@@ -35,12 +36,15 @@ class OpenAIProviderFactory(LLMProviderFactory):
             return None
         from openai import OpenAI
         from app.infrastructure.openai_usage_provider import OpenAIExternalUsageProvider
-        return OpenAIExternalUsageProvider(OpenAI(api_key=self._admin_key))
+
+        # Admin/organization usage routes authenticate with `admin_api_key`, not `api_key`.
+        return OpenAIExternalUsageProvider(OpenAI(admin_api_key=self._admin_key))
 
     def build_spend_provider(self) -> SpendProvider | None:
         if not self._admin_key:
             return None
         from app.infrastructure.openai_spend_provider import OpenAISpendProvider
+
         return OpenAISpendProvider(api_key=self._admin_key)
 
 
@@ -50,6 +54,7 @@ class GeminiProviderFactory(LLMProviderFactory):
 
     def configure_sdk(self) -> None:
         from app.infrastructure.gemini_client import configure_gemini
+
         configure_gemini(self._api_key)
 
     def build_external_usage_provider(self) -> ExternalUsageProvider | None:
@@ -78,4 +83,6 @@ def build_llm_provider_factory(
         return OpenAIProviderFactory(openai_api_key or "", openai_admin_key)
     if provider == "gemini":
         return GeminiProviderFactory(gemini_api_key or "")
-    raise ValueError(f"Unknown LLM_PROVIDER={provider!r}. Supported values: 'gemini', 'openai'")
+    raise ValueError(
+        f"Unknown LLM_PROVIDER={provider!r}. Supported values: 'gemini', 'openai'"
+    )

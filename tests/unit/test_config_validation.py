@@ -31,6 +31,22 @@ def test_development_allows_dev_defaults():
     _validate(app_env="development", jwt_secret=DEV_JWT_SECRET, cookie_secure=False)
 
 
+def test_other_explicit_dev_aliases_also_allow_dev_defaults():
+    for env in ("dev", "test", "local"):
+        _validate(app_env=env, jwt_secret=DEV_JWT_SECRET, cookie_secure=False)
+
+
+# --- fail closed: anything that isn't an explicit dev/test env is validated as production ---
+
+
+def test_unset_or_unknown_env_is_treated_as_production():
+    # Forgetting APP_ENV (it defaults to "production") or a typo like "prod"/"staging" must
+    # NOT silently boot with the committed dev secret — it fails closed.
+    for env in ("production", "prod", "staging", "", "PRODUCTION".lower()):
+        with pytest.raises(InsecureConfigurationError, match="JWT_SECRET"):
+            _validate(app_env=env, jwt_secret=DEV_JWT_SECRET, cookie_secure=False)
+
+
 # --- production: hard-fail on insecure config ---
 
 

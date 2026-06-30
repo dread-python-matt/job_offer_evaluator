@@ -35,6 +35,13 @@ class SkillNormalizer(ABC):
     @abstractmethod
     def normalize(self, raw: str) -> CanonicalSkill: ...
 
+    @property
+    def map_version(self) -> str:
+        """Version identifier of the normalization ruleset, so a derived cache (e.g. the
+        offer-skill index) can detect it was built from an older ruleset and is stale. Defaults
+        to "unknown"; an adapter backed by a versioned resource (the alias map) overrides it."""
+        return "unknown"
+
 
 class SkillEmbedder(ABC):
     """Port: embed text into vectors for semantic similarity. Used only by offline tooling

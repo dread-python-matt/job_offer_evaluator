@@ -1,7 +1,7 @@
 import logging
 import secrets
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
@@ -141,13 +141,14 @@ def verify_csrf(request: Request) -> None:
 
 
 def _issue_session(response: Response, token: str, settings: CookieSettings) -> None:
+    samesite = cast(Literal["lax", "strict", "none"], settings.samesite)
     response.set_cookie(
         ACCESS_COOKIE,
         token,
         max_age=settings.max_age,
         httponly=True,
         secure=settings.secure,
-        samesite=settings.samesite,
+        samesite=samesite,
         path="/",
     )
     response.set_cookie(
@@ -156,7 +157,7 @@ def _issue_session(response: Response, token: str, settings: CookieSettings) -> 
         max_age=settings.max_age,
         httponly=False,  # the SPA must read this to echo it back in the header
         secure=settings.secure,
-        samesite=settings.samesite,
+        samesite=samesite,
         path="/",
     )
 
@@ -168,7 +169,7 @@ def _set_refresh_cookie(response: Response, refresh_token: str, settings: Cookie
         max_age=settings.max_age,
         httponly=True,
         secure=settings.secure,
-        samesite=settings.samesite,
+        samesite=cast(Literal["lax", "strict", "none"], settings.samesite),
         path=REFRESH_PATH,
     )
 
