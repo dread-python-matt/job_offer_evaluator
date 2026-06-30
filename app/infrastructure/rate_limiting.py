@@ -3,6 +3,8 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
+from app.application.ports import ModelLimitsRegistry
+
 
 class AsyncRateLimiter(Protocol):
     """Paces outbound calls. `acquire()` returns when the caller may proceed, awaiting
@@ -16,23 +18,32 @@ class TokenBucketRateLimiter:
     tasks. Used to keep the request rate to a provider under a free-tier RPM cap so a burst
     of concurrent scoring calls can't trip a 429 (e.g. Gemini free tier = 10 requests/min).
 
-    The bucket holds at most `rate_per_minute` tokens and refills continuously at that rate,
-    so over any 60s window at most `rate_per_minute` calls proceed. `acquire()` takes a token
-    immediately when one is available, otherwise sleeps just long enough for the next to
-    refill. A lock serializes waiters into FIFO order and keeps the token maths race-free."""
+    The bucket refills continuously at `rate_per_minute` and holds at most `max_burst` tokens
+    (default: `rate_per_minute`). `acquire()` takes a token immediately when one is available,
+    otherwise sleeps just long enough for the next to refill. A lock serializes waiters into
+    FIFO order and keeps the token maths race-free.
+
+    `max_burst` bounds how many calls may fire back-to-back before pacing kicks in. The default
+    (capacity == rate) lets a whole minute's worth of calls go at once and *then* keep refilling
+    — up to ~2x the rate inside the first 60s window, which trips a hard per-minute provider cap.
+    Pass `max_burst=1` to space calls evenly (one per 60/rate seconds) so the cap holds from the
+    very first call."""
 
     def __init__(
         self,
         rate_per_minute: int,
         *,
+        max_burst: int | None = None,
         _time: Callable[[], float] = time.monotonic,
         _asleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         if rate_per_minute <= 0:
             raise ValueError("rate_per_minute must be positive")
-        self._capacity = float(rate_per_minute)
+        if max_burst is not None and max_burst < 1:
+            raise ValueError("max_burst must be at least 1")
+        self._capacity = float(rate_per_minute if max_burst is None else max_burst)
         self._refill_per_second = rate_per_minute / 60.0
-        self._tokens = float(rate_per_minute)
+        self._tokens = self._capacity
         self._time = _time
         self._asleep = _asleep
         self._updated_at = _time()

@@ -1,4 +1,6 @@
+
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "defaultMode": "acceptEdits",
     "allow": [
@@ -6,50 +8,237 @@
       "Grep",
       "Glob",
       "WebSearch",
+
       "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git -C * status)",
+      "Bash(git -C * status *)",
+
+
+      "Bash(uv run --directory * ruff check)",
+      "Bash(uv run --directory * ruff check *)",
+      "Bash(uv run --directory * ruff format)",
+      "Bash(uv run --directory * ruff format *)",
+      "Bash(uv run --directory * pytest)",
+      "Bash(uv run --directory * pytest *)",
+      "Bash(uv run --directory * mypy)",
+      "Bash(uv run --directory * mypy *)",
+      "Bash(uv run --directory * pyright)",
+      "Bash(uv run --directory * pyright *)",
+
+
+
+      "Bash(git diff)",
       "Bash(git diff *)",
+      "Bash(git -C * diff)",
+      "Bash(git -C * diff *)",
+      "Bash(git --no-pager diff)",
+      "Bash(git --no-pager diff *)",
+      "Bash(git -C * --no-pager diff)",
+      "Bash(git -C * --no-pager diff *)",
+
+      "Bash(git log)",
       "Bash(git log *)",
+      "Bash(git -C * log)",
+      "Bash(git -C * log *)",
+      "Bash(git --no-pager log)",
+      "Bash(git --no-pager log *)",
+      "Bash(git -C * --no-pager log)",
+      "Bash(git -C * --no-pager log *)",
+
+      "Bash(git show)",
+      "Bash(git show *)",
+      "Bash(git -C * show)",
+      "Bash(git -C * show *)",
+      "Bash(git --no-pager show)",
+      "Bash(git --no-pager show *)",
+      "Bash(git -C * --no-pager show)",
+      "Bash(git -C * --no-pager show *)",
+
+      "Bash(git branch)",
       "Bash(git branch *)",
+      "Bash(git -C * branch)",
+      "Bash(git -C * branch *)",
+
+      "Bash(git branch --show-current)",
+      "Bash(git -C * branch --show-current)",
+
+      "Bash(git remote)",
+      "Bash(git remote *)",
+      "Bash(git -C * remote)",
+      "Bash(git -C * remote *)",
+
       "Bash(git check-ignore *)",
-      "Bash(npm -v)",
-      "Bash(node -v)",
-      "Bash(npx --version)",
-      "Bash(uv run ruff check *)",
-      "Bash(uv run pytest *)",
-      "Bash(uv run mypy *)",
+      "Bash(git -C * check-ignore *)",
+      "Bash(git ls-files)",
+      "Bash(git ls-files *)",
+      "Bash(git -C * ls-files)",
+      "Bash(git -C * ls-files *)",
+      "Bash(git ls-tree *)",
+      "Bash(git -C * ls-tree *)",
+      "Bash(git blame *)",
+      "Bash(git -C * blame *)",
+
+      "Bash(git add *)",
+      "Bash(git -C * add *)",
+      "Bash(git commit *)",
+      "Bash(git -C * commit *)",
+
+      "Bash(git fetch)",
+      "Bash(git fetch *)",
+      "Bash(git -C * fetch)",
+      "Bash(git -C * fetch *)",
+
+      "Bash(git stash list)",
+      "Bash(git -C * stash list)",
+      "Bash(git stash show *)",
+      "Bash(git -C * stash show *)",
+
+      "Bash(uv --version)",
+      "Bash(uv sync)",
       "Bash(uv sync *)",
-      "Bash(npm run build *)",
-      "Bash(npm run test *)",
-      "Bash(npm test *)",
+
+      "Bash(uv run ruff check)",
+      "Bash(uv run ruff check *)",
+      "Bash(uv run ruff format)",
+      "Bash(uv run ruff format *)",
+
+      "Bash(uv run pytest)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run mypy)",
+      "Bash(uv run mypy *)",
+      "Bash(uv run pyright)",
+      "Bash(uv run pyright *)",
+
+      "Bash(node -v)",
+      "Bash(npm -v)",
+      "Bash(npx --version)",
+
+      "Bash(npm --prefix frontend run build)",
+      "Bash(npm --prefix frontend run build *)",
+      "Bash(npm --prefix frontend test)",
+      "Bash(npm --prefix frontend test *)",
+      "Bash(npm --prefix frontend run test)",
+      "Bash(npm --prefix frontend run test *)",
       "Bash(npx tsc *)",
+      "Bash(npx prettier *)",
       "Bash(npx ng *)",
+
+      "PowerShell(git status)",
+      "PowerShell(git status *)",
+      "PowerShell(git diff)",
+      "PowerShell(git diff *)",
+      "PowerShell(git log)",
+      "PowerShell(git log *)",
+      "PowerShell(git show)",
+      "PowerShell(git show *)",
+      "PowerShell(git branch)",
+      "PowerShell(git branch *)",
+      "PowerShell(git remote)",
+      "PowerShell(git remote *)",
+      "PowerShell(git add *)",
+      "PowerShell(git commit *)",
+
+      "PowerShell(uv --version)",
+      "PowerShell(uv sync)",
+      "PowerShell(uv sync *)",
+      "PowerShell(uv run ruff check)",
+      "PowerShell(uv run ruff check *)",
+      "PowerShell(uv run ruff format)",
+      "PowerShell(uv run ruff format *)",
+      "PowerShell(uv run pytest)",
+      "PowerShell(uv run pytest *)",
+      "PowerShell(uv run mypy)",
+      "PowerShell(uv run mypy *)",
+
       "PowerShell(Get-ChildItem *)",
       "PowerShell(Get-Content *)",
       "PowerShell(Select-String *)",
       "PowerShell(Select-Object *)",
-      "PowerShell(Measure-Object *)",
-      "PowerShell(uv run *)",
-      "PowerShell(git status)",
-      "PowerShell(git diff *)"
+      "PowerShell(Measure-Object *)"
     ],
     "ask": [
       "Bash(npm install *)",
+      "Bash(npm uninstall *)",
+      "Bash(npm update *)",
+      "Bash(npm audit fix *)",
+
       "Bash(uv add *)",
-      "Bash(git add *)",
-      "Bash(git commit *)",
+      "Bash(uv remove *)",
+      "Bash(uv lock *)",
+
+      "Bash(uv run alembic upgrade *)",
+      "Bash(uv run alembic downgrade *)",
+      "Bash(uv run python main.py)",
+      "Bash(npm --prefix frontend start)",
+      "Bash(npm --prefix frontend run start)",
+
+      "Bash(git push)",
       "Bash(git push *)",
+      "Bash(git -C * push)",
+      "Bash(git -C * push *)",
+
+      "Bash(git pull)",
       "Bash(git pull *)",
+      "Bash(git -C * pull)",
+      "Bash(git -C * pull *)",
+
       "Bash(git reset *)",
+      "Bash(git -C * reset *)",
       "Bash(git clean *)",
+      "Bash(git -C * clean *)",
       "Bash(git rm *)",
+      "Bash(git -C * rm *)",
+      "Bash(git restore *)",
+      "Bash(git -C * restore *)",
+      "Bash(git checkout *)",
+      "Bash(git -C * checkout *)",
+      "Bash(git switch *)",
+      "Bash(git -C * switch *)",
+      "Bash(git rebase *)",
+      "Bash(git -C * rebase *)",
+      "Bash(git merge *)",
+      "Bash(git -C * merge *)",
+
+      "Bash(git stash)",
+      "Bash(git stash push *)",
+      "Bash(git stash pop *)",
+      "Bash(git stash apply *)",
+      "Bash(git -C * stash)",
+      "Bash(git -C * stash push *)",
+      "Bash(git -C * stash pop *)",
+      "Bash(git -C * stash apply *)",
+
+      "Bash(git branch -d *)",
+      "Bash(git branch -D *)",
+      "Bash(git -C * branch -d *)",
+      "Bash(git -C * branch -D *)",
+      "Bash(git tag -d *)",
+      "Bash(git -C * tag -d *)",
+      "Bash(git push * --delete *)",
+      "Bash(git -C * push * --delete *)",
+
       "Bash(docker *)",
+      "Bash(docker-compose *)",
       "Bash(taskkill *)",
       "Bash(powershell *)",
       "Bash(pwsh *)",
-      "PowerShell(git commit *)",
+
+      "PowerShell(npm install *)",
+      "PowerShell(uv add *)",
+      "PowerShell(uv remove *)",
+      "PowerShell(uv lock *)",
       "PowerShell(git push *)",
+      "PowerShell(git pull *)",
       "PowerShell(git reset *)",
       "PowerShell(git clean *)",
+      "PowerShell(git rm *)",
+      "PowerShell(git restore *)",
+      "PowerShell(git checkout *)",
+      "PowerShell(git switch *)",
+      "PowerShell(git rebase *)",
+      "PowerShell(git merge *)",
+      "PowerShell(git stash *)",
       "PowerShell(New-Item *)",
       "PowerShell(Set-Content *)",
       "PowerShell(Move-Item *)",
@@ -70,23 +259,72 @@
       "Read(./**/*.pfx)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
+
       "Bash(bash *)",
       "Bash(sh *)",
+      "Bash(zsh *)",
+      "Bash(fish *)",
+      "Bash(cmd *)",
       "Bash(python -c *)",
       "Bash(python3 -c *)",
+      "Bash(uv run python -c *)",
       "Bash(node -e *)",
       "Bash(curl *)",
       "Bash(wget *)",
       "Bash(rm *)",
       "Bash(rmdir *)",
       "Bash(del *)",
+      "Bash(find * -delete *)",
+      "Bash(printenv)",
+      "Bash(printenv *)",
+      "Bash(env)",
+      "Bash(set)",
+      "Bash(cat .env*)",
+      "Bash(type .env*)",
+      "Bash(grep * .env*)",
+
       "PowerShell(Invoke-WebRequest *)",
       "PowerShell(Invoke-RestMethod *)",
       "PowerShell(curl *)",
       "PowerShell(curl.exe *)",
       "PowerShell(wget *)",
       "PowerShell(powershell *)",
-      "PowerShell(pwsh *)"
+      "PowerShell(pwsh *)",
+      "PowerShell(Get-ChildItem Env:*)",
+      "PowerShell(Get-Content .env*)",
+      "PowerShell(Get-Content *.env*)",
+      "PowerShell(Select-String * .env*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/no-compound-commands.py"
+            ],
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": [
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/no-compound-commands.py"
+            ],
+            "timeout": 10
+          }
+        ]
+      }
     ]
   }
 }
+

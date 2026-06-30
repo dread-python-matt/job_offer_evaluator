@@ -26,6 +26,16 @@ const OFFER = {
   published: '2026-06-20',
 };
 
+const MODELS_WITH_PROVIDER = {
+  companies: [{ name: 'OpenAI', models: ['gpt-4o-mini'] }],
+  active: { model: 'gpt-4o-mini', company: 'OpenAI' },
+};
+
+const MODELS_NO_PROVIDER = {
+  companies: [],
+  active: { model: 'gpt-4o-mini', company: 'OpenAI' },
+};
+
 function flush(
   fixture: ReturnType<typeof TestBed.createComponent<AiMatchOffers>>,
   httpMock: HttpTestingController,
@@ -43,6 +53,17 @@ function flush(
 describe('AiMatchOffers', () => {
   let httpMock: HttpTestingController;
 
+  /** Creates the component and answers the two requests it fires on init (offers count and
+   * the available-models lookup that gates the "Find with AI" button). */
+  function createComponent(total = 5, models: object = MODELS_WITH_PROVIDER) {
+    const fixture = TestBed.createComponent(AiMatchOffers);
+    fixture.detectChanges();
+    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total });
+    httpMock.expectOne((req) => req.url.endsWith('/config/models')).flush(models);
+    fixture.detectChanges();
+    return fixture;
+  }
+
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [AiMatchOffers],
@@ -54,24 +75,39 @@ describe('AiMatchOffers', () => {
   afterEach(() => httpMock.verify());
 
   it('fetches offers count on init', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 42 });
+    const fixture = createComponent(42);
+    expect(fixture.componentInstance.totalOffers()).toBe(42);
+  });
+
+  it('disables the Find with AI button when no provider key is configured', () => {
+    const fixture = createComponent(5, MODELS_NO_PROVIDER);
+
+    const el = fixture.nativeElement as HTMLElement;
+    const button = el.querySelector('.search-button') as HTMLButtonElement;
+    expect(fixture.componentInstance.aiAvailable()).toBe(false);
+    expect(button.disabled).toBe(true);
+    expect(el.querySelector('.search-button-wrap')).not.toBeNull();
+  });
+
+  it('keeps the Find with AI button enabled when a provider key is configured', () => {
+    const fixture = createComponent(5, MODELS_WITH_PROVIDER);
+
+    const button = (fixture.nativeElement as HTMLElement).querySelector(
+      '.search-button',
+    ) as HTMLButtonElement;
+    expect(fixture.componentInstance.aiAvailable()).toBe(true);
+    expect(button.disabled).toBe(false);
   });
 
   it('posts to /offers/match/ai with default offers_to_score on search', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 10 });
+    const fixture = createComponent(10);
 
     const req = flush(fixture, httpMock, []);
     expect(req.request.body['offers_to_score']).toBe(20);
   });
 
   it('sends the offers_to_score value from the form control', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     fixture.componentInstance.filters.controls.offersToScore.setValue(35);
     const req = flush(fixture, httpMock, []);
@@ -79,9 +115,7 @@ describe('AiMatchOffers', () => {
   });
 
   it('sends level as an array', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     fixture.componentInstance.filters.controls.level.setValue(['Mid', 'Senior']);
     const req = flush(fixture, httpMock, []);
@@ -89,18 +123,14 @@ describe('AiMatchOffers', () => {
   });
 
   it('sends empty level array when no levels selected', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     const req = flush(fixture, httpMock, []);
     expect(req.request.body['level']).toEqual([]);
   });
 
   it('sends added tech chips in the request body', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     fixture.componentInstance.addTech({ value: 'Python', chipInput: { clear: () => {} } } as any);
     fixture.componentInstance.addTech({ value: 'FastAPI', chipInput: { clear: () => {} } } as any);
@@ -109,9 +139,7 @@ describe('AiMatchOffers', () => {
   });
 
   it('removes a tech chip', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     fixture.componentInstance.addTech({ value: 'Python', chipInput: { clear: () => {} } } as any);
     fixture.componentInstance.addTech({ value: 'FastAPI', chipInput: { clear: () => {} } } as any);
@@ -121,18 +149,14 @@ describe('AiMatchOffers', () => {
   });
 
   it('ignores blank tech input', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     fixture.componentInstance.addTech({ value: '  ', chipInput: { clear: () => {} } } as any);
     expect(fixture.componentInstance.techFilter()).toEqual([]);
   });
 
   it('renders matched offers after a successful search', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     flush(fixture, httpMock);
 
@@ -143,9 +167,7 @@ describe('AiMatchOffers', () => {
   });
 
   it('renders the AI insight: star rate, pros, cons and reasoning', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     const offer = {
       ...OFFER,
@@ -173,9 +195,7 @@ describe('AiMatchOffers', () => {
   });
 
   it('omits the AI insight block when an offer has none', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     flush(fixture, httpMock, [OFFER]);
 
@@ -185,9 +205,7 @@ describe('AiMatchOffers', () => {
   });
 
   it('does not post when the form is invalid', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     fixture.componentInstance.filters.controls.offersLimit.setValue(-1);
     fixture.componentInstance.search();
@@ -196,9 +214,7 @@ describe('AiMatchOffers', () => {
   });
 
   it('shows usage stats after a successful search when usage is returned', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     flush(fixture, httpMock, [], { input_tokens: 1500, output_tokens: 300 });
 
@@ -210,9 +226,7 @@ describe('AiMatchOffers', () => {
   });
 
   it('shows usage stats section with dashes before any search', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
     fixture.detectChanges();
 
     const el = fixture.nativeElement as HTMLElement;
@@ -221,9 +235,7 @@ describe('AiMatchOffers', () => {
   });
 
   it('keeps previous usage when a subsequent search returns null usage', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     flush(fixture, httpMock, [], { input_tokens: 100, output_tokens: 50 });
     flush(fixture, httpMock, [], null);
@@ -235,9 +247,7 @@ describe('AiMatchOffers', () => {
   });
 
   it('keeps usage stats visible while a new search is loading', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     flush(fixture, httpMock, [], { input_tokens: 100, output_tokens: 50 });
 
@@ -255,9 +265,7 @@ describe('AiMatchOffers', () => {
   });
 
   it('shows inline error block when the AI match request fails', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     fixture.componentInstance.search();
     httpMock.expectOne((req) => req.url.endsWith('/profile')).flush(PROFILE);
@@ -276,9 +284,7 @@ describe('AiMatchOffers', () => {
   });
 
   it('clears the error block on the next successful search', () => {
-    const fixture = TestBed.createComponent(AiMatchOffers);
-    fixture.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const fixture = createComponent(5);
 
     fixture.componentInstance.search();
     httpMock.expectOne((req) => req.url.endsWith('/profile')).flush(PROFILE);
@@ -295,16 +301,11 @@ describe('AiMatchOffers', () => {
   });
 
   it('restores the previous results and usage after the component is recreated', () => {
-    const first = TestBed.createComponent(AiMatchOffers);
-    first.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const first = createComponent(5);
     flush(first, httpMock, [OFFER], { input_tokens: 100, output_tokens: 50 });
     first.destroy();
 
-    const second = TestBed.createComponent(AiMatchOffers);
-    second.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
-    second.detectChanges();
+    const second = createComponent(5);
 
     expect(second.componentInstance.results().length).toBe(1);
     const el = second.nativeElement as HTMLElement;
@@ -314,17 +315,13 @@ describe('AiMatchOffers', () => {
   });
 
   it('restores the saved filter values after the component is recreated', () => {
-    const first = TestBed.createComponent(AiMatchOffers);
-    first.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const first = createComponent(5);
     first.componentInstance.filters.controls.offersToScore.setValue(35);
     first.componentInstance.addTech({ value: 'Python', chipInput: { clear: () => {} } } as any);
     flush(first, httpMock, [], null);
     first.destroy();
 
-    const second = TestBed.createComponent(AiMatchOffers);
-    second.detectChanges();
-    httpMock.expectOne((req) => req.url.endsWith('/offers/count')).flush({ total: 5 });
+    const second = createComponent(5);
 
     expect(second.componentInstance.filters.controls.offersToScore.value).toBe(35);
     expect(second.componentInstance.techFilter()).toEqual(['Python']);

@@ -12,6 +12,7 @@ import { MatInputModule } from '@angular/material/input';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSliderModule } from '@angular/material/slider';
+import { MatTooltipModule } from '@angular/material/tooltip';
 import { HttpErrorResponse } from '@angular/common/http';
 import { EMPTY, Subject, catchError, switchMap, tap } from 'rxjs';
 
@@ -55,6 +56,7 @@ const AI_MATCH_SORT_OPTION_VALUES: Record<
     MatProgressSpinnerModule,
     MatSelectModule,
     MatSliderModule,
+    MatTooltipModule,
   ],
   templateUrl: './ai-match-offers.html',
   styleUrl: './ai-match-offers.scss',
@@ -67,9 +69,15 @@ export class AiMatchOffers implements OnInit {
   readonly levelOptions = LEVEL_OPTIONS;
   readonly separatorKeyCodes = [ENTER, COMMA] as const;
 
+  /** Message shown on the disabled "Find with AI" button when no provider key is set up. */
+  readonly noProviderTooltip = 'An API key is required for AI matching. Add one under Model Usage.';
+
   // Transient, per-component state — reset every time the view is entered.
   readonly loading = signal(false);
   readonly totalOffers = signal<number | null>(null);
+  /** Whether the user has at least one usable provider key. AI matching needs a configured
+   * provider, so the button is disabled (with an explanatory tooltip) until one exists. */
+  readonly aiAvailable = signal(true);
 
   // Persistent state, kept in a root-scoped service so the last AI-match result
   // is restored when the user navigates back to this section.
@@ -166,6 +174,11 @@ export class AiMatchOffers implements OnInit {
 
   ngOnInit(): void {
     this.api.getOffersCount().subscribe((total) => this.totalOffers.set(total));
+    // A user's available models are derived from their stored provider keys, so an empty
+    // list means no provider key is configured and AI matching can't run.
+    this.api
+      .getAvailableModels()
+      .subscribe((models) => this.aiAvailable.set(models.companies.length > 0));
   }
 
   addTech(event: MatChipInputEvent): void {
