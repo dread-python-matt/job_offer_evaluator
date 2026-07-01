@@ -37,7 +37,7 @@ def _like_escape(value: str) -> str:
 
 
 class PostgresOfferRepository(OfferRepository):
-    """Read-only adapter over the existing `offers` table owned by the scraper."""
+    """Read-only adapter over the existing `offers` table owned by an external offers source."""
 
     def __init__(
         self,
@@ -74,7 +74,7 @@ class PostgresOfferRepository(OfferRepository):
     def browse_offers(
         self, filters: OfferBrowseFilters, limit: int, offset: int
     ) -> tuple[list[Offer], int]:
-        # Salary filtering/sorting is pushed into SQL via the scraper's
+        # Salary filtering/sorting is pushed into SQL via the external
         # `normalized_salary` table (precomputed NET monthly figures), so no full-table
         # load + Python pass is needed. An offer's salary is its best contract type
         # (max net_of_max across its salary rows).

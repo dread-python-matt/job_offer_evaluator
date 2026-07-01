@@ -1,6 +1,6 @@
 """Operational behavior of the offer-skill indexer, on a real (in-memory SQLite) engine:
-meta stamping + freshness status, and tolerance of a not-yet-created scraper `offers` table
-(a fresh deploy before the first scrape must not crash the indexer / block container start).
+meta stamping + freshness status, and tolerance of a not-yet-created external `offers` table
+(a fresh deploy before any offers are loaded must not crash the indexer / block container start).
 """
 
 from datetime import datetime, timezone
@@ -73,7 +73,7 @@ def test_rebuild_stamps_meta_and_reports_fresh():
 
 
 def test_rebuild_is_a_noop_when_the_offers_table_is_missing():
-    # Fresh deploy before the first scrape: the scraper-owned `offers` table doesn't exist.
+    # Fresh deploy before any offers are loaded: the externally-owned `offers` table doesn't exist.
     # Rebuild must not raise (so it can never block container start) and leaves the index unbuilt.
     engine = _engine_with(OfferSkillRow, OfferSkillIndexMeta)  # no `offers` table
 

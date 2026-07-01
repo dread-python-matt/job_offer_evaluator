@@ -6,7 +6,7 @@ Every downstream number (skill ratio, cheap pre-filter, AI pre-ranking, browse f
 inherits string-match errors; canonicalizing once at the boundary fixes all of them at the root.
 
 > Scope: backend matching pipeline (`app/domain`, `app/application`, `app/infrastructure`). The
-> `offers` table is **scraper-owned and read-only** here, which shapes *where* normalization can
+> `offers` table is **externally-owned and read-only** here, which shapes *where* normalization can
 > run — see §4.
 >
 > **Operations + progress report** (commands runbook, real-corpus coverage findings, what's next):
@@ -110,7 +110,7 @@ Tier 0 ships first and delivers most of the value. Tiers 1–2 are additive.
 
 The idea says "normalize once at write time (profile save, offer index)." That is fully realizable
 for the **profile** (app-owned, writable) but **not for offers** — the `offers` table belongs to
-the scraper and we only read it. So:
+an external offers source and we only read it. So:
 
 - **Recommended baseline:** canonicalization is a **pure function applied at the matching
   boundary (read time)**, in the application layer, on both the candidate profile and the fetched

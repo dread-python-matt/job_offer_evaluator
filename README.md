@@ -11,7 +11,7 @@
 <!-- Once this repo is hosted on GitHub, add a live CI badge:
 ![CI](https://github.com/<owner>/<repo>/actions/workflows/ci.yml/badge.svg) -->
 
-Matches scraped job offers to a user's profile and (optionally) scores fit with an LLM.
+Matches job offers to a user's profile and (optionally) scores fit with an LLM.
 The backend is a **FastAPI JSON API**; the frontend is a **standalone Angular app** that
 talks to it over HTTP (CORS, cookie session) — there is no shared process. The app is
 **multi-tenant**: every user has their own profile, selected model, usage, and budget.
@@ -99,12 +99,12 @@ Frontend (optional, separate terminal): `npm --prefix frontend install` then
 
 ### Demo data (fixtures)
 
-The seed script (`app/scripts/seed_offers.py`) fills the scraper-owned
+The seed script (`app/scripts/seed_offers.py`) fills the externally-owned
 `offers` / `salaries` / `normalized_salary` tables — which Alembic does **not** create (they
-belong to the scraper) — with ~50 recent, diverse offers: many tech stacks, **7 job portals**,
+belong to the external offers source) — with ~50 recent, diverse offers: many tech stacks, **7 job portals**,
 **every seniority** (Intern → Expert) and **all three contract types** (B2B / permanent /
 civil), each with NET salaries computed by the app's own calculator. It is **idempotent**
-(re-running replaces only the `seed-*` rows and never touches real scraper data). Preview
+(re-running replaces only the `seed-*` rows and never touches real external data). Preview
 without writing anything:
 
 ```bash
@@ -125,8 +125,8 @@ the email-confirmation link is printed to the API console; you can also mint one
 1. A **user profile** (summary, skills with 1–5 ratings, projects, experience) is saved per
    user as a JSON document in Postgres. It can also be sent inline as the `candidate` of a
    match request.
-2. **Job offers** live in a Postgres `offers` table owned by a separate scraper project —
-   this app only **reads** it (plus the scraper's `salaries` / `normalized_salary` tables).
+2. **Job offers** live in a Postgres `offers` table owned by a separate, external offers source —
+   this app only **reads** it (plus the external `salaries` / `normalized_salary` tables).
 3. Candidate offers are fetched with the request's **structural filters pushed into SQL**
    (`OfferRepository.candidate_offers` — location, min net salary, level, expired), so the
    whole table is never materialized. A **`FilterChain`** (composite of `OfferFilter`s, ANDed)
@@ -215,7 +215,7 @@ app/
 │   └── ai_scoring_context.py #   AiScoringContext: resolves a user's model → AI use case (cached per model)
 │
 ├── infrastructure/           # Adapters implementing the ports (the only layer with I/O)
-│   ├── db.py, orm_models.py  #   Engine builder (tunable connection pool) + SQLAlchemy ORM rows for app-owned + scraper tables
+│   ├── db.py, orm_models.py  #   Engine builder (tunable connection pool) + SQLAlchemy ORM rows for app-owned + external tables
 │   ├── postgres_*_repository.py   # user, user_profile, selected_model, model_usage, ai_score, budget, offer
 │   ├── markdown_profile_repository.py  # Legacy profile adapter (test-only; not wired in main.py)
 │   ├── scoring_strategies.py # SkillBasedScorer (deterministic); skill_utils.py = evidence-aware weighting
@@ -273,9 +273,9 @@ app/
   powers **browsing's tech filter**: an `offer_skill` index (one row per offer×concept, rebuilt
   by `uv run python -m app.scripts.index_offer_skills`) lets the offers list filter by concept in
   SQL, so a `k8s` filter finds `Kubernetes` offers. The Docker image rebuilds the index on start
-  (after migrations, best-effort, and a no-op before the first scrape); each build stamps
+  (after migrations, best-effort, and a no-op before any offers are loaded); each build stamps
   `offer_skill_index_meta` with the alias-map version, so a stale or unbuilt index is visible via
-  `… index_offer_skills --status` rather than silently matching nothing. Rebuild after a scrape or
+  `… index_offer_skills --status` rather than silently matching nothing. Rebuild after new offers are loaded or
   whenever the alias map changes. See `docs/skills-normalization.md`.
 
 ---
@@ -401,8 +401,8 @@ content-addressed cache; `refresh_tokens` holds SHA-256 hashes only; `user_api_k
 encrypted provider keys and `openai_admin_key` the user's encrypted OpenAI admin key
 (one per user) — never raw tokens or plaintext keys.)
 
-**Scraper-owned, read-only** (do **not** migrate here): `offers`, `salaries`,
-`normalized_salary`. On a database without the scraper, populate them with demo data via
+**Externally-owned, read-only** (do **not** migrate here): `offers`, `salaries`,
+`normalized_salary`. On a database without an external offers source, populate them with demo data via
 `uv run python -m app.scripts.seed_offers` (see [Quickstart → Demo data](#demo-data-fixtures)).
 
 Migrations live in `alembic/versions/` (`0001`–`0020`): baseline → app tables (`user_profile`,

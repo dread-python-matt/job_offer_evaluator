@@ -239,7 +239,7 @@ class SalarySchema(BaseModel):
     max: float | None
     currency: str
     period: str
-    # Standardized estimated NET monthly PLN (from the scraper's normalized_salary).
+    # Standardized estimated NET monthly PLN (from the external normalized_salary).
     # `net_monthly` is the midpoint (the representative figure shown by default).
     net_monthly: float | None
     net_min: float | None

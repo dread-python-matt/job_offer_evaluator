@@ -4,7 +4,7 @@ Revision ID: 0001_baseline
 Revises:
 Create Date: 2026-06-24
 
-Mirrors the ORM models in app.infrastructure.orm_models. The scraper-owned
+Mirrors the ORM models in app.infrastructure.orm_models. The externally-owned
 `offers`/`salaries` tables are intentionally not managed here.
 """
 import sqlalchemy as sa

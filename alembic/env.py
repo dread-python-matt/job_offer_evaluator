@@ -10,7 +10,7 @@ config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 target_metadata = Base.metadata
 
-# Tables owned by the external scraper — this app reads them but never migrates them.
+# Tables owned by an external offers source — this app reads them but never migrates them.
 _EXTERNAL_TABLES = {"offers", "salaries", "normalized_salary"}
 
 

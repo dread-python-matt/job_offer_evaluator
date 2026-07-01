@@ -28,7 +28,7 @@ operations runbook. Last updated: **2026-07-01**.
 The browse `tech` filter matches by **canonical concept** via an app-owned `offer_skill` projection
 (one row per offer×concept). Hardening added:
 - **Self-building on deploy.** The Docker `CMD` runs the indexer after migrations, before serving.
-- **Missing-table tolerance.** If the scraper-owned `offers` table doesn't exist yet, the indexer
+- **Missing-table tolerance.** If the externally-owned `offers` table doesn't exist yet, the indexer
   logs and no-ops (returns 0) instead of crashing — so it can run unconditionally at boot.
 - **Staleness signal.** Each rebuild stamps `offer_skill_index_meta` (migration `0019`) with the
   alias-map `version`, row count, and build time. `--status` reports `fresh` / `STALE` / `NOT BUILT`.
@@ -162,7 +162,7 @@ uv run alembic upgrade head                         # create offer_skill, *_meta
 uv run python -m app.scripts.index_offer_skills     # build the browse index from offers
 uv run python -m app.scripts.index_offer_skills --status   # expect: fresh
 ```
-If `offers` isn't seeded/scraped yet, the indexer prints `NOT BUILT` and no-ops — that's fine; run it
+If `offers` isn't seeded/loaded yet, the indexer prints `NOT BUILT` and no-ops — that's fine; run it
 again after offers exist.
 
 ### 4.3 The curation loop (growing the alias map from real data)
@@ -205,7 +205,7 @@ CMD: sh -c "uv run alembic upgrade head \
 ```
 - Migrations **must** succeed (`&&`).
 - The index build is **best-effort** (`|| true`): a failed/empty build degrades only the browse tech
-  filter, so it never blocks the API from serving; it no-ops before the first scrape.
+  filter, so it never blocks the API from serving; it no-ops before any offers are loaded.
 - Then the API starts.
 
 ---

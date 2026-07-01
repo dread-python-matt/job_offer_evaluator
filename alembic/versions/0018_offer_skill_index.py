@@ -18,7 +18,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # App-owned derived index (the `offers` table is scraper-owned). No FK to `offers`: it's a
+    # App-owned derived index (the `offers` table is externally-owned). No FK to `offers`: it's a
     # cache rebuilt by `app.scripts.index_offer_skills`; orphans are harmless and pruned on rebuild.
     op.create_table(
         "offer_skill",

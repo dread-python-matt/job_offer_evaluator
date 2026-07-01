@@ -1,7 +1,7 @@
 """Seed the database with a diverse set of demo job offers so the app is usable out of the box.
 
-The `offers` / `salaries` / `normalized_salary` tables are owned by a separate **scraper**
-project and are read-only here (no Alembic migration creates them). On a fresh database a
+The `offers` / `salaries` / `normalized_salary` tables are owned by a separate, **external**
+offers source and are read-only here (no Alembic migration creates them). On a fresh database a
 recruiter therefore has nothing to browse or match against. This script fills that gap with a
 curated, realistic fixture — ~50+ recent offers spanning many tech stacks, portals, seniority
 levels and contract types — so browsing, filtering, the deterministic match and the salary
@@ -10,13 +10,13 @@ calculator all work immediately (no provider API key required).
 It is split in two so the data is testable without a database:
 
 * `build_sample_offers()` — a **pure** function returning framework-free value objects.
-* `seed_database(engine, offers)` — creates the three scraper tables if absent and inserts the
+* `seed_database(engine, offers)` — creates the three external tables if absent and inserts the
   data, computing each offer's normalized NET salary with the app's own `SalaryCalculator`
   (so the demo figures are consistent with the rest of the app).
 
 It is **idempotent**: every seeded row carries a `seed-*` id and is removed before re-inserting,
 so running it twice doesn't duplicate data. All seeded offers use a `seed-*` id / `demo.offers`
-link, so they never collide with real scraper rows.
+link, so they never collide with real external rows.
 
 Usage:
     uv run python -m app.scripts.seed_offers            # seed the database
@@ -46,7 +46,7 @@ from app.infrastructure.orm_models import (
 
 @dataclass(frozen=True)
 class SeedSalary:
-    """One advertised salary band for a demo offer. `contract_type` is a scraper-style label
+    """One advertised salary band for a demo offer. `contract_type` is a source-style label
     (`b2b` / `permanent` / `zlecenie`) the net calculator understands; amounts are gross
     monthly PLN."""
 
@@ -57,7 +57,7 @@ class SeedSalary:
 
 @dataclass(frozen=True)
 class SeedOffer:
-    """A demo job offer, mirroring the fields the app reads from a scraped offer."""
+    """A demo job offer, mirroring the fields the app reads from a real offer."""
 
     title: str
     company: str
@@ -260,18 +260,18 @@ def normalized_net(salary: SeedSalary) -> tuple[float, float, float] | None:
 
 # --- database insertion (thin I/O over the data above) ----------------------------------
 
-_SCRAPER_TABLES = [OfferRow.__table__, SalaryRow.__table__, NormalizedSalaryRow.__table__]
+_EXTERNAL_TABLES = [OfferRow.__table__, SalaryRow.__table__, NormalizedSalaryRow.__table__]
 
 
 def _ensure_tables(engine: Engine) -> None:
-    """Create the scraper-owned tables if they don't exist yet (no-op when the real scraper
+    """Create the externally-owned tables if they don't exist yet (no-op when the real external
     schema is already present). These are intentionally not in Alembic — see module docstring."""
-    Base.metadata.create_all(engine, tables=_SCRAPER_TABLES)  # type: ignore[arg-type]  # __table__ typed FromClause, is Table at runtime
+    Base.metadata.create_all(engine, tables=_EXTERNAL_TABLES)  # type: ignore[arg-type]  # __table__ typed FromClause, is Table at runtime
 
 
 def _clear_previous_seed(session: Session) -> None:
     """Remove any rows from a previous run so re-seeding is idempotent. Only `seed-*` offers
-    (and their salaries / normalized rows) are touched — real scraper data is never deleted."""
+    (and their salaries / normalized rows) are touched — real external data is never deleted."""
     seed_salary_ids = select(SalaryRow.id).where(SalaryRow.offer_id.like("seed-%"))
     session.execute(
         delete(NormalizedSalaryRow).where(NormalizedSalaryRow.salary_id.in_(seed_salary_ids))
@@ -290,7 +290,7 @@ class SeedResult:
 def seed_database(
     engine: Engine, offers: list[SeedOffer], *, now: datetime | None = None
 ) -> SeedResult:
-    """Insert the demo offers (creating the scraper tables if needed), replacing any rows from
+    """Insert the demo offers (creating the external tables if needed), replacing any rows from
     a previous run. Returns how many offer / salary / normalized-salary rows were written."""
     now = now or datetime.now(timezone.utc)
     _ensure_tables(engine)

@@ -24,7 +24,7 @@ class Base(DeclarativeBase):
 
 
 class SalaryRow(Base):
-    """Maps the `salaries` table owned and migrated by the scraper project. One row
+    """Maps the `salaries` table owned and migrated by an external offers source. One row
     per contract type offered (e.g. B2B vs permanent)."""
 
     __tablename__ = "salaries"
@@ -56,7 +56,7 @@ class SalaryRow(Base):
 
 
 class NormalizedSalaryRow(Base):
-    """Maps the scraper-owned `normalized_salary` table (read-only): one row per
+    """Maps the externally-owned `normalized_salary` table (read-only): one row per
     `salaries` row, holding precomputed NET monthly PLN figures. Lets the app filter
     and sort offers by salary in SQL instead of materializing and computing in Python."""
 
@@ -73,7 +73,7 @@ class NormalizedSalaryRow(Base):
 
 
 class OfferRow(Base):
-    """Maps the `offers` table owned and migrated by the scraper project."""
+    """Maps the `offers` table owned and migrated by an external offers source."""
 
     __tablename__ = "offers"
 
@@ -121,9 +121,9 @@ class OfferRow(Base):
 
 class OfferSkillRow(Base):
     """App-owned projection of each offer's skills onto canonical concepts, so the browse `tech`
-    filter can match by concept in SQL (the scraper-owned `offers.tech_stack` holds raw strings).
+    filter can match by concept in SQL (the externally-owned `offers.tech_stack` holds raw strings).
     One row per (offer, canonical concept); rebuilt by `PostgresOfferSkillIndexer`. No FK to
-    `offers` on purpose — that table is scraper-owned/migrated and this is a derived cache, so we
+    `offers` on purpose — that table is externally owned/migrated and this is a derived cache, so we
     avoid coupling our migration to it; orphan rows are harmless and pruned on the next rebuild."""
 
     __tablename__ = "offer_skill"

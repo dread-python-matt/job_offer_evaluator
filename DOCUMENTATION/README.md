@@ -15,7 +15,7 @@
 
 ## 1. Purpose — what the project is
 
-**Job Offers Evaluator** is a multi-tenant web application that matches scraped **job offers** to a
+**Job Offers Evaluator** is a multi-tenant web application that matches **job offers** to a
 **candidate's profile** and, optionally, scores the fit with an LLM (OpenAI or Google Gemini). Each
 user maintains their own profile (summary, rated skills, projects, experience), brings their own
 provider API key, and gets ranked, explained matches plus a Polish net-salary calculator.
@@ -27,9 +27,9 @@ It is deliberately split into two independent processes that talk over HTTP:
 | **Backend** | Python 3.13 · FastAPI · PostgreSQL | JSON API, matching engine, auth, billing/cost control |
 | **Frontend** | Angular 22 · Angular Material | Standalone SPA; cookie-session client of the API |
 
-The **offers** themselves are produced by a *separate* scraper project; this app treats the
+The **offers** themselves are produced by a *separate*, external offers source; this app treats the
 `offers` / `salaries` / `normalized_salary` tables as **read-only** and ships a seed script (~50
-diverse demo offers) so the whole thing runs with no scraper and no API keys.
+diverse demo offers) so the whole thing runs with no external source and no API keys.
 
 ### Two matching modes
 
@@ -280,7 +280,7 @@ Full interactive reference at `/docs` (Swagger UI). The complete table lives in 
 content-addressed cache), `refresh_tokens` (SHA-256 hashes only), `user_api_key` (Fernet
 ciphertext), `openai_admin_key`, `offer_skill` (+ `offer_skill_index_meta`), `unknown_skill_token`.
 
-**Scraper-owned, read-only** (never migrated here): `offers`, `salaries`, `normalized_salary`.
+**Externally-owned, read-only** (never migrated here): `offers`, `salaries`, `normalized_salary`.
 
 Alembic is the single source of truth for the app schema (`create_all` was intentionally removed so
 the app can start and serve `/health` even when the DB is temporarily down).

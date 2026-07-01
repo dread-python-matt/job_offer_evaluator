@@ -4,7 +4,7 @@ Reads each offer's raw skill lists, projects them onto canonical concepts with t
 `SkillNormalizer`, and replaces the `offer_skill` rows so browsing can filter by concept in SQL.
 Each rebuild also stamps `offer_skill_index_meta` with the alias-map version, time, and row count,
 so a stale index (the map changed but the indexer wasn't re-run) is observable rather than silent.
-Run via `python -m app.scripts.index_offer_skills` - e.g. after a scrape or when the map grows.
+Run via `python -m app.scripts.index_offer_skills` - e.g. after new offers are loaded or when the map grows.
 """
 
 import logging
@@ -69,12 +69,12 @@ class PostgresOfferSkillIndexer:
         row, returning the number of (offer, concept) rows written. A full rebuild is simple and
         always correct; incremental refresh keyed on `offers.scraped_at` can be layered on later.
 
-        If the scraper-owned `offers` table doesn't exist yet (a fresh deploy before the first
-        scrape), there is nothing to project: log and leave the existing index untouched, returning
+        If the externally-owned `offers` table doesn't exist yet (a fresh deploy before any
+        offers are loaded), there is nothing to project: log and leave the existing index untouched, returning
         0, so this can run unconditionally at startup without ever blocking boot."""
         if not inspect(self._engine).has_table(OfferRow.__tablename__):
             _logger.warning(
-                "offer_skill index rebuild skipped: the scraper-owned 'offers' table does "
+                "offer_skill index rebuild skipped: the externally-owned 'offers' table does "
                 "not exist yet",
                 extra={"event": "offer_skill_index_skipped"},
             )

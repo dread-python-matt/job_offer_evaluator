@@ -153,7 +153,7 @@ _CONTRACT_TYPE_LABELS = {
 
 
 def contract_type_from_label(label: str) -> ContractType | None:
-    """Maps a scraped `Salary.contract_type` label to a `ContractType`, or `None` if
+    """Maps a raw `Salary.contract_type` label to a `ContractType`, or `None` if
     it isn't one we know how to calculate net pay for."""
     return _CONTRACT_TYPE_LABELS.get(label.casefold())
 
