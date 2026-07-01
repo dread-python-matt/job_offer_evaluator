@@ -48,3 +48,6 @@ Thumbs.db
 CLAUDE.md
 .agents/
 skills-lock.json
+
+# ---- Personal documentation (local only; not part of the published project) ----
+/DOCUMENTATION/
