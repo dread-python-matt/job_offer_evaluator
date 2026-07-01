@@ -1,23 +1,50 @@
-# Python-generated files
+# ---- Python ----
 __pycache__/
-*.py[oc]
+*.py[cod]
+*.egg-info/
+.eggs/
 build/
 dist/
 wheels/
-*.egg-info
 
-# Virtual environments
-.venv
+# ---- Virtual environments ----
+.venv/
+venv/
+env/
 
-# Local environment / secrets — never commit real values
+# ---- Test & type-check caches / coverage ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.hypothesis/
+
+# ---- Local environment / secrets (never commit real values) ----
 .env
 .env.*
 !.env.example
 
-# User profile data (PII)
+# ---- User profile data (PII) ----
 DATA/
 
+# ---- Node (root level; frontend/ keeps its own .gitignore) ----
+node_modules/
 
+# ---- IDEs / editors ----
+.idea/
+*.iml
+*.swp
+*~
 
-.claude
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Agent / assistant tooling (not part of the application) ----
+.claude/
 CLAUDE.md
+.agents/
+skills-lock.json

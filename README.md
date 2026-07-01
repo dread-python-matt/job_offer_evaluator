@@ -1,5 +1,16 @@
 # Job Offers Evaluator
 
+![Python 3.13](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.137-009688?logo=fastapi&logoColor=white)
+![Angular 22](https://img.shields.io/badge/Angular-22-DD0031?logo=angular&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-SQLAlchemy%202.x-4169E1?logo=postgresql&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-pytest%20%7C%20vitest-0A9EDC)
+![Lint: ruff](https://img.shields.io/badge/lint-ruff-261230?logo=ruff&logoColor=white)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+
+<!-- Once this repo is hosted on GitHub, add a live CI badge:
+![CI](https://github.com/<owner>/<repo>/actions/workflows/ci.yml/badge.svg) -->
+
 Matches scraped job offers to a user's profile and (optionally) scores fit with an LLM.
 The backend is a **FastAPI JSON API**; the frontend is a **standalone Angular app** that
 talks to it over HTTP (CORS, cookie session) — there is no shared process. The app is
@@ -10,6 +21,39 @@ talks to it over HTTP (CORS, cookie session) — there is no shared process. The
 > `app/domain` and `app/infrastructure`; `main.py` is the composition root that wires every
 > port to a concrete adapter via FastAPI `dependency_overrides`. Start there and in
 > `app/presentation/api/routes.py`.
+
+## Highlights
+
+- **Two matching modes** — fast **deterministic** skill-overlap scoring (no I/O), or **LLM-scored** fit with pros, cons, and a rationale.
+- **Bring-your-own-key & multi-tenant** — each user adds their own OpenAI/Google key; per-user profile, model selection, usage, and budgets.
+- **Cost & rate-limit guardrails** — per-user USD budgets, an org-spend backstop (OpenAI admin key), Gemini free-tier per-day request caps, and client-side RPM pacing.
+- **Skill canonicalization** — an alias map + case/diacritic/separator folding collapse `JS`/`JavaScript`, `k8s`/`Kubernetes`, and PL/EN variants to one concept before matching (and for SQL browse filters).
+- **Production-grade auth** — email-confirmed registration, argon2 hashing, httpOnly JWT + rotating refresh tokens (reuse detection), double-submit CSRF, and login throttling.
+- **Polish net-salary calculator** — 2026 tax/ZUS rules per contract type (B2B / employment / civil).
+- **Clean / Hexagonal architecture** — the domain has zero framework dependencies; ports & adapters with a single `main.py` composition root.
+- **Observability & 12-factor** — structured JSON logs with per-request correlation ids, a readiness probe, and a tunable connection pool.
+- **Zero-config demo** — `docker compose up` + ~50 seed offers; browsing, deterministic matching, and the salary calculator work with **no API keys**.
+
+## Table of contents
+
+- [Quickstart](#quickstart)
+- [What it does](#what-it-does)
+- [Tech stack](#tech-stack)
+- [Repository layout](#repository-layout)
+- [Backend architecture](#backend-architecture)
+- [Authentication & multi-tenancy](#authentication--multi-tenancy)
+- [AI matching & cost control](#ai-matching--cost-control)
+- [Data model](#data-model)
+- [API reference](#api-reference)
+- [Configuration](#configuration)
+- [Logging & observability](#logging--observability)
+- [Email delivery](#email-delivery)
+- [Setup](#setup)
+- [Running](#running)
+- [Testing](#testing)
+- [Frontend](#frontend)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
@@ -284,7 +328,8 @@ registration. `token_version` (in the JWT) gives instant revocation / logout-eve
   `user_id` → use case threads it → route passes `user.id` → ORM row gets a `user_id` FK →
   repo filters on it → add a migration. (See `docs/auth-multitenancy.md`.)
 
-Required env in production: **`JWT_SECRET`** (override the dev default). Cross-site HTTPS
+Required env in production: **`JWT_SECRET`** and **`API_KEY_ENCRYPTION_KEY`** (override both dev
+defaults — the app refuses to boot with them when `APP_ENV=production`). Cross-site HTTPS
 deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send real email
 (not just log it), set the `SMTP_*` / `EMAIL_FROM` / `APP_BASE_URL` vars.
 
@@ -420,12 +465,28 @@ the `X-CSRF-Token` header.
 | PUT  | `/usage/daily-requests` | ✓ | Set (a number) or clear (`limit: null` → revert to the free-tier default) the per-day request cap on the key backing the selected model (404 if no keyable model is selected or no key exists) |
 | GET  | `/usage/org-spend` | ✓ | Org-wide real-$ provider spend **month-to-date (UTC)** — matches OpenAI's usage page "this month" — from the OpenAI admin usage API. Uses the caller's saved admin key, else the env `OPENAI_ADMIN_KEY` (`null` when neither is set) |
 | GET  | `/usage/org-usage` | ✓ | Org-wide authoritative per-model token usage today, from the OpenAI admin usage API. Uses the caller's saved admin key, else the env `OPENAI_ADMIN_KEY` (`null` when neither is set) |
+| GET  | `/api-keys/providers` | ✓ | The fixed list of providers you can register a key for (drives the picker UI) |
+| GET  | `/api-keys` | ✓ | The caller's stored provider keys — masked hint + per-key USD budget/usage |
+| POST | `/api-keys` | ✓ | Add a provider key, validated against the provider before storing (**201**; 400 invalid/unsupported; 409 if that provider already has a key) |
+| PATCH | `/api-keys/{api_provider}` | ✓ | Update a stored key's USD budget (404 if no such key) |
+| DELETE | `/api-keys/{api_provider}` | ✓ | Remove a stored provider key (204; 404 if none) |
 | GET  | `/admin-key` | ✓ | The caller's saved OpenAI admin key as a masked hint (`null` when none is set) |
 | PUT  | `/admin-key` | ✓ | Save/rotate the caller's OpenAI admin key (verified against the org costs API; 400 if rejected) |
 | DELETE | `/admin-key` | ✓ | Remove the caller's saved admin key (idempotent, 204) |
 
 Interactive docs at `http://localhost:8000/docs`. CORS allows `CORS_ORIGINS`
 (default `http://localhost:4200`) with credentials, so the SPA can send cookies.
+
+### Example
+
+```bash
+curl -s http://localhost:8000/health
+# → {"status":"ok"}
+```
+
+Every other route needs a session cookie + a CSRF header on unsafe methods. The quickest way to
+try them is the interactive **Swagger UI at http://localhost:8000/docs**, which keeps the session
+for you once you log in.
 
 ---
 
@@ -444,6 +505,7 @@ Loaded by `app/config.py` from `.env`. **`DATABASE_URL` is required** (read at i
 | `OPENAI_ADMIN_KEY` | `""` | **Optional, OpenAI only.** A fallback admin key (scope `api.usage.read`) unlocking the provider's *authoritative* org-wide figures: the real-$ **org-spend backstop**/readout (`/usage/org-spend`) and per-model **org token usage** (`/usage/org-usage`), both for the current UTC day. Users can also save their own admin key in-app (`PUT /admin-key`), which takes precedence over this for the readouts; this env key remains the backstop's source. Without either, those readouts return `null` and per-request local accounting is used instead. Org-wide — not attributable per user |
 | `APP_ENV` | `production` | Deployment environment. Anything other than an explicit `development`/`dev`/`test`/`local` is treated as **production** and runs fail-fast config validation (`app/config_validation.py`): the app refuses to boot with the committed dev `JWT_SECRET`/`API_KEY_ENCRYPTION_KEY`, non-secure cookies, or wildcard CORS. **Defaults to `production` so forgetting to set it fails closed** — local dev / CI must opt in with `APP_ENV=development` (docker-compose sets it for the demo) |
 | `JWT_SECRET` | dev default | **Override in prod.** Signs session JWTs. The committed dev default is rejected at boot unless `APP_ENV` is an explicit dev/test value |
+| `API_KEY_ENCRYPTION_KEY` | dev default | **Override in prod.** Fernet key encrypting users' stored provider/admin API keys at rest (symmetric — the keys must be replayed to the provider, so they're encrypted, never hashed). The committed dev default is rejected at boot in production, and **rotating it makes existing stored keys undecryptable**. Generate one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `ACCESS_TOKEN_TTL_MINUTES` | `15` | Access-token (JWT cookie) lifetime; refresh keeps the session alive |
 | `REFRESH_TOKEN_TTL_DAYS` | `14` | Refresh-token lifetime + auth-cookie `max_age`; rotated on each `/auth/refresh` |
 | `LOGIN_RATE_LIMIT_ATTEMPTS` | `5` | Wrong-credential attempts per (IP, email) before **429** |
@@ -609,7 +671,10 @@ frontend/src/app/
     ├── match-offers/                   # deterministic match
     ├── ai-match-offers/                # AI match (+ ai-match-state.service.ts)
     ├── browse-offers/                  # paginated offer browser with filters
-    └── model-usage/                    # model selection, provider keys (+ USD budget), per-day request budget, admin key (+ org spend)
+    ├── model-usage/                    # host page: active-model selector + composes the cards below
+    ├── api-keys/                       # provider keys (OpenAI shows a USD budget; the Google row embeds the daily budget + a Delete)
+    ├── admin-key/                      # OpenAI admin key + org spend (month-to-date)
+    └── daily-requests/                 # Gemini free-tier per-day request budget (embedded in the Google api-keys row)
 ```
 
 Routes: `/` → `/profile` (default), `/login`, `/register`, `/forgot-password`,
@@ -618,13 +683,31 @@ Routes: `/` → `/profile` (default), `/login`, `/register`, `/forgot-password`,
 
 ---
 
-## Development workflow & conventions
+## Contributing
 
-This project follows **TDD** and **Clean Architecture** (see `CLAUDE.md`, which is the
-authoritative contributor guide and lists the expected skills):
+This project follows **TDD** and **Clean Architecture**; [`CLAUDE.md`](CLAUDE.md) is the
+authoritative contributor guide (layer boundaries, conventions, and the expected skills).
 
-1. Write a plan and confirm with the user before coding.
-2. Write tests first.
-3. Implement the feature.
-4. Run `uv run pytest` (and `uv run ruff check`) and confirm passing.
-5. Update `CLAUDE.md` / this README if new patterns or surfaces emerge.
+1. Branch off `main`.
+2. **Write or update tests first** — `tests/` (backend) or `*.spec.ts` (frontend).
+3. Implement the smallest correct change that respects the dependency rule (the domain stays
+   framework-free).
+4. Run the checks below and confirm they pass.
+5. Update `README.md` / `CLAUDE.md` when a change affects setup, configuration, the API, the
+   data model, auth, or the frontend structure.
+6. Use a Conventional-Commit-style title (`feat`, `fix`, `refactor`, `perf`, `docs`, `style`,
+   `test`, `build`, `ci`, `chore`).
+
+```bash
+uv run ruff check            # backend lint
+uv run mypy                  # backend types
+uv run pytest                # backend tests
+npm --prefix frontend test   # frontend tests
+```
+
+---
+
+## License
+
+Released under the [MIT License](LICENSE) — free to use, modify, and distribute with attribution
+and without warranty.
