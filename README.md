@@ -73,7 +73,7 @@ docker compose up -d --build      # start Postgres + API
 docker compose run --rm seed      # load ~50 diverse demo offers (idempotent)
 ```
 
-* API + interactive docs → http://localhost:8000/docs
+* API → http://localhost:8000
 * Frontend (optional): `npm --prefix frontend install` then `npm --prefix frontend start` → http://localhost:4200
 
 ### B. Local (Postgres in Docker, app on your machine)
@@ -86,7 +86,7 @@ cp .env.example .env                        # defaults point at the Docker Postg
 docker compose up -d db                     # just Postgres
 uv run alembic upgrade head                 # create app-owned tables
 uv run python -m app.scripts.seed_offers    # load ~50 diverse demo offers
-uv run python main.py                       # API → http://localhost:8000/docs
+uv run python main.py                       # API → http://localhost:8000
 ```
 
 > **Local dev needs `APP_ENV=development` in `.env`.** `APP_ENV` defaults to `production`
@@ -474,7 +474,7 @@ the `X-CSRF-Token` header.
 | PUT  | `/admin-key` | ✓ | Save/rotate the caller's OpenAI admin key (verified against the org costs API; 400 if rejected) |
 | DELETE | `/admin-key` | ✓ | Remove the caller's saved admin key (idempotent, 204) |
 
-Interactive docs at `http://localhost:8000/docs`. CORS allows `CORS_ORIGINS`
+The API base URL is `http://localhost:8000`. CORS allows `CORS_ORIGINS`
 (default `http://localhost:4200`) with credentials, so the SPA can send cookies.
 
 ### Example
@@ -484,9 +484,8 @@ curl -s http://localhost:8000/health
 # → {"status":"ok"}
 ```
 
-Every other route needs a session cookie + a CSRF header on unsafe methods. The quickest way to
-try them is the interactive **Swagger UI at http://localhost:8000/docs**, which keeps the session
-for you once you log in.
+Every other route needs a session cookie + a CSRF header on unsafe methods, obtained by logging
+in through the SPA (or `POST /auth/login`).
 
 ---
 
@@ -617,7 +616,7 @@ without one and AI matching uses a per-user key added in the UI (see [Configurat
 ## Running
 
 ```bash
-uv run python main.py                 # API  → http://localhost:8000 (docs at /docs)
+uv run python main.py                 # API  → http://localhost:8000
 npm --prefix frontend start           # SPA  → http://localhost:4200
 ```
 
