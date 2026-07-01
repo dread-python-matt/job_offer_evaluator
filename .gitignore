@@ -27,8 +27,8 @@ htmlcov/
 .env.*
 !.env.example
 
-# ---- User profile data (PII) ----
-DATA/
+# ---- User profile data (PII); root-anchored so it never matches nested app/.../data/ ----
+/DATA/
 
 # ---- Node (root level; frontend/ keeps its own .gitignore) ----
 node_modules/
