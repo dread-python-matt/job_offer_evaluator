@@ -48,10 +48,7 @@
           </div>
 
           @if (isRequestBudgeted(key.api_provider)) {
-            <p class="key-note">
-              <mat-icon>event_repeat</mat-icon>
-              Capped by daily requests — set the limit in “Daily request budget”.
-            </p>
+            <app-daily-requests [refreshToken]="refreshToken()" />
           } @else {
             <div class="key-budget">
               <div class="budget-amounts">

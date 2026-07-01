@@ -9,6 +9,9 @@ inherits string-match errors; canonicalizing once at the boundary fixes all of t
 > `offers` table is **scraper-owned and read-only** here, which shapes *where* normalization can
 > run — see §4.
 >
+> **Operations + progress report** (commands runbook, real-corpus coverage findings, what's next):
+> [`skills-normalization-report.md`](skills-normalization-report.md).
+>
 > **Status:** Phase 1 (deterministic Tier 0 — `SkillNormalizer` port + `AliasMapSkillNormalizer`
 > + seeded `skill_aliases.json` + canonicalization at the matching boundary + the evidence-aware
 > scoring fix, including the un-evidenced self-claim cap from §9) is **implemented**, along with

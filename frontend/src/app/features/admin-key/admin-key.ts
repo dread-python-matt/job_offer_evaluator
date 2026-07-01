@@ -1,6 +1,14 @@
-import { DatePipe } from '@angular/common';
-import { ChangeDetectionStrategy, Component, OnInit, inject, output, signal } from '@angular/core';
-import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
+import { DatePipe, DecimalPipe } from '@angular/common';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
+import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
@@ -11,13 +19,14 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { HttpErrorResponse } from '@angular/common/http';
 
 import { ApiService } from '../../core/services/api.service';
-import { AdminKey as AdminKeyModel } from '../../core/models/profile.model';
+import { AdminKey as AdminKeyModel, OrgSpend } from '../../core/models/profile.model';
 
 @Component({
   selector: 'app-admin-key',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     DatePipe,
+    DecimalPipe,
     ReactiveFormsModule,
     MatButtonModule,
     MatCardModule,
@@ -37,6 +46,11 @@ export class AdminKey implements OnInit {
    * derived from it — e.g. the organization spend/usage readouts. */
   readonly changed = output<void>();
 
+  /** Authoritative org-wide spend month-to-date (from the admin usage API), passed in by the
+   * host. Shown below the key as the "actual" figure the admin key powers; null when no admin
+   * key (saved or env) is configured or the figure is unavailable. */
+  readonly spend = input<OrgSpend | null>(null);
+
   readonly loading = signal(false);
   readonly error = signal(false);
   /** The saved key as a masked view, or null when none is configured. */
@@ -51,6 +65,12 @@ export class AdminKey implements OnInit {
     nonNullable: true,
     validators: [Validators.required],
   });
+
+  /** Wraps keyControl so the <form> carries a FormGroupDirective. Without it, `(ngSubmit)`
+   * never binds and the submit button does a native page reload instead of calling save() —
+   * so no PUT /admin-key is ever sent (this was the "admin key won't save" bug). Mirrors the
+   * api-keys add form. */
+  readonly form = new FormGroup({ key: this.keyControl });
 
   ngOnInit(): void {
     this.load();
@@ -80,9 +100,20 @@ export class AdminKey implements OnInit {
       this.keyControl.markAsTouched();
       return;
     }
+    const key = this.keyControl.value.trim();
+    // Catch the most common mistake up front (instead of a silent 400): pasting a project key
+    // (sk-proj-…) — the inference key used elsewhere — into the admin field. OpenAI org/admin
+    // endpoints only accept an Organization admin key, which starts with "sk-admin-".
+    if (!key.startsWith('sk-admin-')) {
+      this.actionError.set(
+        'That looks like a project/inference key, not an Organization admin key. The admin key ' +
+          'must start with “sk-admin-”. Create one under your OpenAI org settings → Admin keys.',
+      );
+      return;
+    }
     this.saving.set(true);
     this.actionError.set(null);
-    this.api.setAdminKey(this.keyControl.value.trim()).subscribe({
+    this.api.setAdminKey(key).subscribe({
       next: (saved) => {
         this.adminKey.set(saved);
         this.keyControl.reset('');

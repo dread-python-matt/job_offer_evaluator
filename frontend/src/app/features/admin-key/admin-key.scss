@@ -126,3 +126,40 @@
     height: 16px;
   }
 }
+
+// ── Actual spend this month (powered by the admin key) ─────────────────────────
+
+.month-spend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--app-space-3) var(--app-space-4);
+  border-radius: var(--app-radius-md);
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-left: 3px solid var(--mat-sys-primary);
+  background: var(--mat-sys-surface-container-low);
+}
+.month-spend-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  mat-icon {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    color: var(--mat-sys-primary);
+  }
+}
+.month-spend-label {
+  font-size: 0.9em;
+  color: var(--mat-sys-on-surface-variant);
+}
+.month-spend-value {
+  margin-left: auto;
+  font: var(--mat-sys-title-medium);
+  color: var(--mat-sys-on-surface);
+}
+.month-spend-since {
+  font-size: 0.8em;
+  color: var(--mat-sys-on-surface-variant);
+}

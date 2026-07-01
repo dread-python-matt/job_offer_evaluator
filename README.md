@@ -335,9 +335,10 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send r
   discounted cached rate (the scoring prompt's constant instructions + candidate profile repeat
   across offers, so cache hits are common and full-input pricing would overstate cost). Gemini is
   unchanged (no cached rate → priced at the normal input rate). This figure is an **estimate**
-  (approximate list prices) and `/usage/summary` returns it per model as `cost_usd`; the frontend
-  surfaces it for OpenAI models only, clearly labelled as estimated (since the user added their
-  key). When an **`OPENAI_ADMIN_KEY`** (or the caller's saved admin key) is set, `/usage/org-spend`
+  (approximate list prices) and `/usage/summary` returns it per model as `cost_usd` (**API-only** —
+  the model-usage page no longer shows per-model token counts or the estimate; it surfaces the
+  authoritative org spend from the admin key instead). When an **`OPENAI_ADMIN_KEY`** (or the
+  caller's saved admin key) is set, `/usage/org-spend`
   exposes the **authoritative** org-wide real-$ spend **month-to-date (UTC)** — matching OpenAI's
   usage page "this month" total — and `/usage/org-usage` the authoritative per-model token usage
   (today), both from OpenAI's admin Usage/Costs API, queried per-model (`group_by=["model"]`), in
@@ -414,7 +415,7 @@ the `X-CSRF-Token` header.
 | GET  | `/usage/cost` | ✓ | Budget spend vs limit (`null` when spend is unknown) |
 | PUT  | `/usage/limit` | ✓ | Set the caller's budget limit |
 | POST | `/usage/reset` | ✓ | Reset the caller's usage tracking anchor to now |
-| GET  | `/usage/summary` | ✓ | Per-model token totals for the caller (+ rate limits + estimated `cost_usd` from approximate list prices; UI shows the $ for OpenAI models only) |
+| GET  | `/usage/summary` | ✓ | Per-model token totals for the caller (+ rate limits + estimated `cost_usd` from approximate list prices). **API-only** — the UI no longer displays per-model usage or the estimate |
 | GET  | `/usage/daily-requests` | ✓ | Per-day request budget for the caller's selected model: requests used today vs the cap (the user's override, else the model's free-tier requests-per-day default). `null` when there's no cap to show (e.g. an OpenAI model, or a Gemini model with no stored key) |
 | PUT  | `/usage/daily-requests` | ✓ | Set (a number) or clear (`limit: null` → revert to the free-tier default) the per-day request cap on the key backing the selected model (404 if no keyable model is selected or no key exists) |
 | GET  | `/usage/org-spend` | ✓ | Org-wide real-$ provider spend **month-to-date (UTC)** — matches OpenAI's usage page "this month" — from the OpenAI admin usage API. Uses the caller's saved admin key, else the env `OPENAI_ADMIN_KEY` (`null` when neither is set) |
@@ -608,7 +609,7 @@ frontend/src/app/
     ├── match-offers/                   # deterministic match
     ├── ai-match-offers/                # AI match (+ ai-match-state.service.ts)
     ├── browse-offers/                  # paginated offer browser with filters
-    └── model-usage/                    # model selection, usage summary, budget controls (USD budget, per-day request budget, provider keys, admin key)
+    └── model-usage/                    # model selection, provider keys (+ USD budget), per-day request budget, admin key (+ org spend)
 ```
 
 Routes: `/` → `/profile` (default), `/login`, `/register`, `/forgot-password`,

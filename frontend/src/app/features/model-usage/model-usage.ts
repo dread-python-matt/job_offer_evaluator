@@ -1,4 +1,3 @@
-import { DatePipe, DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -9,25 +8,16 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatSelectModule } from '@angular/material/select';
-import { MatTooltipModule } from '@angular/material/tooltip';
 
 import { ApiService } from '../../core/services/api.service';
-import {
-  AvailableModels,
-  CurrentModelConfig,
-  ModelUsageSummaryItem,
-  OrgSpend,
-} from '../../core/models/profile.model';
+import { AvailableModels, CurrentModelConfig, OrgSpend } from '../../core/models/profile.model';
 import { ApiKeys } from '../api-keys/api-keys';
 import { AdminKey } from '../admin-key/admin-key';
-import { DailyRequests } from '../daily-requests/daily-requests';
 
 @Component({
   selector: 'app-model-usage',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    DatePipe,
-    DecimalPipe,
     ReactiveFormsModule,
     MatButtonModule,
     MatCardModule,
@@ -35,10 +25,8 @@ import { DailyRequests } from '../daily-requests/daily-requests';
     MatIconModule,
     MatProgressSpinnerModule,
     MatSelectModule,
-    MatTooltipModule,
     ApiKeys,
     AdminKey,
-    DailyRequests,
   ],
   templateUrl: './model-usage.html',
   styleUrl: './model-usage.scss',
@@ -48,7 +36,6 @@ export class ModelUsage implements OnInit {
 
   readonly loading = signal(false);
   readonly error = signal(false);
-  readonly items = signal<ModelUsageSummaryItem[]>([]);
   readonly currentModel = signal<CurrentModelConfig | null>(null);
   readonly availableModels = signal<AvailableModels | null>(null);
   readonly selecting = signal(false);
@@ -56,7 +43,8 @@ export class ModelUsage implements OnInit {
   readonly orgSpend = signal<OrgSpend | null>(null);
 
   /** Bumped whenever the embedded daily-request budget may have changed (model switch, key
-   * add/remove, manual refresh) so the <app-daily-requests> card refetches. */
+   * add/remove, manual refresh); forwarded to <app-api-keys>, which passes it to the per-day
+   * budget on the Google key row so it refetches for the newly active model. */
   readonly dailyRefresh = signal(0);
 
   readonly selectedCompany = signal<string | null>(null);
@@ -119,12 +107,10 @@ export class ModelUsage implements OnInit {
     this.loading.set(true);
     this.error.set(false);
     forkJoin({
-      summary: this.api.getUsageSummary(),
       models: this.api.getAvailableModels(),
       orgSpend: this.api.getOrgSpend().pipe(catchError(() => of(null))),
     }).subscribe({
-      next: ({ summary, models, orgSpend }) => {
-        this.items.set(summary);
+      next: ({ models, orgSpend }) => {
         this.currentModel.set(models.active);
         this.availableModels.set(models);
         this.selectedCompany.set(models.active.company);
@@ -145,38 +131,5 @@ export class ModelUsage implements OnInit {
     const available = this.availableModels();
     if (!company || !available) return [];
     return available.companies.find((c) => c.name === company)?.models ?? [];
-  }
-
-  total(item: ModelUsageSummaryItem): number {
-    return item.input_tokens + item.output_tokens;
-  }
-
-  inputPct(item: ModelUsageSummaryItem): number {
-    const t = this.total(item);
-    return t === 0 ? 50 : (item.input_tokens / t) * 100;
-  }
-
-  isActive(item: ModelUsageSummaryItem): boolean {
-    const cm = this.currentModel();
-    return cm != null && cm.model === item.model;
-  }
-
-  /** OpenAI is the only provider with an authoritative spend path (admin key) and the only one
-   * we surface a $ figure for; Gemini cards stay tokens-only. */
-  isOpenAi(item: ModelUsageSummaryItem): boolean {
-    return item.company === 'OpenAI';
-  }
-
-  /** True once any OpenAI usage exists, so the OpenAI cost section is worth showing. */
-  hasOpenAiUsage(): boolean {
-    return this.items().some((item) => this.isOpenAi(item));
-  }
-
-  /** Estimated total OpenAI cost (approximate list prices) across all OpenAI models — the
-   * headline of the "estimated" section, distinct from the admin-key actual spend. */
-  estimatedOpenAiCost(): number {
-    return this.items()
-      .filter((item) => this.isOpenAi(item))
-      .reduce((sum, item) => sum + item.cost_usd, 0);
   }
 }

@@ -40,7 +40,21 @@ class JwtTokenService(TokenService):
 
     def verify(self, token: str) -> TokenClaims:
         try:
-            payload = jwt.decode(token, self._secret, algorithms=[_ALGORITHM])
-            return TokenClaims(user_id=payload["sub"], token_version=payload["ver"])
-        except (jwt.PyJWTError, KeyError) as exc:
+            # Verify the signature but NOT expiry here: PyJWT validates `exp` against the real
+            # wall clock, which ignores the injected `clock` and makes expiry time-dependent and
+            # untestable. Decode the claims, then enforce `exp` against `self._clock` so issue and
+            # verify share one clock. In production `clock` is real UTC now, so the expiry
+            # guarantee is unchanged.
+            payload = jwt.decode(
+                token,
+                self._secret,
+                algorithms=[_ALGORITHM],
+                options={"verify_exp": False},
+            )
+            expires_at = int(payload["exp"])
+            claims = TokenClaims(user_id=payload["sub"], token_version=payload["ver"])
+        except (jwt.PyJWTError, KeyError, ValueError) as exc:
             raise AuthenticationError("invalid session token") from exc
+        if expires_at <= int(self._clock().timestamp()):
+            raise AuthenticationError("invalid session token")
+        return claims

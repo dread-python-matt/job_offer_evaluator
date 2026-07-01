@@ -16,3 +16,8 @@ wheels/
 
 # User profile data (PII)
 DATA/
+
+
+
+.claude
+CLAUDE.md

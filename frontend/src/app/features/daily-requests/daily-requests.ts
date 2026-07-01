@@ -1,9 +1,8 @@
 import { DecimalPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, effect, inject, input, signal } from '@angular/core';
-import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormControl, FormGroup, ReactiveFormsModule, Validators } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { MatButtonModule } from '@angular/material/button';
-import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
@@ -20,7 +19,6 @@ import { DailyRequestUsage } from '../../core/models/profile.model';
     DecimalPipe,
     ReactiveFormsModule,
     MatButtonModule,
-    MatCardModule,
     MatFormFieldModule,
     MatIconModule,
     MatInputModule,
@@ -49,6 +47,10 @@ export class DailyRequests {
   readonly limitControl = new FormControl<number | null>(null, {
     validators: [Validators.required, Validators.min(0)],
   });
+
+  /** Wraps limitControl so the <form> carries a FormGroupDirective. Without it `(ngSubmit)`
+   * never binds and the Save button does a native page reload instead of calling save(). */
+  readonly form = new FormGroup({ limit: this.limitControl });
 
   constructor() {
     effect(() => {

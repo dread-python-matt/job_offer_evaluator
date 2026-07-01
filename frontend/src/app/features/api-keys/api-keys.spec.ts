@@ -19,6 +19,11 @@ function init(
   httpMock.expectOne((r) => r.url.endsWith('/api-keys/providers')).flush(PROVIDERS);
   httpMock.expectOne((r) => r.url.endsWith('/api-keys')).flush(keys);
   fixture.detectChanges();
+  // A Google key row embeds <app-daily-requests>, which fetches its own per-day budget.
+  if ((keys as Array<{ api_provider?: string }>).some((k) => k.api_provider === 'google')) {
+    httpMock.expectOne((r) => r.url.endsWith('/usage/daily-requests')).flush(null);
+    fixture.detectChanges();
+  }
 }
 
 describe('ApiKeys', () => {
@@ -90,6 +95,9 @@ describe('ApiKeys', () => {
     expect(req.request.method).toBe('POST');
     expect(req.request.body).toEqual({ api_provider: 'google', key: 'AIza-secret-7890' });
     req.flush({ api_provider: 'google', key_hint: 'AIz…7890', limit_usd: 0, used_usd: 0 });
+    fixture.detectChanges();
+    // The new Google row embeds <app-daily-requests>, which fetches its budget on mount.
+    httpMock.expectOne((r) => r.url.endsWith('/usage/daily-requests')).flush(null);
 
     expect(c.keys().map((k) => k.api_provider)).toEqual(['google']);
   });
@@ -108,15 +116,26 @@ describe('ApiKeys', () => {
     expect(el.querySelector('.add-budget-field')).not.toBeNull();
   });
 
-  it('shows the daily-request note instead of a dollar budget for a Google key', () => {
+  it('embeds the daily-request budget (not a dollar budget) for a Google key', () => {
     const fixture = TestBed.createComponent(ApiKeys);
-    init(fixture, httpMock, [
-      { api_provider: 'google', key_hint: 'AIz…7890', limit_usd: 0, used_usd: 0 },
-    ]);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url.endsWith('/api-keys/providers')).flush(PROVIDERS);
+    httpMock
+      .expectOne((r) => r.url.endsWith('/api-keys'))
+      .flush([{ api_provider: 'google', key_hint: 'AIz…7890', limit_usd: 0, used_usd: 0 }]);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url.endsWith('/usage/daily-requests')).flush({
+      model: 'gemini-2.5-flash',
+      company: 'Google',
+      used: 3,
+      limit: 500,
+      default_limit: 500,
+    });
+    fixture.detectChanges();
 
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
-    expect(text).toContain('Capped by daily requests');
-    expect(text).not.toContain('of $');
+    expect(text).toContain('Free-tier default'); // the embedded per-day budget, not a $ budget
+    expect(text).not.toContain('of $'); // Google has no USD budget
   });
 
   it('still shows the dollar budget for an OpenAI key', () => {

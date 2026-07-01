@@ -122,13 +122,21 @@ class InvalidAdminKeyError(Exception):
     """An OpenAI admin key the user supplied was rejected by the provider when reading the
     organization costs/usage API (e.g. a 401/403, or a key missing the `api.usage.read`
     scope). Surfaced when saving the admin key so a wrong or under-scoped key fails fast
-    before it is stored."""
+    before it is stored.
 
-    def __init__(self) -> None:
-        super().__init__(
+    `reason` carries the provider's own error text when available, appended to the guidance
+    so the user sees exactly why the key was refused (a bare, generic message is otherwise
+    indistinguishable from a silent 'the key disappeared')."""
+
+    def __init__(self, reason: str | None = None) -> None:
+        message = (
             "The OpenAI admin key was rejected; it must be an organization admin key "
             "with the api.usage.read scope"
         )
+        if reason:
+            message = f"{message}. OpenAI said: {reason}"
+        super().__init__(message)
+        self.reason = reason
 
 
 class MissingProviderApiKeyError(Exception):

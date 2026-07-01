@@ -1,3 +1,4 @@
+import logging
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -47,6 +48,33 @@ def test_rejects_bad_or_underscoped_key(status: int):
 
         with pytest.raises(InvalidAdminKeyError):
             OpenAIAdminKeyValidator().validate("sk-bad")
+
+
+def test_rejection_surfaces_the_providers_actual_reason():
+    # The generic "must have api.usage.read" guess isn't enough when a real sk-admin- key is
+    # refused for a specific reason (a missing scope, a non-owner key, ...). Surface OpenAI's
+    # own message verbatim so the user can see exactly why their key was rejected and fix it,
+    # instead of a silent "the key disappeared".
+    with patch("app.infrastructure.openai_admin_key_validator.OpenAI") as mock_cls:
+        mock_cls.return_value.admin.organization.usage.costs.side_effect = _denied(403)
+
+        with pytest.raises(InvalidAdminKeyError) as exc_info:
+            OpenAIAdminKeyValidator().validate("sk-admin-underscoped")
+
+    assert "Missing scopes: api.usage.read" in str(exc_info.value)
+
+
+def test_logs_a_warning_with_the_reason_when_the_key_is_rejected(caplog):
+    # The reason must also reach the server logs (the readouts swallow it), so an operator can
+    # diagnose a rejected key without a debugger.
+    with patch("app.infrastructure.openai_admin_key_validator.OpenAI") as mock_cls:
+        mock_cls.return_value.admin.organization.usage.costs.side_effect = _denied(401)
+
+        with caplog.at_level(logging.WARNING):
+            with pytest.raises(InvalidAdminKeyError):
+                OpenAIAdminKeyValidator().validate("sk-admin-x")
+
+    assert any("Missing scopes: api.usage.read" in r.getMessage() for r in caplog.records)
 
 
 def test_reraises_transient_errors_rather_than_misreporting_a_bad_key():

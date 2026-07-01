@@ -4,7 +4,7 @@ Reads each offer's raw skill lists, projects them onto canonical concepts with t
 `SkillNormalizer`, and replaces the `offer_skill` rows so browsing can filter by concept in SQL.
 Each rebuild also stamps `offer_skill_index_meta` with the alias-map version, time, and row count,
 so a stale index (the map changed but the indexer wasn't re-run) is observable rather than silent.
-Run via `python -m app.scripts.index_offer_skills` — e.g. after a scrape or when the map grows.
+Run via `python -m app.scripts.index_offer_skills` - e.g. after a scrape or when the map grows.
 """
 
 import logging
@@ -40,17 +40,17 @@ class OfferSkillIndexStatus:
         """One-line human summary for the CLI / deploy logs."""
         if not self.built:
             return (
-                "offer_skill index: NOT BUILT — browsing's tech filter will match nothing. "
+                "offer_skill index: NOT BUILT - browsing's tech filter will match nothing. "
                 "Run `python -m app.scripts.index_offer_skills`."
             )
         if self.stale:
             return (
-                f"offer_skill index: STALE — {self.row_count} rows built from map "
+                f"offer_skill index: STALE - {self.row_count} rows built from map "
                 f"{self.indexed_map_version!r}, but the current map is "
                 f"{self.current_map_version!r}. Re-run the indexer."
             )
         return (
-            f"offer_skill index: fresh — {self.row_count} rows, map "
+            f"offer_skill index: fresh - {self.row_count} rows, map "
             f"{self.indexed_map_version!r}, built at {self.built_at}."
         )
 

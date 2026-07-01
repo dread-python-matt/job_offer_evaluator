@@ -1,111 +1,100 @@
-<mat-card appearance="outlined" class="daily-card">
-  <mat-card-header>
-    <div mat-card-avatar class="section-avatar"><mat-icon>event_repeat</mat-icon></div>
-    <mat-card-title>Daily request budget</mat-card-title>
-    <mat-card-subtitle>
-      Requests sent to the active model's provider today, against its free-tier per-day cap. Resets
-      at midnight US/Pacific.
-    </mat-card-subtitle>
-  </mat-card-header>
+<div class="daily-content">
+  @if (loading()) {
+    <div class="status-block">
+      <mat-spinner diameter="28" />
+      <p>Loading…</p>
+    </div>
+  } @else if (error()) {
+    <div class="status-block error-block">
+      <mat-icon class="status-icon">error_outline</mat-icon>
+      <p>Failed to load the daily request budget.</p>
+      <button mat-stroked-button (click)="load()">Try again</button>
+    </div>
+  } @else if (usage(); as u) {
+    <div class="daily-summary">
+      <div class="daily-model">
+        <span class="daily-company">{{ u.company }}</span>
+        <span class="daily-model-name">{{ u.model }}</span>
+      </div>
+      <div class="daily-count">
+        <span class="daily-used">{{ u.used | number }}</span>
+        <span class="daily-sep">/</span>
+        <span class="daily-limit">{{ u.limit | number }}</span>
+        <span class="daily-unit">requests today</span>
+      </div>
+    </div>
 
-  <mat-card-content class="daily-content">
-    @if (loading()) {
-      <div class="status-block">
-        <mat-spinner diameter="28" />
-        <p>Loading…</p>
-      </div>
-    } @else if (error()) {
-      <div class="status-block error-block">
-        <mat-icon class="status-icon">error_outline</mat-icon>
-        <p>Failed to load the daily request budget.</p>
-        <button mat-stroked-button (click)="load()">Try again</button>
-      </div>
-    } @else if (usage(); as u) {
-      <div class="daily-summary">
-        <div class="daily-model">
-          <span class="daily-company">{{ u.company }}</span>
-          <span class="daily-model-name">{{ u.model }}</span>
-        </div>
-        <div class="daily-count">
-          <span class="daily-used">{{ u.used | number }}</span>
-          <span class="daily-sep">/</span>
-          <span class="daily-limit">{{ u.limit | number }}</span>
-          <span class="daily-unit">requests</span>
-        </div>
-      </div>
+    <div
+      class="usage-bar"
+      [matTooltip]="(u.used | number) + ' of ' + (u.limit | number) + ' requests used today'"
+    >
+      <div class="bar-segment" [class]="barClass(u)" [style.width.%]="usedPct(u)"></div>
+    </div>
 
-      <div
-        class="usage-bar"
-        [matTooltip]="(u.used | number) + ' of ' + (u.limit | number) + ' requests used today'"
-      >
-        <div class="bar-segment" [class]="barClass(u)" [style.width.%]="usedPct(u)"></div>
-      </div>
+    <div class="daily-meta">
+      @if (isOverridden(u)) {
+        <span class="daily-badge custom">
+          <mat-icon>tune</mat-icon>
+          Custom limit
+          @if (u.default_limit != null) {
+            · free tier {{ u.default_limit | number }}/day
+          }
+        </span>
+      } @else {
+        <span class="daily-badge">
+          <mat-icon>verified</mat-icon>
+          Free-tier default ({{ u.limit | number }}/day)
+        </span>
+      }
+    </div>
 
-      <div class="daily-meta">
-        @if (isOverridden(u)) {
-          <span class="daily-badge custom">
-            <mat-icon>tune</mat-icon>
-            Custom limit
-            @if (u.default_limit != null) {
-              · free tier {{ u.default_limit | number }}/day
-            }
-          </span>
-        } @else {
-          <span class="daily-badge">
-            <mat-icon>verified</mat-icon>
-            Free-tier default ({{ u.limit | number }}/day)
-          </span>
+    @if (editing()) {
+      <form class="edit-form" [formGroup]="form" (ngSubmit)="save()">
+        <mat-form-field class="limit-field">
+          <mat-label>Daily request limit</mat-label>
+          <input matInput type="number" min="0" formControlName="limit" />
+          <span matTextSuffix>req/day</span>
+        </mat-form-field>
+        <button mat-flat-button color="primary" type="submit" [disabled]="saving()">
+          <mat-icon>save</mat-icon>
+          Save
+        </button>
+        <button mat-stroked-button type="button" (click)="cancelEdit()" [disabled]="saving()">
+          Cancel
+        </button>
+        @if (saving()) {
+          <mat-spinner diameter="20" />
+        }
+      </form>
+    } @else {
+      <div class="daily-actions">
+        <button mat-stroked-button (click)="startEdit(u)" [disabled]="saving()">
+          <mat-icon>edit</mat-icon>
+          Adjust limit
+        </button>
+        @if (isOverridden(u) && u.default_limit != null) {
+          <button mat-button (click)="resetToDefault()" [disabled]="saving()">
+            <mat-icon>restart_alt</mat-icon>
+            Reset to free-tier default
+          </button>
+        }
+        @if (saving()) {
+          <mat-spinner diameter="20" />
         }
       </div>
-
-      @if (editing()) {
-        <form class="edit-form" (ngSubmit)="save()">
-          <mat-form-field class="limit-field">
-            <mat-label>Daily request limit</mat-label>
-            <input matInput type="number" min="0" [formControl]="limitControl" />
-            <span matTextSuffix>req/day</span>
-          </mat-form-field>
-          <button mat-flat-button color="primary" type="submit" [disabled]="saving()">
-            <mat-icon>save</mat-icon>
-            Save
-          </button>
-          <button mat-stroked-button type="button" (click)="cancelEdit()" [disabled]="saving()">
-            Cancel
-          </button>
-          @if (saving()) {
-            <mat-spinner diameter="20" />
-          }
-        </form>
-      } @else {
-        <div class="daily-actions">
-          <button mat-stroked-button (click)="startEdit(u)" [disabled]="saving()">
-            <mat-icon>edit</mat-icon>
-            Adjust limit
-          </button>
-          @if (isOverridden(u) && u.default_limit != null) {
-            <button mat-button (click)="resetToDefault()" [disabled]="saving()">
-              <mat-icon>restart_alt</mat-icon>
-              Reset to free-tier default
-            </button>
-          }
-          @if (saving()) {
-            <mat-spinner diameter="20" />
-          }
-        </div>
-      }
-    } @else {
-      <p class="daily-unavailable">
-        <mat-icon>info_outline</mat-icon>
-        No per-day request budget for the active model. Select a Gemini model and add your Google
-        API key to track and cap free-tier requests per day.
-      </p>
     }
+  } @else {
+    <p class="daily-unavailable">
+      <mat-icon>info_outline</mat-icon>
+      No per-day request budget for the active model. Select a Gemini model to view and adjust its
+      per-day limit.
+    </p>
+  }
 
-    @if (actionError(); as err) {
-      <p class="action-error">
-        <mat-icon>error_outline</mat-icon>
-        {{ err }}
-      </p>
-    }
-  </mat-card-content>
-</mat-card>
+  @if (actionError(); as err) {
+    <p class="action-error">
+      <mat-icon>error_outline</mat-icon>
+      {{ err }}
+    </p>
+  }
+</div>

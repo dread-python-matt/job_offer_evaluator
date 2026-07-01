@@ -4,7 +4,7 @@
     <div>
       <h2>Model usage</h2>
       <p class="hint">
-        Cumulative LLM token consumption aggregated by model, persisted across sessions.
+        Choose the model used for AI matching and manage your keys, budgets, and spend.
       </p>
     </div>
     @if (currentModel(); as cm) {
@@ -20,24 +20,24 @@
       mat-icon-button
       (click)="reloadAll()"
       [disabled]="loading()"
-      aria-label="Refresh usage data"
+      aria-label="Refresh"
       class="refresh-btn"
     >
       <mat-icon [class.spin]="loading()">refresh</mat-icon>
     </button>
   </div>
 
-  @if (loading() && items().length === 0) {
+  @if (loading()) {
     <div class="status-block">
       <mat-spinner diameter="36" />
-      <p>Loading usage data…</p>
+      <p>Loading…</p>
     </div>
   }
 
   @if (error()) {
     <div class="status-block error-block">
       <mat-icon class="status-icon">error_outline</mat-icon>
-      <p>Failed to load usage data.</p>
+      <p>Failed to load.</p>
       <button mat-stroked-button (click)="load()">Try again</button>
     </div>
   }
@@ -85,143 +85,7 @@
     </mat-card>
   }
 
-  <app-daily-requests [refreshToken]="dailyRefresh()" />
+  <app-api-keys [refreshToken]="dailyRefresh()" (changed)="reloadAll()" />
 
-  <app-api-keys (changed)="reloadAll()" />
-
-  <app-admin-key (changed)="reloadAll()" />
-
-  <!-- OpenAI cost. Two deliberately separate figures: the admin-key "actual" spend this month
-       (billed truth, matches OpenAI's usage page) and the app's own approximate estimate. -->
-  <section class="openai-cost">
-    <mat-card appearance="outlined" class="cost-card actual-card">
-      <mat-card-header>
-        <div mat-card-avatar class="section-avatar"><mat-icon>account_balance</mat-icon></div>
-        <mat-card-title>OpenAI spend · this month</mat-card-title>
-        <mat-card-subtitle>Actual USD billed by OpenAI, org-wide — via the admin key.</mat-card-subtitle>
-      </mat-card-header>
-      <mat-card-content class="cost-content">
-        @if (orgSpend(); as spend) {
-          <div class="cost-amounts">
-            <span class="cost-value actual-value">${{ spend.spend_usd | number: '1.2-2' }}</span>
-            <span class="cost-meta actual-meta">
-              <mat-icon>verified</mat-icon>
-              Actual · since {{ spend.since | date: 'mediumDate' }} (UTC)
-            </span>
-          </div>
-        } @else {
-          <p class="cost-unavailable">
-            <mat-icon>info_outline</mat-icon>
-            Accurate spend needs an OpenAI admin key (with <code>api.usage.read</code>) — add one
-            above, or set <code>OPENAI_ADMIN_KEY</code> in the environment. Until then, only the
-            estimate is available.
-          </p>
-        }
-      </mat-card-content>
-    </mat-card>
-
-    @if (hasOpenAiUsage()) {
-      <mat-card appearance="outlined" class="cost-card estimated-card">
-        <mat-card-header>
-          <div mat-card-avatar class="section-avatar"><mat-icon>calculate</mat-icon></div>
-          <mat-card-title>OpenAI cost · estimated</mat-card-title>
-          <mat-card-subtitle>This app's own estimate, totalled since you added your OpenAI key.</mat-card-subtitle>
-        </mat-card-header>
-        <mat-card-content class="cost-content">
-          <div class="cost-amounts">
-            <span class="cost-value estimated-value">≈ ${{ estimatedOpenAiCost() | number: '1.2-2' }}</span>
-            <span class="cost-meta estimated-meta">
-              <mat-icon>info_outline</mat-icon>
-              Estimated from token counts at approximate list prices — not exact billing.
-            </span>
-          </div>
-        </mat-card-content>
-      </mat-card>
-    }
-  </section>
-
-  @if (!loading() && !error() && items().length === 0) {
-    <div class="status-block">
-      <mat-icon class="status-icon">toll</mat-icon>
-      <p>No usage recorded yet. Run an AI match to generate data.</p>
-    </div>
-  }
-
-  @if (items().length) {
-    <div class="usage-grid">
-      @for (item of items(); track item.model) {
-        <mat-card appearance="outlined" class="usage-card" [class.active-card]="isActive(item)">
-          <mat-card-content>
-            <div class="card-header">
-              <div>
-                <p class="model-company">{{ item.company }}</p>
-                <h3 class="model-name">{{ item.model }}</h3>
-              </div>
-              @if (isActive(item)) {
-                <span class="active-chip">
-                  <mat-icon>radio_button_checked</mat-icon>
-                  Active
-                </span>
-              } @else {
-                <mat-icon class="model-icon">smart_toy</mat-icon>
-              }
-            </div>
-
-            <div class="usage-bar-wrap">
-              <div
-                class="usage-bar"
-                [matTooltip]="
-                  (item.input_tokens | number) + ' in · ' + (item.output_tokens | number) + ' out'
-                "
-              >
-                <div class="bar-segment bar-input" [style.width.%]="inputPct(item)"></div>
-                <div class="bar-segment bar-output" [style.width.%]="100 - inputPct(item)"></div>
-              </div>
-              <div class="bar-legend">
-                <span class="legend-item">
-                  <span class="legend-dot dot-input"></span>
-                  In · {{ item.input_tokens | number }}
-                </span>
-                <span class="legend-total">{{ total(item) | number }} total</span>
-                <span class="legend-item">
-                  {{ item.output_tokens | number }} · Out
-                  <span class="legend-dot dot-output"></span>
-                </span>
-              </div>
-            </div>
-
-            @if (isOpenAi(item)) {
-              <p class="est-cost-line" matTooltip="Estimated at approximate list prices — not exact billing">
-                <mat-icon>calculate</mat-icon>
-                ≈ ${{ item.cost_usd | number: '1.2-4' }}
-                <span class="est-tag">est.</span>
-              </p>
-            }
-
-            @if (item.limits) {
-              <div class="limits-section">
-                <p class="limits-label">
-                  <mat-icon>speed</mat-icon>
-                  Free-tier limits
-                </p>
-                <div class="limits-row">
-                  <span class="limit-chip" matTooltip="Requests per minute"
-                    >{{ item.limits.rpm | number }} rpm</span
-                  >
-                  <span class="limit-chip" matTooltip="Tokens per minute"
-                    >{{ item.limits.tpm | number }} tpm</span
-                  >
-                  <span class="limit-chip" matTooltip="Requests per day"
-                    >{{ item.limits.rpd | number }} rpd</span
-                  >
-                </div>
-              </div>
-            } @else {
-              <p class="no-limits">Limits unavailable for this model</p>
-            }
-          </mat-card-content>
-        </mat-card>
-      }
-    </div>
-  }
+  <app-admin-key [spend]="orgSpend()" (changed)="reloadAll()" />
 </section>

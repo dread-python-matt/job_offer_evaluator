@@ -22,33 +22,36 @@
         <button mat-stroked-button (click)="load()">Try again</button>
       </div>
     } @else if (adminKey(); as key) {
+      <!-- A key is saved: show its masked begin…end hint + a Delete button. The add form is
+           deliberately in the @else branch below, so a second key can't be entered until this
+           one is deleted. -->
       <div class="key-row">
         <div class="key-id">
           <code class="key-hint">{{ key.key_hint }}</code>
           <span class="key-since">saved {{ key.created_at | date: 'mediumDate' }}</span>
         </div>
         <button
-          mat-icon-button
+          mat-stroked-button
           class="key-delete"
           (click)="remove()"
           [disabled]="removing()"
-          aria-label="Remove admin key"
-          matTooltip="Remove admin key"
+          aria-label="Delete admin key"
         >
           <mat-icon>delete_outline</mat-icon>
+          Delete
         </button>
         @if (removing()) {
           <mat-spinner diameter="20" />
         }
       </div>
     } @else {
-      <form class="add-form" (ngSubmit)="save()">
+      <form class="add-form" [formGroup]="form" (ngSubmit)="save()">
         <p class="add-note">
           <mat-icon>info_outline</mat-icon>
           <span>
-            Paste an <strong>Organization admin key</strong> — created by an org Owner with the
-            <code>api.usage.read</code> scope. A regular project <code>sk-…</code> key will be
-            rejected.
+            Paste an <strong>Organization admin key</strong> — it must start with
+            <code>sk-admin-</code> and have the <code>api.usage.read</code> scope. Your project
+            key (<code>sk-proj-…</code>, used for AI matching) will <strong>not</strong> work here.
             <a
               href="https://platform.openai.com/settings/organization/admin-keys"
               target="_blank"
@@ -64,8 +67,8 @@
               matInput
               [type]="showKey() ? 'text' : 'password'"
               autocomplete="off"
-              [formControl]="keyControl"
-              placeholder="Paste your OpenAI organization admin key"
+              formControlName="key"
+              placeholder="sk-admin-…"
             />
             <button
               mat-icon-button
@@ -88,6 +91,19 @@
           }
         </div>
       </form>
+    }
+
+    @if (spend(); as s) {
+      <div class="month-spend">
+        <div class="month-spend-head">
+          <mat-icon>account_balance</mat-icon>
+          <span class="month-spend-label">Spent this month</span>
+          <span class="month-spend-value">${{ s.spend_usd | number: '1.2-2' }}</span>
+        </div>
+        <span class="month-spend-since">
+          Actual — billed by OpenAI · since {{ s.since | date: 'mediumDate' }} (UTC)
+        </span>
+      </div>
     }
 
     @if (actionError(); as err) {

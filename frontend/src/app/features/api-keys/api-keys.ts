@@ -5,6 +5,7 @@ import {
   OnInit,
   computed,
   inject,
+  input,
   output,
   signal,
 } from '@angular/core';
@@ -23,6 +24,7 @@ import { HttpErrorResponse } from '@angular/common/http';
 
 import { ApiService } from '../../core/services/api.service';
 import { ApiKey, ApiProvider } from '../../core/models/profile.model';
+import { DailyRequests } from '../daily-requests/daily-requests';
 
 @Component({
   selector: 'app-api-keys',
@@ -38,6 +40,7 @@ import { ApiKey, ApiProvider } from '../../core/models/profile.model';
     MatProgressSpinnerModule,
     MatSelectModule,
     MatTooltipModule,
+    DailyRequests,
   ],
   templateUrl: './api-keys.html',
   styleUrl: './api-keys.scss',
@@ -48,6 +51,10 @@ export class ApiKeys implements OnInit {
   /** Emitted when the set of keys changes (add/delete), so a host can refresh anything
    * derived from them — e.g. the per-user model picker. */
   readonly changed = output<void>();
+
+  /** Bumped by the host (model switch, manual refresh) and forwarded to the embedded
+   * per-day budget on the Google key row so it refetches for the newly active model. */
+  readonly refreshToken = input<number>(0);
 
   readonly loading = signal(false);
   readonly error = signal(false);

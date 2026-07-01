@@ -28,18 +28,38 @@ describe('AdminKey', () => {
     return fixture;
   }
 
-  it('shows the masked hint when an admin key is already saved', () => {
+  it('shows the masked begin…end hint, a Delete button, and no input when a key is saved', () => {
     const fixture = create(SAVED);
 
     const el = fixture.nativeElement as HTMLElement;
-    expect(el.textContent).toContain('sk-…1234');
-    expect(el.querySelector('input')).toBeNull();
+    expect(el.textContent).toContain('sk-…1234'); // begin…end, middle masked
+    expect(el.textContent).toContain('Delete'); // labelled delete button
+    expect(el.querySelector('input')).toBeNull(); // can't enter a second key while one exists
   });
 
   it('shows the add form when no admin key is saved', () => {
     const fixture = create(null);
 
     expect((fixture.nativeElement as HTMLElement).querySelector('input')).not.toBeNull();
+  });
+
+  it('shows the actual spend this month when a spend figure is provided', () => {
+    const fixture = create(SAVED);
+    fixture.componentRef.setInput('spend', {
+      spend_usd: 12.34,
+      since: '2026-06-01T00:00:00Z',
+    });
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Spent this month');
+    expect(text).toContain('$12.34');
+  });
+
+  it('shows no spend figure when none is provided', () => {
+    const fixture = create(SAVED);
+
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Spent this month');
   });
 
   it('saves a key via PUT, emits changed, and shows the masked hint', () => {
@@ -58,6 +78,22 @@ describe('AdminKey', () => {
 
     expect(changed).toBe(1);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('sk-…1234');
+  });
+
+  it('submits through the form element (ngSubmit fires) — not a native page reload', () => {
+    // Regression: the <form> must carry [formGroup] or (ngSubmit) never binds — the submit
+    // button then does a native page reload, save() never runs, and no PUT is sent (the DB
+    // stayed empty and the page just reloaded). Driving the real form catches that; calling
+    // save() directly (as other tests do) does not.
+    const fixture = create(null);
+    fixture.componentInstance.keyControl.setValue('sk-admin-secret-1234');
+    fixture.detectChanges();
+
+    (fixture.nativeElement as HTMLElement).querySelector('form')!.dispatchEvent(new Event('submit'));
+
+    const req = httpMock.expectOne((r) => r.url.endsWith('/admin-key'));
+    expect(req.request.method).toBe('PUT');
+    req.flush(SAVED);
   });
 
   it('does not PUT a blank key', () => {
@@ -83,10 +119,20 @@ describe('AdminKey', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('input')).not.toBeNull();
   });
 
-  it('surfaces the server message when saving is rejected', () => {
+  it('rejects a project key client-side, without calling the API', () => {
     const fixture = create(null);
 
-    fixture.componentInstance.keyControl.setValue('sk-bad');
+    fixture.componentInstance.keyControl.setValue('sk-proj-abc123def456');
+    fixture.componentInstance.save();
+
+    httpMock.expectNone((r) => r.url.endsWith('/admin-key') && r.method === 'PUT');
+    expect(fixture.componentInstance.actionError()).toContain('sk-admin-');
+  });
+
+  it('surfaces the server message when an sk-admin- key is rejected by the server', () => {
+    const fixture = create(null);
+
+    fixture.componentInstance.keyControl.setValue('sk-admin-server-says-no');
     fixture.componentInstance.save();
     httpMock
       .expectOne((r) => r.url.endsWith('/admin-key'))
