@@ -48,7 +48,31 @@ services:
       start_period: 20s
       retries: 3
 
-  # One-shot demo-data loader: seeds ~50 diverse offers so the app has something to show.
+  # Angular dev server for the SPA, so `docker compose up` brings up a working UI at
+  # http://localhost:4200 with no local Node needed. In the browser it calls the API at
+  # http://localhost:8000 (frontend/src/environments/environment.ts), which CORS_ORIGINS allows.
+  frontend:
+    image: node:22-slim
+    working_dir: /app
+    environment:
+      # ng serve needs the devDependencies (@angular/build, @angular/cli); skip Playwright's
+      # heavy browser download that its npm install hook would otherwise trigger.
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    # Bind-mount the source but keep the container's own node_modules (anonymous volume), so the
+    # host's platform-specific binaries never shadow the Linux ones installed in the container.
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    # Install deps on first start, then serve on all interfaces so the published port is reachable.
+    command: sh -c "npm install && npm start -- --host 0.0.0.0"
+    ports:
+      - "4200:4200"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # One-shot demo-data loader: seeds ~50 diverse offers + a verified demo login, so the app has
+  # something to browse/match against and you can sign in immediately.
   # Opt-in via a profile, so it never runs on a plain `docker compose up`. Idempotent.
   #   docker compose run --rm seed
   seed:
@@ -58,11 +82,16 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    # Wait for the API to be healthy: it only reports healthy after `alembic upgrade head`, so the
+    # app-owned `users` table exists before the demo login is seeded (offers create their own
+    # external tables). This also avoids racing a second alembic run against the API's migration.
     depends_on:
-      db:
+      api:
         condition: service_healthy
     restart: "no"
-    command: ["uv", "run", "python", "-m", "app.scripts.seed_offers"]
+    # Seed demo offers AND a verified demo login so `docker compose run --rm seed` makes the app
+    # fully usable — browse/match/salary plus immediate sign-in. Both scripts are idempotent.
+    command: ["sh", "-c", "uv run python -m app.scripts.seed_offers && uv run python -m app.scripts.seed_user"]
 
 volumes:
   offers_postgres_data:

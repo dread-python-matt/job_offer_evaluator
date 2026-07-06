@@ -9,7 +9,7 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
 <!-- Once this repo is hosted on GitHub, add a live CI badge:
-![CI](https://github.com/<owner>/<repo>/actions/workflows/ci.yml/badge.svg) -->
+![CI](https://github.com/dread-python-matt/job_offer_evaluator/actions/workflows/ci.yml/badge.svg) -->
 
 Matches job offers to a user's profile and (optionally) scores fit with an LLM.
 The backend is a **FastAPI JSON API**; the frontend is a **standalone Angular app** that
@@ -63,18 +63,38 @@ Get the app running **with sample data and no API keys** in a few commands. Brow
 deterministic matching and the salary calculator need no provider key; AI matching uses a
 per-user key you add later in the UI.
 
+### Get the code
+
+```bash
+git clone https://github.com/dread-python-matt/job_offer_evaluator.git   # or download the ZIP and unzip
+cd job_offer_evaluator
+```
+
+Every command below runs from the repository root (`job_offer_evaluator/`), and
+`cp .env.example .env` gives you a working config with no edits needed for the demo.
+
 ### A. Docker (recommended)
 
-Starts Postgres + the API (migrations run on boot). Needs only Docker.
+Starts Postgres + the API + the Angular UI (migrations run on boot). Needs only Docker.
 
 ```bash
 cp .env.example .env              # defaults work as-is for the demo
-docker compose up -d --build      # start Postgres + API
-docker compose run --rm seed      # load ~50 diverse demo offers (idempotent)
+docker compose up -d --build      # start Postgres + API + frontend (UI at :4200)
+docker compose run --rm seed      # load ~50 demo offers + the demo login (idempotent)
 ```
 
-* API → http://localhost:8000
-* Frontend (optional): `npm --prefix frontend install` then `npm --prefix frontend start` → http://localhost:4200
+* **UI**  → http://localhost:4200 — sign in with the seeded demo account below
+* **API** → http://localhost:8000
+
+The `frontend` container runs `ng serve`, and its **first** start installs npm deps — give it a
+minute before the UI answers. Then log in with the demo account the `seed` step created:
+
+| Email | Password |
+|---|---|
+| `demo@example.com` | `Demo1234!` |
+
+This account is **already email-verified**, so it skips the confirmation step and signs in
+immediately. (Registering your own account still emails a confirmation link — see below.)
 
 ### B. Local (Postgres in Docker, app on your machine)
 
@@ -86,16 +106,19 @@ cp .env.example .env                        # defaults point at the Docker Postg
 docker compose up -d db                     # just Postgres
 uv run alembic upgrade head                 # create app-owned tables
 uv run python -m app.scripts.seed_offers    # load ~50 diverse demo offers
+uv run python -m app.scripts.seed_user      # create the demo login (demo@example.com / Demo1234!)
 uv run python main.py                       # API → http://localhost:8000
 ```
 
-> **Local dev needs `APP_ENV=development` in `.env`.** `APP_ENV` defaults to `production`
-> (secure by default), which refuses to boot with the committed dev secrets / non-secure cookies.
-> Set `APP_ENV=development` in your `.env` so the zero-config local run works. (The Docker
-> Compose path sets it for you.)
+> **`.env.example` already sets `APP_ENV=development`,** so copying it (above) is all the local
+> run needs. `APP_ENV` otherwise defaults to `production` (secure by default), which refuses to
+> boot with the committed dev secrets / non-secure cookies. A real deployment sets
+> `APP_ENV=production` and supplies its own strong secrets (the Docker Compose path sets
+> `development` just for the demo).
 
-Frontend (optional, separate terminal): `npm --prefix frontend install` then
-`npm --prefix frontend start` → http://localhost:4200.
+Frontend (separate terminal): `npm --prefix frontend install` then
+`npm --prefix frontend start` → http://localhost:4200, then sign in as `demo@example.com` /
+`Demo1234!`.
 
 ### Demo data (fixtures)
 
@@ -111,11 +134,21 @@ without writing anything:
 uv run python -m app.scripts.seed_offers --dry-run
 ```
 
+A companion script seeds the **demo login** (`app/scripts/seed_user.py`): an already-verified
+`demo@example.com` / `Demo1234!` account, so you can sign in without the email-confirmation step.
+It is idempotent and never overwrites an existing account's password. `docker compose run --rm
+seed` runs both seeders; locally, run it yourself:
+
+```bash
+uv run python -m app.scripts.seed_user
+```
+
 ### Try AI matching (optional)
 
-Register an account, then add a provider API key (OpenAI or Google) on the **Model & usage**
-page — AI matching requires *your own* key (there is no shared key). With no SMTP configured,
-the email-confirmation link is printed to the API console; you can also mint one with
+Log in as the demo account (or register your own), then add a provider API key (OpenAI or
+Google) on the **Model & usage** page — AI matching requires *your own* key (there is no shared
+key). With no SMTP configured, a *self-registered* account's email-confirmation link is printed
+to the API console; you can also mint one with
 `uv run python -m app.scripts.verify_link you@example.com`.
 
 ---
@@ -172,7 +205,7 @@ both for the `/salary/calculate` endpoint and to sort/filter offers by estimated
 ├── frontend/             # Angular SPA (separate process)
 ├── DATA/user_profile.md  # Legacy seed profile (used only by the test-only Markdown adapter)
 ├── docs/                 # Design/implementation reports (e.g. auth-multitenancy.md)
-├── docker-compose.yml    # Postgres (+ optional api) for local dev
+├── docker-compose.yml    # Postgres + API + Angular UI (+ opt-in seed) for local dev
 ├── Dockerfile            # Backend image: runs `alembic upgrade head` then the API
 ├── pyproject.toml        # Backend deps (uv) + dev group
 └── CLAUDE.md             # Agent/contributor instructions (skills, workflow, conventions)
@@ -620,11 +653,11 @@ uv run python main.py                 # API  → http://localhost:8000
 npm --prefix frontend start           # SPA  → http://localhost:4200
 ```
 
-Full stack via Docker (API runs migrations on boot, binds `0.0.0.0:8000`):
+Full stack via Docker (API runs migrations on boot; Angular UI served at `:4200`):
 
 ```bash
-docker compose up --build         # Postgres + API
-docker compose run --rm seed      # optional: load ~50 demo offers
+docker compose up --build         # Postgres + API + frontend
+docker compose run --rm seed      # optional: load ~50 demo offers + the demo login
 ```
 
 ---
