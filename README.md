@@ -80,14 +80,15 @@ Starts Postgres + the API + the Angular UI (migrations run on boot). Needs only 
 ```bash
 cp .env.example .env              # defaults work as-is for the demo
 docker compose up -d --build      # start Postgres + API + frontend (UI at :4200)
-docker compose run --rm seed      # load ~50 demo offers + the demo login (idempotent)
+docker compose run --rm seed      # load ~50 demo offers to browse & match (idempotent)
 ```
 
-* **UI**  → http://localhost:4200 — sign in with the seeded demo account below
+* **UI**  → http://localhost:4200 — sign in with the demo account below
 * **API** → http://localhost:8000
 
 The `frontend` container runs `ng serve`, and its **first** start installs npm deps — give it a
-minute before the UI answers. Then log in with the demo account the `seed` step created:
+minute before the UI answers. Then log in with the demo account the API **creates automatically
+on startup** (development only — no seed step needed):
 
 | Email | Password |
 |---|---|
@@ -106,8 +107,7 @@ cp .env.example .env                        # defaults point at the Docker Postg
 docker compose up -d db                     # just Postgres
 uv run alembic upgrade head                 # create app-owned tables
 uv run python -m app.scripts.seed_offers    # load ~50 diverse demo offers
-uv run python -m app.scripts.seed_user      # create the demo login (demo@example.com / Demo1234!)
-uv run python main.py                       # API → http://localhost:8000
+uv run python main.py                       # API → :8000 (auto-creates the demo login in dev)
 ```
 
 > **`.env.example` already sets `APP_ENV=development`,** so copying it (above) is all the local
@@ -134,10 +134,11 @@ without writing anything:
 uv run python -m app.scripts.seed_offers --dry-run
 ```
 
-A companion script seeds the **demo login** (`app/scripts/seed_user.py`): an already-verified
-`demo@example.com` / `Demo1234!` account, so you can sign in without the email-confirmation step.
-It is idempotent and never overwrites an existing account's password. `docker compose run --rm
-seed` runs both seeders; locally, run it yourself:
+The **demo login** is created automatically when the API starts in development — an
+already-verified `demo@example.com` / `Demo1234!` account, so you can sign in without the
+email-confirmation step (`app/scripts/seed_user.py`, best-effort, disabled in production). To
+(re)create it explicitly against a specific database, run it yourself — it's idempotent and never
+overwrites an existing account's password:
 
 ```bash
 uv run python -m app.scripts.seed_user
@@ -657,7 +658,7 @@ Full stack via Docker (API runs migrations on boot; Angular UI served at `:4200`
 
 ```bash
 docker compose up --build         # Postgres + API + frontend
-docker compose run --rm seed      # optional: load ~50 demo offers + the demo login
+docker compose run --rm seed      # optional: load ~50 demo offers (the demo login is automatic)
 ```
 
 ---

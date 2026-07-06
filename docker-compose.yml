@@ -71,8 +71,8 @@ services:
       - api
     restart: unless-stopped
 
-  # One-shot demo-data loader: seeds ~50 diverse offers + a verified demo login, so the app has
-  # something to browse/match against and you can sign in immediately.
+  # One-shot demo-data loader: seeds ~50 diverse offers so the app has something to browse and
+  # match against (the demo login is created separately, on API startup in development).
   # Opt-in via a profile, so it never runs on a plain `docker compose up`. Idempotent.
   #   docker compose run --rm seed
   seed:
@@ -82,16 +82,11 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-    # Wait for the API to be healthy: it only reports healthy after `alembic upgrade head`, so the
-    # app-owned `users` table exists before the demo login is seeded (offers create their own
-    # external tables). This also avoids racing a second alembic run against the API's migration.
     depends_on:
-      api:
+      db:
         condition: service_healthy
     restart: "no"
-    # Seed demo offers AND a verified demo login so `docker compose run --rm seed` makes the app
-    # fully usable — browse/match/salary plus immediate sign-in. Both scripts are idempotent.
-    command: ["sh", "-c", "uv run python -m app.scripts.seed_offers && uv run python -m app.scripts.seed_user"]
+    command: ["uv", "run", "python", "-m", "app.scripts.seed_offers"]
 
 volumes:
   offers_postgres_data:

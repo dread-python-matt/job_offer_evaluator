@@ -21,6 +21,14 @@ _logger = logging.getLogger(__name__)
 _NON_PRODUCTION_ENVS = frozenset({"development", "dev", "test", "local"})
 
 
+def is_non_production(app_env: str = APP_ENV) -> bool:
+    """True when `app_env` is an explicit development/test value (the environments where the
+    strict production checks are relaxed). Used to gate dev-only conveniences such as
+    auto-seeding the demo login. An unset `APP_ENV` defaults to ``production``, so this returns
+    False for it — dev conveniences stay off unless development is opted into explicitly."""
+    return app_env in _NON_PRODUCTION_ENVS
+
+
 class InsecureConfigurationError(RuntimeError):
     """Raised at startup when running in a production-grade environment but the configuration is
     unsafe (e.g. the committed dev JWT/Fernet secret, non-secure cookies, wildcard CORS). The app
