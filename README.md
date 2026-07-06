@@ -75,20 +75,31 @@ Every command below runs from the repository root (`job_offer_evaluator/`), and
 
 ### A. Docker (recommended)
 
-Starts Postgres + the API + the Angular UI (migrations run on boot). Needs only Docker.
+Runs Postgres + the API in Docker (migrations run on boot); the frontend runs locally with npm.
+Needs Docker and Node.js.
 
 ```bash
 cp .env.example .env              # defaults work as-is for the demo
-docker compose up -d --build      # start Postgres + API + frontend (UI at :4200)
-docker compose run --rm seed      # load ~50 demo offers to browse & match (idempotent)
+docker compose up -d --build      # start Postgres + API (API at :8000)
+docker compose run --rm seed-user # create the demo login
+docker compose run --rm seed      # load ~50 demo offers to browse & match
+```
+
+Then start the Angular frontend in a separate terminal:
+
+```bash
+npm --prefix frontend install     # first time only
+npm --prefix frontend start       # dev server → http://localhost:4200
 ```
 
 * **UI**  → http://localhost:4200 — sign in with the demo account below
 * **API** → http://localhost:8000
 
-The `frontend` container runs `ng serve`, and its **first** start installs npm deps — give it a
-minute before the UI answers. Then log in with the demo account the API **creates automatically
-on startup** (development only — no seed step needed):
+> **The demo login is loaded by its own step (`seed-user`), separate from the offers `seed`** —
+> the two are never bundled. Run `seed-user` (above) to create it; skipping it just means no
+> demo account exists yet.
+
+Log in with the demo account the `seed-user` step created:
 
 | Email | Password |
 |---|---|
@@ -99,7 +110,7 @@ immediately. (Registering your own account still emails a confirmation link — 
 
 ### B. Local (Postgres in Docker, app on your machine)
 
-Needs Python 3.13, [uv](https://docs.astral.sh/uv/), and Docker (for Postgres only).
+Needs Python 3.13, [uv](https://docs.astral.sh/uv/), Node.js, and Docker (for Postgres only).
 
 ```bash
 uv sync                                     # backend deps
@@ -107,7 +118,8 @@ cp .env.example .env                        # defaults point at the Docker Postg
 docker compose up -d db                     # just Postgres
 uv run alembic upgrade head                 # create app-owned tables
 uv run python -m app.scripts.seed_offers    # load ~50 diverse demo offers
-uv run python main.py                       # API → :8000 (auto-creates the demo login in dev)
+uv run python -m app.scripts.seed_user      # create the demo login — a SEPARATE step
+uv run python main.py                       # API → http://localhost:8000
 ```
 
 > **`.env.example` already sets `APP_ENV=development`,** so copying it (above) is all the local
@@ -134,14 +146,14 @@ without writing anything:
 uv run python -m app.scripts.seed_offers --dry-run
 ```
 
-The **demo login** is created automatically when the API starts in development — an
-already-verified `demo@example.com` / `Demo1234!` account, so you can sign in without the
-email-confirmation step (`app/scripts/seed_user.py`, best-effort, disabled in production). To
-(re)create it explicitly against a specific database, run it yourself — it's idempotent and never
-overwrites an existing account's password:
+The **demo login is loaded by its own separate step** — never bundled with the offers seed
+above. It's an already-verified `demo@example.com` / `Demo1234!` account
+(`app/scripts/seed_user.py`), so you can sign in without the email-confirmation step. It's
+idempotent and never overwrites an existing account's password. Run it on its own:
 
 ```bash
-uv run python -m app.scripts.seed_user
+uv run python -m app.scripts.seed_user      # local
+docker compose run --rm seed-user           # Docker — its own compose service, separate from `seed`
 ```
 
 ### Try AI matching (optional)
@@ -206,7 +218,7 @@ both for the `/salary/calculate` endpoint and to sort/filter offers by estimated
 ├── frontend/             # Angular SPA (separate process)
 ├── DATA/user_profile.md  # Legacy seed profile (used only by the test-only Markdown adapter)
 ├── docs/                 # Design/implementation reports (e.g. auth-multitenancy.md)
-├── docker-compose.yml    # Postgres + API + Angular UI (+ opt-in seed) for local dev
+├── docker-compose.yml    # Postgres + API (+ opt-in seed / seed-user) for local dev
 ├── Dockerfile            # Backend image: runs `alembic upgrade head` then the API
 ├── pyproject.toml        # Backend deps (uv) + dev group
 └── CLAUDE.md             # Agent/contributor instructions (skills, workflow, conventions)
@@ -654,11 +666,12 @@ uv run python main.py                 # API  → http://localhost:8000
 npm --prefix frontend start           # SPA  → http://localhost:4200
 ```
 
-Full stack via Docker (API runs migrations on boot; Angular UI served at `:4200`):
+Backend via Docker (API runs migrations on boot); run the frontend with npm (above):
 
 ```bash
-docker compose up --build         # Postgres + API + frontend
-docker compose run --rm seed      # optional: load ~50 demo offers (the demo login is automatic)
+docker compose up --build         # Postgres + API
+docker compose run --rm seed      # optional: load ~50 demo offers
+docker compose run --rm seed-user # optional: create the demo login (separate step)
 ```
 
 ---

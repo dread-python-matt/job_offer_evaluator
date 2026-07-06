@@ -3,11 +3,7 @@ import logging
 import pytest
 
 from app.config import DEV_API_KEY_ENCRYPTION_KEY, DEV_JWT_SECRET
-from app.config_validation import (
-    InsecureConfigurationError,
-    is_non_production,
-    validate_runtime_config,
-)
+from app.config_validation import InsecureConfigurationError, validate_runtime_config
 
 _STRONG_SECRET = "x" * 32
 _STRONG_ENCRYPTION_KEY = "Zr8mNq1pVwXyZaBcDeFgHiJkLmNoPqRsTuVwXyZ0123="
@@ -25,24 +21,6 @@ def _validate(**overrides):
     )
     base.update(overrides)
     return validate_runtime_config(**base)
-
-
-# --- is_non_production: gates dev-only conveniences (e.g. the demo-login auto-seed) ---
-
-
-def test_is_non_production_true_for_dev_envs():
-    assert is_non_production("development")
-    assert is_non_production("dev")
-    assert is_non_production("test")
-    assert is_non_production("local")
-
-
-def test_is_non_production_false_for_production_and_unknown():
-    # An unset APP_ENV defaults to "production", so anything unrecognized must be treated as
-    # production — dev conveniences stay off unless development is opted into explicitly.
-    assert not is_non_production("production")
-    assert not is_non_production("staging")
-    assert not is_non_production("")
 
 
 # --- development: never blocks ---

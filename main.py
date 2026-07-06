@@ -89,8 +89,7 @@ from app.config import (
     SMTP_USERNAME,
     WORKERS,
 )
-from app.config_validation import is_non_production, validate_runtime_config
-from app.scripts.seed_user import seed_user
+from app.config_validation import validate_runtime_config
 from app.domain.api_providers import provider_for_company
 from app.domain.auth import User
 from app.domain.errors import MissingProviderApiKeyError
@@ -724,27 +723,8 @@ app.dependency_overrides[get_delete_admin_key_use_case] = lambda: (
 )
 
 
-def _seed_demo_user_if_dev() -> None:
-    """In development, ensure the demo login exists so the app is usable immediately after
-    startup — no manual seed step (see README Quickstart). Best-effort: a failure (DB not yet
-    migrated / unreachable) is logged and never blocks the server from starting, mirroring the
-    'serve /health even when the DB is down' principle. Disabled outside development."""
-    if not is_non_production():
-        return
-    try:
-        result = seed_user(_user_repository, _password_hasher)
-        if result.created:
-            _logger.info("Seeded demo login %s for development", result.email)
-    except Exception:
-        _logger.warning("Demo-login seed skipped (non-fatal)", exc_info=True)
-
-
 def main() -> None:
     import uvicorn
-
-    # Create the demo login on startup in development so `python main.py` / `docker compose up`
-    # alone is enough to sign in. No-op in production and best-effort if the DB isn't ready.
-    _seed_demo_user_if_dev()
 
     # log_config=None: keep uvicorn from installing its own logging — configure_logging() owns
     # the root handler and uvicorn's loggers propagate into it, so server and app logs share

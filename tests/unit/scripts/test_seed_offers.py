@@ -11,6 +11,7 @@ from app.scripts.seed_offers import (
     SeedOffer,
     SeedSalary,
     build_sample_offers,
+    demo_offer_link,
     normalized_net,
 )
 
@@ -112,3 +113,19 @@ def test_seed_offer_and_salary_are_simple_value_objects():
     offer = build_sample_offers()[0]
     assert isinstance(offer, SeedOffer)
     assert all(isinstance(s, SeedSalary) for s in offer.salaries)
+
+
+def test_demo_offer_link_uses_the_real_portal_host_over_https():
+    # The UI's "Open offer" button opens this link in a new tab, so it must resolve to a live
+    # site — the offer's real portal homepage — not a placeholder domain that fails to load.
+    assert demo_offer_link("justjoin.it", "seed-0001").startswith("https://justjoin.it/")
+
+
+def test_demo_offer_link_is_unique_per_offer():
+    # `link` is the offers-table primary key, so two seeded offers must never produce the same one.
+    assert demo_offer_link("justjoin.it", "seed-0001") != demo_offer_link("justjoin.it", "seed-0002")
+
+
+def test_demo_offer_link_is_namespaced_so_it_never_collides_with_real_rows():
+    # The seed marker keeps demo links out of the real external offers' link space.
+    assert "seed-0007" in demo_offer_link("nofluffjobs.com", "seed-0007")

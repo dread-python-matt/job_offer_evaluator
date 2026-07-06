@@ -15,8 +15,9 @@ It is split in two so the data is testable without a database:
   (so the demo figures are consistent with the rest of the app).
 
 It is **idempotent**: every seeded row carries a `seed-*` id and is removed before re-inserting,
-so running it twice doesn't duplicate data. All seeded offers use a `seed-*` id / `demo.offers`
-link, so they never collide with real external rows.
+so running it twice doesn't duplicate data. Each offer's `link` (the `offers` primary key) is its
+real portal homepage plus a unique `?ref=seed-*` marker — a working, clickable URL that stays
+distinct per row and never collides with a real external offer's link.
 
 Usage:
     uv run python -m app.scripts.seed_offers            # seed the database
@@ -280,6 +281,15 @@ def _clear_previous_seed(session: Session) -> None:
     session.execute(delete(OfferRow).where(OfferRow.id.like("seed-%")))
 
 
+def demo_offer_link(portal: str, offer_id: str) -> str:
+    """A working, per-offer-unique link for a demo offer: the offer's real portal homepage plus
+    a unique `?ref=<offer_id>` marker. Using the real portal host means the UI's "Open offer"
+    button lands on a live site instead of a dead placeholder domain, while the marker keeps
+    `link` (the `offers` primary key) distinct per row and namespaced so it never collides with a
+    real external offer's link."""
+    return f"https://{portal}/?ref={offer_id}"
+
+
 @dataclass
 class SeedResult:
     offers: int
@@ -306,7 +316,7 @@ def seed_database(
             ).date().isoformat()
             session.add(
                 OfferRow(
-                    link=f"https://demo.offers.local/job/{offer_id}",
+                    link=demo_offer_link(offer.portal, offer_id),
                     id=offer_id,
                     title=offer.title,
                     company=offer.company,

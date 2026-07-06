@@ -48,31 +48,8 @@ services:
       start_period: 20s
       retries: 3
 
-  # Angular dev server for the SPA, so `docker compose up` brings up a working UI at
-  # http://localhost:4200 with no local Node needed. In the browser it calls the API at
-  # http://localhost:8000 (frontend/src/environments/environment.ts), which CORS_ORIGINS allows.
-  frontend:
-    image: node:22-slim
-    working_dir: /app
-    environment:
-      # ng serve needs the devDependencies (@angular/build, @angular/cli); skip Playwright's
-      # heavy browser download that its npm install hook would otherwise trigger.
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
-    # Bind-mount the source but keep the container's own node_modules (anonymous volume), so the
-    # host's platform-specific binaries never shadow the Linux ones installed in the container.
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    # Install deps on first start, then serve on all interfaces so the published port is reachable.
-    command: sh -c "npm install && npm start -- --host 0.0.0.0"
-    ports:
-      - "4200:4200"
-    depends_on:
-      - api
-    restart: unless-stopped
-
   # One-shot demo-data loader: seeds ~50 diverse offers so the app has something to browse and
-  # match against (the demo login is created separately, on API startup in development).
+  # match against (the demo login is loaded separately by the `seed-user` service below).
   # Opt-in via a profile, so it never runs on a plain `docker compose up`. Idempotent.
   #   docker compose run --rm seed
   seed:
@@ -87,6 +64,23 @@ services:
         condition: service_healthy
     restart: "no"
     command: ["uv", "run", "python", "-m", "app.scripts.seed_offers"]
+
+  # Loads ONLY the demo login — a separate step from the offers `seed` above (the two are never
+  # bundled). Run it explicitly:  docker compose run --rm seed-user
+  # Waits for the API to be healthy so the app-owned `users` table exists (migrations run on API
+  # boot). Idempotent; never overwrites an existing account's password.
+  seed-user:
+    build: .
+    profiles: ["seed"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: "no"
+    command: ["uv", "run", "python", "-m", "app.scripts.seed_user"]
 
 volumes:
   offers_postgres_data:
