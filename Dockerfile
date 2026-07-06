@@ -32,4 +32,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
 # is best-effort (`|| true`): a failed/empty build degrades only the browse tech filter, so it
 # must never block boot, whereas migrations must succeed. The indexer no-ops if the externally-owned
 # `offers` table isn't present yet, so this is safe on a brand-new database.
-CMD ["sh", "-c", "uv run alembic upgrade head && (uv run python -m app.scripts.index_offer_skills || true) && uv run python main.py"]
+CMD ["sh", "-c", "uv run --no-sync alembic upgrade head && (uv run --no-sync python -m app.scripts.index_offer_skills || true) && uv run --no-sync python main.py"]

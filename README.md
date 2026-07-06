@@ -18,9 +18,9 @@ talks to it over HTTP (CORS, cookie session) — there is no shared process. The
 
 > **For agents:** this file is the map. The dependency rule is *inward only*
 > (`presentation`/`infrastructure` → `application` → `domain`). Business logic lives in
-> `app/domain` and `app/infrastructure`; `main.py` is the composition root that wires every
-> port to a concrete adapter via FastAPI `dependency_overrides`. Start there and in
-> `app/presentation/api/routes.py`.
+> `app/domain` and `app/infrastructure`; the composition root in `app/composition/` wires every
+> port to a concrete adapter via FastAPI `dependency_overrides` — `main.py` just calls
+> `build_app()`. Start there and in `app/presentation/api/routes.py`.
 
 ## Highlights
 
@@ -30,7 +30,7 @@ talks to it over HTTP (CORS, cookie session) — there is no shared process. The
 - **Skill canonicalization** — an alias map + case/diacritic/separator folding collapse `JS`/`JavaScript`, `k8s`/`Kubernetes`, and PL/EN variants to one concept before matching (and for SQL browse filters).
 - **Production-grade auth** — email-confirmed registration, argon2 hashing, httpOnly JWT + rotating refresh tokens (reuse detection), double-submit CSRF, and login throttling.
 - **Polish net-salary calculator** — 2026 tax/ZUS rules per contract type (B2B / employment / civil).
-- **Clean / Hexagonal architecture** — the domain has zero framework dependencies; ports & adapters with a single `main.py` composition root.
+- **Clean / Hexagonal architecture** — the domain has zero framework dependencies; ports & adapters with a single composition root (`app/composition/`, assembled by `build_app()`).
 - **Observability & 12-factor** — structured JSON logs with per-request correlation ids, a readiness probe, and a tunable connection pool.
 - **Zero-config demo** — `docker compose up` + ~50 seed offers; browsing, deterministic matching, and the salary calculator work with **no API keys**.
 
@@ -122,6 +122,11 @@ uv run python -m app.scripts.seed_user      # create the demo login — a SEPARA
 uv run python main.py                       # API → http://localhost:8000
 ```
 
+> **One-command shortcut:** the three lines above (migrate → seed offers → demo login) collapse
+> into `uv run python -m app.scripts.setup --demo` — one idempotent command with a pre-flight
+> database check. Drop `--demo` to seed offers only (the demo login stays an explicit opt-in).
+> Docker path: `docker compose run --rm setup [--demo]`.
+
 > **`.env.example` already sets `APP_ENV=development`,** so copying it (above) is all the local
 > run needs. `APP_ENV` otherwise defaults to `production` (secure by default), which refuses to
 > boot with the committed dev secrets / non-secure cookies. A real deployment sets
@@ -212,7 +217,7 @@ both for the `/salary/calculate` endpoint and to sort/filter offers by estimated
 ```
 .
 ├── app/                  # Backend (Clean Architecture / Hexagonal) — see below
-├── main.py               # Composition root: builds adapters, wires DI, creates FastAPI app
+├── main.py               # Thin entry point: build_app() + uvicorn runner (wiring in app/composition/)
 ├── alembic/              # DB migrations (app-owned tables only)
 ├── tests/                # unit / integration / api  (pytest)
 ├── frontend/             # Angular SPA (separate process)
@@ -231,17 +236,20 @@ both for the `/salary/calculate` endpoint and to sort/filter offers by estimated
 Dependencies point **inward**: `presentation` and `infrastructure` depend on `application`,
 which depends on `domain`. The domain has no knowledge of FastAPI, Postgres, or the OpenAI SDK.
 Ports (abstract interfaces) are declared in `domain` and `application`; concrete adapters
-(anything with I/O or a real algorithm) live in `infrastructure`. `main.py` is the only place
-that knows every concrete type.
+(anything with I/O or a real algorithm) live in `infrastructure`. The composition root in
+`app/composition/` is the only place that knows every concrete type.
 
 ```
 app/
 ├── config.py                 # Reads env (.env) into module constants — see Configuration
 ├── observability/            # Cross-cutting: structured logging setup + request-id contextvar
+├── composition/              # Composition root: build_app() wires ports → adapters
+│                             #   foundation (engine+repos) + offers/auth/usage/ai builders + app_factory
 │
 ├── domain/                   # Pure: entities, value objects, ports, algorithms (no frameworks)
 │   ├── entities.py           #   Skill, Project, Experience, UserProfile, Offer, Salary
 │   ├── auth.py               #   User (id, email, password_hash, token_version, email_verified)
+│   ├── password_policy.py    #   Password strength rule (validate_password_strength), enforced by auth schemas
 │   ├── budget.py             #   BudgetSettings, BudgetStatus(.exceeded)
 │   ├── scoring.py            #   MatchScore, ScoreComponent, MatchedOffer, AiInsight, OfferScorer (port)
 │   ├── skills.py             #   CanonicalSkill + SkillNormalizer (port) — one concept per skill
@@ -263,7 +271,7 @@ app/
 ├── infrastructure/           # Adapters implementing the ports (the only layer with I/O)
 │   ├── db.py, orm_models.py  #   Engine builder (tunable connection pool) + SQLAlchemy ORM rows for app-owned + external tables
 │   ├── postgres_*_repository.py   # user, user_profile, selected_model, model_usage, ai_score, budget, offer
-│   ├── markdown_profile_repository.py  # Legacy profile adapter (test-only; not wired in main.py)
+│   ├── markdown_profile_repository.py  # Legacy profile adapter (test-only; not wired in the composition root)
 │   ├── scoring_strategies.py # SkillBasedScorer (deterministic); skill_utils.py = evidence-aware weighting
 │   ├── alias_map_skill_normalizer.py, data/skill_aliases.json  # Deterministic skill canonicalization + seed map
 │   ├── llm_scoring_strategy.py     # LLMScoringStrategy (Agents SDK, retries/backoff, usage tracking)
@@ -294,7 +302,8 @@ app/
 ### Key cross-cutting patterns
 
 - **DI by override.** Routers declare `get_*_use_case()` providers that `raise
-  NotImplementedError`; `main.py` replaces each via `app.dependency_overrides[...]`. Tests do
+  NotImplementedError`; the composition root (`app/composition/`) replaces each via
+  `app.dependency_overrides[...]`. Tests do
   the same with fakes (`tests/fakes.py`).
 - **Per-user model selection.** `AiScoringContext` reads a user's chosen model from
   `SelectedModelRepository` (default = first advertised model), builds the AI use case **once
@@ -712,7 +721,7 @@ frontend/src/app/
 │   ├── models/                         # TS interfaces mirroring app/presentation/api/schemas.py
 │   ├── constants/ , utils/             # offer levels; offer formatting/row helpers
 └── features/
-    ├── auth/{login,register,change-password,forgot-password,reset-password}  # Material auth forms
+    ├── auth/{login,register,verify-email,change-password,forgot-password,reset-password}  # Material auth forms
     ├── profile/                        # profile editor/viewer (summary, skills, projects, experience)
     ├── match-offers/                   # deterministic match
     ├── ai-match-offers/                # AI match (+ ai-match-state.service.ts)
@@ -723,9 +732,9 @@ frontend/src/app/
     └── daily-requests/                 # Gemini free-tier per-day request budget (embedded in the Google api-keys row)
 ```
 
-Routes: `/` → `/profile` (default), `/login`, `/register`, `/forgot-password`,
-`/reset-password`, `/profile`, `/change-password`, `/match-offers`, `/ai-match-offers`,
-`/browse-offers`, `/model-usage`.
+Routes: `/` → `/profile` (default), `/login`, `/register`, `/verify-email`,
+`/forgot-password`, `/reset-password`, `/profile`, `/change-password`, `/match-offers`,
+`/ai-match-offers`, `/browse-offers`, `/model-usage`.
 
 ---
 

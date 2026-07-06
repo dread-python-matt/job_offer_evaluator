@@ -63,7 +63,7 @@ services:
       db:
         condition: service_healthy
     restart: "no"
-    command: ["uv", "run", "python", "-m", "app.scripts.seed_offers"]
+    command: ["uv", "run", "--no-sync", "python", "-m", "app.scripts.seed_offers"]
 
   # Loads ONLY the demo login — a separate step from the offers `seed` above (the two are never
   # bundled). Run it explicitly:  docker compose run --rm seed-user
@@ -80,7 +80,27 @@ services:
       api:
         condition: service_healthy
     restart: "no"
-    command: ["uv", "run", "python", "-m", "app.scripts.seed_user"]
+    command: ["uv", "run", "--no-sync", "python", "-m", "app.scripts.seed_user"]
+
+  # One-command setup: apply migrations + seed the demo offers (idempotent); add the demo login
+  # with the --demo flag. Runs the same app/scripts/setup.py as the local path. Uses `entrypoint`
+  # (not `command`) so extra args pass through — Compose clears the image CMD when entrypoint is set.
+  #   docker compose run --rm setup           # migrations + demo offers
+  #   docker compose run --rm setup --demo    # ...plus the demo login (demo@example.com / Demo1234!)
+  # Waits for the API to be healthy (so migrations are already applied), making setup's own
+  # migrate step a harmless no-op before it seeds.
+  setup:
+    build: .
+    profiles: ["seed"]
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["uv", "run", "--no-sync", "python", "-m", "app.scripts.setup"]
 
 volumes:
   offers_postgres_data:
