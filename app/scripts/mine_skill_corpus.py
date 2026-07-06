@@ -1,6 +1,6 @@
 """Survey the offer corpus's skill tokens and report canonical coverage + the unmapped tail.
 
-A dev/admin tool (Phase 2, step 1 of docs/skills-normalization.md): it reads the offers'
+A dev/admin tool: it reads the offers'
 `tech_stack` / `tech_stack_nice_to_have` lists, normalizes each token with the shipped alias
 map, and prints how much resolves plus the most frequent *unmapped* tokens — the highest-ROI
 entries to add to app/infrastructure/data/skill_aliases.json. Read-only by default; with

@@ -1,6 +1,6 @@
 """Project an offer's raw skill lists onto canonical concepts for the searchable index.
 
-Pure core of the offer-skill index (Phase 3 of docs/skills-normalization.md). Browsing's "tech"
+Pure core of the offer-skill index. Browsing's "tech"
 filter can't match concepts directly because the offers table stores raw source strings; this
 maps each offer's `tech_stack` / `tech_stack_nice_to_have` to canonical ids — via the SAME
 `SkillNormalizer` the matching path uses — so the projection can be persisted and filtered in SQL.

@@ -1,6 +1,6 @@
 """Survey skill tokens against the canonical map: how many resolve, and which don't.
 
-Pure core for the `mine_skill_corpus` script (Phase 2, step 1 of docs/skills-normalization.md):
+Pure core for the `mine_skill_corpus` script:
 feed it a frequency count of raw skill tokens and a `SkillNormalizer`, and it reports canonical
 coverage plus the unmapped tail ranked by frequency — the highest-ROI entries to add to the
 alias map next.

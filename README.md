@@ -226,12 +226,9 @@ both for the `/salary/calculate` endpoint and to sort/filter offers by estimated
 ├── alembic/              # DB migrations (app-owned tables only)
 ├── tests/                # unit / integration / api  (pytest)
 ├── frontend/             # Angular SPA (separate process)
-├── DATA/user_profile.md  # Legacy seed profile (used only by the test-only Markdown adapter)
-├── docs/                 # Design/implementation reports (e.g. auth-multitenancy.md)
 ├── docker-compose.yml    # Postgres + API (+ opt-in seed / seed-user) for local dev
 ├── Dockerfile            # Backend image: runs `alembic upgrade head` then the API
-├── pyproject.toml        # Backend deps (uv) + dev group
-└── CLAUDE.md             # Agent/contributor instructions (skills, workflow, conventions)
+└── pyproject.toml        # Backend deps (uv) + dev group
 ```
 
 ---
@@ -276,7 +273,6 @@ app/
 ├── infrastructure/           # Adapters implementing the ports (the only layer with I/O)
 │   ├── db.py, orm_models.py  #   Engine builder (tunable connection pool) + SQLAlchemy ORM rows for app-owned + external tables
 │   ├── postgres_*_repository.py   # user, user_profile, selected_model, model_usage, ai_score, budget, offer
-│   ├── markdown_profile_repository.py  # Legacy profile adapter (test-only; not wired in the composition root)
 │   ├── scoring_strategies.py # SkillBasedScorer (deterministic); skill_utils.py = evidence-aware weighting
 │   ├── alias_map_skill_normalizer.py, data/skill_aliases.json  # Deterministic skill canonicalization + seed map
 │   ├── llm_scoring_strategy.py     # LLMScoringStrategy (Agents SDK, retries/backoff, usage tracking)
@@ -336,7 +332,7 @@ app/
   (after migrations, best-effort, and a no-op before any offers are loaded); each build stamps
   `offer_skill_index_meta` with the alias-map version, so a stale or unbuilt index is visible via
   `… index_offer_skills --status` rather than silently matching nothing. Rebuild after new offers are loaded or
-  whenever the alias map changes. See `docs/skills-normalization.md`.
+  whenever the alias map changes.
 
 ---
 
@@ -386,7 +382,7 @@ registration. `token_version` (in the JWT) gives instant revocation / logout-eve
   resolve `user: User = Depends(get_current_user)` and pass `user.id` into the use case, which
   threads it to the repository. Pattern to add a new per-user resource: port method takes
   `user_id` → use case threads it → route passes `user.id` → ORM row gets a `user_id` FK →
-  repo filters on it → add a migration. (See `docs/auth-multitenancy.md`.)
+  repo filters on it → add a migration.
 
 Required env in production: **`JWT_SECRET`** and **`API_KEY_ENCRYPTION_KEY`** (override both dev
 defaults — the app refuses to boot with them when `APP_ENV=production`). Cross-site HTTPS
@@ -703,8 +699,9 @@ npm --prefix frontend test   # frontend (Vitest via `ng test`)
 - `tests/api/` — FastAPI routes via `TestClient`, with use cases overridden by fakes; the
   harness overrides `get_current_user` to a fixed fake user.
 
-CI (`.github/workflows/ci.yml`): on every push/PR — `uv sync --dev`, `ruff check`, `pytest`,
-plus an advisory `pip-audit`.
+CI (`.github/workflows/ci.yml`): on every push/PR — a **backend** job (`uv sync --dev`,
+`ruff check`, `mypy`, `pytest`, plus an advisory `pip-audit`) and a **frontend** job
+(`npm ci`, `npm run build`, `npm test`).
 
 ---
 
@@ -745,15 +742,15 @@ Routes: `/` → `/profile` (default), `/login`, `/register`, `/verify-email`,
 
 ## Contributing
 
-This project follows **TDD** and **Clean Architecture**; [`CLAUDE.md`](CLAUDE.md) is the
-authoritative contributor guide (layer boundaries, conventions, and the expected skills).
+This project follows **TDD** and **Clean Architecture** — the layer boundaries and the
+inward-only dependency rule are described in [Backend architecture](#backend-architecture).
 
 1. Branch off `main`.
 2. **Write or update tests first** — `tests/` (backend) or `*.spec.ts` (frontend).
 3. Implement the smallest correct change that respects the dependency rule (the domain stays
    framework-free).
 4. Run the checks below and confirm they pass.
-5. Update `README.md` / `CLAUDE.md` when a change affects setup, configuration, the API, the
+5. Update `README.md` when a change affects setup, configuration, the API, the
    data model, auth, or the frontend structure.
 6. Use a Conventional-Commit-style title (`feat`, `fix`, `refactor`, `perf`, `docs`, `style`,
    `test`, `build`, `ci`, `chore`).

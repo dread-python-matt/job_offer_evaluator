@@ -1,4 +1,4 @@
-"""Rebuild the offer-skill index (Phase 3 of docs/skills-normalization.md).
+"""Rebuild the offer-skill index.
 
 Projects every offer's skills onto canonical concepts and replaces the `offer_skill` table, so the
 browse "tech" filter matches by concept ("k8s" finds "Kubernetes"). Run after new offers are loaded, or when the
