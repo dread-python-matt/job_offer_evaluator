@@ -133,9 +133,14 @@ uv run python main.py                       # API → http://localhost:8000
 > `APP_ENV=production` and supplies its own strong secrets (the Docker Compose path sets
 > `development` just for the demo).
 
-Frontend (separate terminal): `npm --prefix frontend install` then
-`npm --prefix frontend start` → http://localhost:4200, then sign in as `demo@example.com` /
-`Demo1234!`.
+Frontend (separate terminal):
+
+```bash
+npm --prefix frontend install               # frontend deps
+npm --prefix frontend start                 # SPA → http://localhost:4200
+```
+
+Then sign in as `demo@example.com` / `Demo1234!`.
 
 ### Demo data (fixtures)
 
@@ -347,7 +352,7 @@ registration. `token_version` (in the JWT) gives instant revocation / logout-eve
   must echo the CSRF value in an `X-CSRF-Token` header.
 - **Guards:** `get_current_user` resolves the user from the access cookie (401 if missing/
   invalid/expired/revoked); `verify_csrf` enforces the header match on unsafe methods. Both are
-  applied app-wide in `main.py` via `include_router(..., dependencies=[...])`.
+  applied app-wide in `app/composition/` via `include_router(..., dependencies=[...])`.
 - **Public routes** (no guard): `GET /health`, `GET /health/ready`, and the `/auth` entry points
   `register`, `verify-email`, `login`, `forgot-password`, `reset-password`, `refresh`. Everything
   else is gated.
@@ -422,8 +427,8 @@ deployments also need `COOKIE_SECURE=true` and `COOKIE_SAMESITE=none`. To send r
   pricing counts as $0 (spend is a lower bound). **Gemini/Google matches skip this USD gate** —
   their free tier is budgeted by requests/day, not dollars (see below).
 - **Per-day request budget (Gemini free tier).** The budget for Gemini matches — it **replaces**
-  the USD gate for Google (a Google key carries no dollar budget). Gated in `main.py` by passing
-  `budget=None` for Google models, leaving `TokenAccountingDailyRequestUsageReader` as the sole
+  the USD gate for Google (a Google key carries no dollar budget). Gated in `app/composition/ai.py`
+  by passing `budget=None` for Google models, leaving `TokenAccountingDailyRequestUsageReader` as the sole
   gate: it counts the user's recorded requests for the model's provider since the daily reset
   (midnight US/Pacific) against a cap — the user's override on their key
   (`user_api_key.daily_request_limit`), else the model's free-tier requests-per-day from the limits
@@ -601,7 +606,7 @@ Postgres credentials (`POSTGRES_USER/PASSWORD/DB/HOST/PORT`) are also read by
 
 Logs are **structured and written to stdout** (12-factor: the platform ships them — the
 `Dockerfile` / compose already capture stdout). Setup is centralized in
-`app/observability/logging_config.py` and wired once from `main.py`, so every module that already
+`app/observability/logging_config.py` and wired once from `build_app()`, so every module that already
 does `logging.getLogger(__name__)` is upgraded with no call-site changes and **no new dependency**
 (stdlib `logging` + a JSON formatter).
 
