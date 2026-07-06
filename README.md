@@ -703,6 +703,13 @@ CI (`.github/workflows/ci.yml`): on every push/PR — a **backend** job (`uv syn
 `ruff check`, `mypy`, `pytest`, plus an advisory `pip-audit`) and a **frontend** job
 (`npm ci`, `npm run build`, `npm test`).
 
+**Dependency security.** `npm --prefix frontend audit --omit=dev` reports **0 vulnerabilities** —
+the dependencies that ship in the app bundle are clean. A full `npm audit` flags a few advisories in
+the Angular **build/dev tooling** (`@angular/build` → `vite` / `esbuild` / `@babel/core` / `piscina`),
+whose only upstream remedy npm offers is a breaking downgrade to `@angular/build@21`; they are
+build-time only, never reach production, and are left for a future Angular release rather than
+force-"fixed".
+
 ---
 
 ## Frontend
