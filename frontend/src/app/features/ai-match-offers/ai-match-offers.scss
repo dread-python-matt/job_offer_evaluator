@@ -298,7 +298,8 @@
   text-align: center;
 }
 
-.empty-icon {
+.empty-icon,
+.error-icon {
   font-size: 40px;
   width: 40px;
   height: 40px;
@@ -306,10 +307,4 @@
 
 .error-block {
   color: var(--mat-sys-error);
-}
-
-.error-icon {
-  font-size: 40px;
-  width: 40px;
-  height: 40px;
 }
