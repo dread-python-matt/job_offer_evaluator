@@ -80,7 +80,7 @@ Needs Docker and Node.js.
 
 ```bash
 cp .env.example .env              # defaults work as-is for the demo
-docker compose up -d --build      # start Postgres + API (API at :8000)
+docker compose up --build      # start Postgres + API (API at :8000)
 docker compose run --rm seed-user # create the demo login
 docker compose run --rm seed      # load ~50 demo offers to browse & match
 ```
@@ -703,12 +703,14 @@ CI (`.github/workflows/ci.yml`): on every push/PR — a **backend** job (`uv syn
 `ruff check`, `mypy`, `pytest`, plus an advisory `pip-audit`) and a **frontend** job
 (`npm ci`, `npm run build`, `npm test`).
 
-**Dependency security.** `npm --prefix frontend audit --omit=dev` reports **0 vulnerabilities** —
-the dependencies that ship in the app bundle are clean. A full `npm audit` flags a few advisories in
-the Angular **build/dev tooling** (`@angular/build` → `vite` / `esbuild` / `@babel/core` / `piscina`),
-whose only upstream remedy npm offers is a breaking downgrade to `@angular/build@21`; they are
-build-time only, never reach production, and are left for a future Angular release rather than
-force-"fixed".
+**Dependency security.** Both `npm --prefix frontend audit` and `npm --prefix frontend audit
+--omit=dev` report **0 vulnerabilities**. The Angular **build/dev tooling** (`vite` / `esbuild` /
+`piscina` / `@babel/core`, pulled in transitively by `@angular/build`) periodically picks up
+advisories. Because `@angular/build` pins those transitive deps to exact versions, they're raised to
+patched releases via an `overrides` block in `frontend/package.json` — this stays on Angular 22,
+whereas npm's `audit fix --force` would instead *downgrade* to `@angular/build@21` (a regression).
+These packages are build-time only and never reach the production bundle; bump the pins when a newer
+advisory lands upstream.
 
 ---
 
